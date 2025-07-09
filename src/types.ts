@@ -1,6 +1,7 @@
-import { BoltzSwapProvider } from './boltz-swap-provider';
+import { RestArkProvider } from '@arkade-os/sdk';
+import { BoltzSwapProvider, ReverseSwapPostResponse } from './boltz-swap-provider';
 
-// TODO: replace with better data strcuture 
+// TODO: replace with better data strcuture
 export interface Vtxo {
   txid: string;
   vout: number;
@@ -14,10 +15,13 @@ export interface Vtxo {
 }
 
 export interface Wallet {
+  getAddress(): Promise<string>;
   getPublicKey(): Promise<string>;
   getVtxos(): Promise<Vtxo[]>;
-  signTx(tx: any): Promise<any>;
+  sendBitcoin(address: string, amount: number): Promise<void>;
+  sign(tx: any, indexes?: number[]): Promise<any>;
   broadcastTx(tx: any): Promise<{ txid: string }>;
+  signerSession(): any;
 }
 
 export type Network = 'mainnet' | 'testnet' | 'regtest';
@@ -28,9 +32,8 @@ export interface BoltzSwapProviderConfig {
 }
 
 export interface CreateInvoiceResult {
-  invoice: string;
-  paymentHash: string;
-  expirySeconds: number;
+  preimage: string;
+  swapInfo: ReverseSwapPostResponse;
 }
 
 export interface DecodedInvoice {
@@ -59,7 +62,14 @@ export interface SendPaymentArgs {
   maxFeeSats?: number;
 }
 
-export type SwapStatus = 'pending' | 'confirmed' | 'failed' | 'refundable' | 'transaction.claimed' | 'invoice.settled' | 'swap.successful';
+export type SwapStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'failed'
+  | 'refundable'
+  | 'transaction.claimed'
+  | 'invoice.settled'
+  | 'swap.successful';
 
 export interface CreateSwapResponse {
   id: string;
@@ -90,6 +100,7 @@ export interface RefundHandler {
 export interface ArkadeLightningConfig {
   wallet: Wallet;
   swapProvider: BoltzSwapProvider;
+  arkProvider: RestArkProvider;
   refundHandler?: RefundHandler;
   timeoutConfig?: Partial<TimeoutConfig>;
   feeConfig?: Partial<FeeConfig>;
