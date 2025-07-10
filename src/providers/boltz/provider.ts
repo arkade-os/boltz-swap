@@ -47,7 +47,7 @@ export class BoltzSwapProvider {
   }
 
   async getSwapStatus(id: string): Promise<SwapStatusResponse> {
-    const response = this.request<SwapStatusResponse>(`/swap/${id}`, 'GET');
+    const response = await this.request<SwapStatusResponse>(`/swap/${id}`, 'GET');
     if (!isSwapStatusResponse(response)) throw new NetworkError('Invalid response from API');
     return response;
   }
