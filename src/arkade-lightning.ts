@@ -205,7 +205,7 @@ export class ArkadeLightning {
     const txid = await this.arkProvider.submitVirtualTx(base64.encode(signedTx.toPSBT()));
 
     console.log('Successfully claimed VHTLC! Transaction ID:', txid);
-    return { amount: vtxo.value, txid: txid };
+    return { amount: vtxo.value, txid: txid, preimage: preimage };
   }
 
   // pay to lightning = submarine swap
