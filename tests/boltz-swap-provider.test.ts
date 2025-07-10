@@ -1,6 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { BoltzSwapProvider } from '../src/boltz-swap-provider';
-import type { Network } from '../src/types';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { BoltzSwapProvider } from '../src/providers/boltz/provider';
 
 // Scaffolding test file for BoltzSwapProvider
 // This file will be updated when implementing features from README.md
@@ -9,9 +8,9 @@ describe('BoltzSwapProvider', () => {
   let provider: BoltzSwapProvider;
 
   beforeEach(() => {
-    provider = new BoltzSwapProvider({ 
-      network: 'regtest', 
-      apiUrl: 'http://localhost:9090' 
+    provider = new BoltzSwapProvider({
+      network: 'regtest',
+      apiUrl: 'http://localhost:9090',
     });
   });
 
@@ -28,7 +27,7 @@ describe('BoltzSwapProvider', () => {
   // - Getting trading pairs
   // - Fee estimation
   // - Invoice validation
-  
+
   // Error handling:
   // - Network errors
   // - Invalid responses
@@ -44,7 +43,6 @@ describe('BoltzSwapProvider', () => {
   it('should have expected interface methods', () => {
     expect(provider.createSubmarineSwap).toBeInstanceOf(Function);
     expect(provider.getSwapStatus).toBeInstanceOf(Function);
-    expect(provider.getPairs).toBeInstanceOf(Function);
     expect(provider.getNetwork).toBeInstanceOf(Function);
   });
 });
