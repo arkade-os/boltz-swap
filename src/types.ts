@@ -2,7 +2,7 @@ import { RestArkProvider } from '@arkade-os/sdk';
 import { BoltzSwapProvider } from './providers/boltz/provider';
 import { ReverseSwapPostResponse, SubmarineSwapPostResponse, SwapStatusResponse } from './providers/boltz/types';
 
-// TODO: replace with better data strcuture
+// TODO: replace with better data structure
 export interface Vtxo {
   txid: string;
   vout: number;
