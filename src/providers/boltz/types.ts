@@ -13,7 +13,6 @@ export type LimitsResponse = {
 export type SwapStages =
   | 'invoice.settled'
   | 'invoice.expired'
-  | 'invoice.settled'
   | 'swap.successful'
   | 'swap.created'
   | 'swap.expired'
