@@ -76,7 +76,7 @@ export class BoltzSwapProvider {
       preimageHash,
     });
     if (!isReverseSwapPostResponse(response)) throw new NetworkError('Invalid response from API');
-    if (response.invoice) throw new NetworkError('Failed to create reverse swap invoice');
+    if (!response.invoice) throw new NetworkError('Failed to create reverse swap invoice');
     return { ...response };
   }
 
