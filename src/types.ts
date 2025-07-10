@@ -1,5 +1,6 @@
 import { RestArkProvider } from '@arkade-os/sdk';
-import { BoltzSwapProvider, ReverseSwapPostResponse } from './boltz-swap-provider';
+import { BoltzSwapProvider } from './providers/boltz/provider';
+import { ReverseSwapPostResponse, SubmarineSwapPostResponse, SwapStatusResponse } from './providers/boltz/types';
 
 // TODO: replace with better data strcuture
 export interface Vtxo {
@@ -18,7 +19,7 @@ export interface Wallet {
   getAddress(): Promise<string>;
   getPublicKey(): Promise<string>;
   getVtxos(): Promise<Vtxo[]>;
-  sendBitcoin(address: string, amount: number): Promise<void>;
+  sendBitcoin(address: string, amount: number): Promise<string>;
   sign(tx: any, indexes?: number[]): Promise<any>;
   broadcastTx(tx: any): Promise<{ txid: string }>;
   signerSession(): any;
@@ -26,22 +27,18 @@ export interface Wallet {
 
 export type Network = 'mainnet' | 'testnet' | 'regtest';
 
-export interface BoltzSwapProviderConfig {
-  apiUrl?: string;
-  network: Network;
-}
-
 export interface CreateInvoiceResult {
   preimage: string;
   swapInfo: ReverseSwapPostResponse;
 }
+export interface PayInvoiceArgs {
+  invoice: string;
+  sourceVtxos?: Vtxo[];
+  maxFeeSats?: number;
+}
 
-export interface DecodedInvoice {
-  amountSats: number;
-  description: string;
-  destination: string;
-  paymentHash: string;
-  expiry: number;
+export interface PayInvoiceResult {
+  swapInfo: SubmarineSwapPostResponse;
 }
 
 export interface PaymentResult {
@@ -49,18 +46,7 @@ export interface PaymentResult {
   txid: string;
 }
 
-export interface IncomingPaymentSubscription {
-  on(event: 'pending', listener: () => void): this;
-  on(event: 'confirmed', listener: (details: { txid: string; amountSats: number }) => void): this;
-  on(event: 'failed', listener: (error: Error) => void): this;
-  unsubscribe(): void;
-}
-
-export interface SendPaymentArgs {
-  invoice: string;
-  sourceVtxos?: Vtxo[];
-  maxFeeSats?: number;
-}
+export type SwapData = SubmarineSwapPostResponse | ReverseSwapPostResponse | SwapStatusResponse;
 
 export type SwapStatus =
   | 'pending'
@@ -71,30 +57,8 @@ export type SwapStatus =
   | 'invoice.settled'
   | 'swap.successful';
 
-export interface CreateSwapResponse {
-  id: string;
-  address: string;
-  refundPublicKey: string;
-  expectedAmount: number;
-  bip21: string;
-  redeemScript: string;
-  timeoutBlockHeight: number;
-}
-
-export interface BoltzSwapStatusResponse {
-  status: SwapStatus;
-  failureReason?: string;
-  transaction?: {
-    hex: string;
-    id: string;
-    preimage?: string;
-  };
-}
-
-export interface SwapData extends CreateSwapResponse, BoltzSwapStatusResponse {}
-
 export interface RefundHandler {
-  onRefundNeeded: (swapData: SwapData) => Promise<void>;
+  onRefundNeeded: (swapData: SubmarineSwapPostResponse) => Promise<void>;
 }
 
 export interface ArkadeLightningConfig {

@@ -1,7 +1,19 @@
 import { fetch } from 'undici';
-import { NetworkError } from './errors';
-import { BoltzSwapProviderConfig, SwapData, Network } from './types';
+import { NetworkError } from '../../errors';
+import { Network } from '../../types';
 import { WebSocket } from 'ws';
+import {
+  LimitsResponse,
+  SubmarineSwapGetResponse,
+  isSubmarineSwapGetResponse,
+  SwapStatusResponse,
+  isSwapStatusResponse,
+  SubmarineSwapPostResponse,
+  isSubmarineSwapPostResponse,
+  ReverseSwapPostResponse,
+  isReverseSwapPostResponse,
+  SwapProviderConfig,
+} from './types';
 
 const BASE_URLS: Record<Network, string> = {
   mainnet: 'https://api.boltz.exchange',
@@ -9,127 +21,12 @@ const BASE_URLS: Record<Network, string> = {
   regtest: 'http://localhost:9090',
 };
 
-export type BoltzLimits = {
-  min: number;
-  max: number;
-};
-
-export type SwapStatusResponse = {
-  status: string;
-  zeroConfRejected?: boolean;
-  transaction?: {
-    id: string;
-    hex: string;
-  };
-};
-
-export const isSwapStatusResponse = (data: any): data is SwapStatusResponse => {
-  return (
-    data &&
-    typeof data.status === 'string' &&
-    (data.zeroConfRejected === undefined || typeof data.zeroConfRejected === 'boolean') &&
-    (data.transaction === undefined ||
-      (typeof data.transaction.id === 'string' && typeof data.transaction.hex === 'string'))
-  );
-};
-
-export type SubmarineSwapGetResponse = {
-  ARK: {
-    BTC: {
-      hash: string;
-      rate: number;
-      limits: {
-        maximal: number;
-        minimal: number;
-        maximalZeroConf: number;
-      };
-      fees: {
-        percentage: number;
-        minerFees: number;
-      };
-    };
-  };
-};
-
-export const isSubmarineSwapGetResponse = (data: any): data is SubmarineSwapGetResponse => {
-  return (
-    data &&
-    typeof data.ARK === 'object' &&
-    typeof data.ARK.BTC === 'object' &&
-    typeof data.ARK.BTC.hash === 'string' &&
-    typeof data.ARK.BTC.rate === 'number' &&
-    typeof data.ARK.BTC.limits === 'object' &&
-    typeof data.ARK.BTC.limits.maximal === 'number' &&
-    typeof data.ARK.BTC.limits.minimal === 'number' &&
-    typeof data.ARK.BTC.limits.maximalZeroConf === 'number' &&
-    typeof data.ARK.BTC.fees === 'object' &&
-    typeof data.ARK.BTC.fees.percentage === 'number' &&
-    typeof data.ARK.BTC.fees.minerFees === 'number'
-  );
-};
-
-export type SubmarineSwapPostResponse = {
-  id: string;
-  address: string;
-  expectedAmount: number;
-  claimPublicKey: string;
-  acceptZeroConf: boolean;
-  timeoutBlockHeights: {
-    unilateralClaim: number;
-    unilateralRefund: number;
-    unilateralRefundWithoutReceiver: number;
-  };
-};
-
-export const isSubmarineSwapPostResponse = (data: any): data is SubmarineSwapPostResponse => {
-  return (
-    data &&
-    typeof data.id === 'string' &&
-    typeof data.address === 'string' &&
-    typeof data.expectedAmount === 'number' &&
-    typeof data.claimPublicKey === 'string' &&
-    typeof data.acceptZeroConf === 'boolean' &&
-    data.timeoutBlockHeights &&
-    typeof data.timeoutBlockHeights.unilateralClaim === 'number' &&
-    typeof data.timeoutBlockHeights.unilateralRefund === 'number' &&
-    typeof data.timeoutBlockHeights.unilateralRefundWithoutReceiver === 'number'
-  );
-};
-
-export type ReverseSwapPostResponse = {
-  id: string;
-  invoice: string;
-  onchainAmount: number;
-  lockupAddress: string;
-  refundPublicKey: string;
-  timeoutBlockHeights: {
-    unilateralClaim: number;
-    unilateralRefund: number;
-    unilateralRefundWithoutReceiver: number;
-  };
-};
-
-export const isReverseSwapPostResponse = (data: any): data is ReverseSwapPostResponse => {
-  return (
-    data &&
-    typeof data.id === 'string' &&
-    typeof data.invoice === 'string' &&
-    typeof data.onchainAmount === 'number' &&
-    typeof data.lockupAddress === 'string' &&
-    typeof data.refundPublicKey === 'string' &&
-    data.timeoutBlockHeights &&
-    typeof data.timeoutBlockHeights.unilateralClaim === 'number' &&
-    typeof data.timeoutBlockHeights.unilateralRefund === 'number' &&
-    typeof data.timeoutBlockHeights.unilateralRefundWithoutReceiver === 'number'
-  );
-};
-
 export class BoltzSwapProvider {
   private readonly wsUrl: string;
   private readonly apiUrl: string;
   private readonly network: Network;
 
-  constructor(config: BoltzSwapProviderConfig) {
+  constructor(config: SwapProviderConfig) {
     this.network = config.network;
     this.apiUrl = config.apiUrl || BASE_URLS[config.network];
     this.wsUrl = this.apiUrl.replace(/^http(s)?:\/\//, 'ws$1://');
@@ -139,7 +36,7 @@ export class BoltzSwapProvider {
     return this.network;
   }
 
-  async getLimits(): Promise<BoltzLimits> {
+  async getLimits(): Promise<LimitsResponse> {
     const response = await this.request<SubmarineSwapGetResponse>('/v2/swap/submarine', 'GET');
     if (!isSubmarineSwapGetResponse(response)) throw new NetworkError(`Invalid response from API`);
     return {
@@ -152,10 +49,6 @@ export class BoltzSwapProvider {
     const response = this.request<SwapStatusResponse>(`/swap/${id}`, 'GET');
     if (!isSwapStatusResponse(response)) throw new NetworkError('Invalid response from API');
     return response;
-  }
-
-  async getPairs(): Promise<SwapData[]> {
-    return this.request<SwapData[]>('/getpairs', 'GET');
   }
 
   async createSubmarineSwap(invoice: string, refundPublicKey: string): Promise<SubmarineSwapPostResponse> {

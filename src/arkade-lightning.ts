@@ -1,21 +1,13 @@
 import { poll } from './utils/polling';
-import { BoltzSwapProvider } from './boltz-swap-provider';
+import { BoltzSwapProvider } from './providers/boltz/provider';
 import { SwapError } from './errors';
 import { RestArkProvider, VHTLC, addConditionWitness, createVirtualTx } from '@arkade-os/sdk';
 import { ripemd160 } from '@noble/hashes/legacy';
 import { sha256 } from '@noble/hashes/sha2';
 import { base64, hex } from '@scure/base';
-import type {
-  BoltzSwapStatusResponse,
-  ArkadeLightningConfig,
-  CreateInvoiceResult,
-  SendPaymentArgs,
-  DecodedInvoice,
-  PaymentResult,
-  SwapData,
-  Wallet,
-} from './types';
+import type { ArkadeLightningConfig, CreateInvoiceResult, PayInvoiceArgs, PaymentResult, Wallet } from './types';
 import { randomBytes } from '@noble/hashes/utils';
+import { SubmarineSwapPostResponse, SwapStatusResponse } from './providers/boltz/types';
 
 const DEFAULT_TIMEOUT_CONFIG = {
   swapExpiryBlocks: 144,
@@ -56,6 +48,13 @@ export class ArkadeLightning {
     } as Required<ArkadeLightningConfig>;
   }
 
+  // receive from lightning = reverse submarine swap
+  //
+  // 1. create invoice by creating a reverse swap
+  // 2. monitor incoming payment by waiting for the hold invoice to be paid
+  // 3. claim the VHTLC by creating a virtual transaction that spends the VHTLC output
+  // 4. return the preimage and the swap info
+
   async createLightningInvoice(args: { amountSats: number; description?: string }): Promise<CreateInvoiceResult> {
     // create random preimage and its hash
     const preimage = randomBytes(32);
@@ -89,62 +88,6 @@ export class ArkadeLightning {
       paymentHash: 'mockpaymenthash',
       expiry: 3600,
     };
-  }
-
-  async sendLightningPayment(args: SendPaymentArgs): Promise<PaymentResult> {
-    const refundPubkey = await this.wallet.getPublicKey();
-    if (!refundPubkey) throw new SwapError('Failed to get refund public key from wallet');
-
-    const swap = await this.swapProvider.createSubmarineSwap(args.invoice, refundPubkey);
-
-    if (!swap.address || !swap.expectedAmount) {
-      throw new SwapError('Invalid swap response from Boltz', {
-        swapData: swap as any,
-      });
-    }
-
-    await this.wallet.sendBitcoin(swap.address, swap.expectedAmount);
-
-    const finalStatus = await this.waitForSwapSettlement(swap.id);
-
-    if (finalStatus.transaction?.preimage) {
-      return {
-        preimage: finalStatus.transaction.preimage,
-        txid: broadcastResult.txid,
-      };
-    }
-
-    throw new SwapError('Swap settlement did not return a preimage', {
-      isRefundable: true,
-      swapData: { ...swap, ...finalStatus },
-    });
-  }
-
-  private async waitForSwapSettlement(swapId: string): Promise<BoltzSwapStatusResponse> {
-    return poll(
-      () => this.swapProvider.getSwapStatus(swapId),
-      (status) => status.status === 'transaction.claimed',
-      this.config.retryConfig.delayMs ?? 2000,
-      this.config.retryConfig.maxAttempts ?? 5
-    ).catch((err) => {
-      const lastStatus = (err as any).lastStatus as BoltzSwapStatusResponse;
-      const swapData = { id: swapId, ...lastStatus };
-      this.config.refundHandler.onRefundNeeded(swapData as SwapData);
-      throw new SwapError(`Swap settlement failed: ${(err as Error).message}`, {
-        isRefundable: true,
-        swapData: swapData as SwapData,
-      });
-    });
-  }
-
-  async getPendingSwaps(): Promise<SwapData[]> {
-    console.warn('getPendingSwaps is not implemented.');
-    return [];
-  }
-
-  async claimRefund(swapData: SwapData): Promise<{ txid: string }> {
-    console.warn('Refund claiming not fully implemented.', swapData);
-    throw new Error('Not implemented');
   }
 
   async claimVHTLC(createInvoiceResult: CreateInvoiceResult) {
@@ -199,7 +142,8 @@ export class ArkadeLightning {
     // get spendable VTXOs from the lockup address
     const { spendableVtxos } = await this.arkProvider.getVirtualCoins(vhtlcAddress);
     if (spendableVtxos.length === 0) throw new Error('No spendable virtual coins found');
-    const amount = spendableVtxos.reduce((sum, vtxo) => sum + vtxo.value, 0);
+    if (spendableVtxos.length !== 1) throw new Error('Something went wrong, expected exactly one spendable VTXO');
+    const vtxo = spendableVtxos[0];
 
     const vhtlcIdentity = {
       sign: async (tx: any, inputIndexes?: number[]) => {
@@ -215,7 +159,7 @@ export class ArkadeLightning {
     const tx = createVirtualTx(
       [
         {
-          ...spendableVtxos[0],
+          ...vtxo,
           tapLeafScript: vhtlcScript.claim(),
           scripts: vhtlcScript.encode(),
         },
@@ -223,7 +167,7 @@ export class ArkadeLightning {
       [
         {
           address: await this.wallet.getAddress(),
-          amount: BigInt(amount),
+          amount: BigInt(vtxo.value),
         },
       ]
     );
@@ -233,6 +177,57 @@ export class ArkadeLightning {
     const txid = await this.arkProvider.submitVirtualTx(base64.encode(signedTx.toPSBT()));
 
     console.log('Successfully claimed VHTLC! Transaction ID:', txid);
-    return amount;
+    return { amount: vtxo.value, txid: txid };
+  }
+
+  // pay to lightning = submarine swap
+  //
+  // 1. decode the invoice to get the amount and destination
+  // 2. create submarine swap with the decoded invoice
+  // 3. send the swap address and expected amount to the wallet to create a transaction
+  // 4. wait for the swap settlement and return the preimage and txid
+
+  async sendLightningPayment(args: PayInvoiceArgs): Promise<PaymentResult> {
+    const refundPubkey = await this.wallet.getPublicKey();
+    if (!refundPubkey) throw new SwapError('Failed to get refund public key from wallet');
+
+    const swapInfo = await this.swapProvider.createSubmarineSwap(args.invoice, refundPubkey);
+
+    if (!swapInfo.address || !swapInfo.expectedAmount) {
+      throw new SwapError('Invalid swap response from Boltz', {
+        swapData: swapInfo,
+      });
+    }
+
+    const txid = await this.wallet.sendBitcoin(swapInfo.address, swapInfo.expectedAmount);
+
+    const finalStatus = await this.waitForSwapSettlement(swapInfo);
+
+    if (finalStatus.transaction?.preimage) {
+      return {
+        preimage: finalStatus.transaction.preimage,
+        txid,
+      };
+    }
+
+    throw new SwapError('Swap settlement did not return a preimage', {
+      isRefundable: true,
+      swapData: { ...swapInfo, ...finalStatus },
+    });
+  }
+
+  private async waitForSwapSettlement(swapInfo: SubmarineSwapPostResponse): Promise<SwapStatusResponse> {
+    return poll(
+      () => this.swapProvider.getSwapStatus(swapInfo.id),
+      (status) => status.status === 'transaction.claimed',
+      this.config.retryConfig.delayMs ?? 2000,
+      this.config.retryConfig.maxAttempts ?? 5
+    ).catch((err) => {
+      this.config.refundHandler.onRefundNeeded(swapInfo);
+      throw new SwapError(`Swap settlement failed: ${(err as Error).message}`, {
+        isRefundable: true,
+        swapData: swapInfo,
+      });
+    });
   }
 }

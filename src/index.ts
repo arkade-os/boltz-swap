@@ -1,11 +1,6 @@
 export { ArkadeLightning } from './arkade-lightning';
-export { BoltzSwapProvider } from './boltz-swap-provider';
-export {
-  SwapError,
-  InvoiceExpiredError,
-  InsufficientFundsError,
-  NetworkError,
-} from './errors';
+export { BoltzSwapProvider } from './providers/boltz/provider';
+export { SwapError, InvoiceExpiredError, InsufficientFundsError, NetworkError } from './errors';
 export type {
   ArkadeLightningConfig,
   BoltzSwapProviderConfig,
@@ -14,7 +9,7 @@ export type {
   IncomingPaymentSubscription,
   PaymentResult,
   RefundHandler,
-  SendPaymentArgs,
+  PayInvoiceArgs,
   SwapData,
   Network,
   TimeoutConfig,
