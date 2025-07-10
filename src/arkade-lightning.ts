@@ -5,9 +5,20 @@ import { RestArkProvider, VHTLC, addConditionWitness, createVirtualTx } from '@a
 import { ripemd160 } from '@noble/hashes/legacy';
 import { sha256 } from '@noble/hashes/sha2';
 import { base64, hex } from '@scure/base';
-import type { ArkadeLightningConfig, CreateInvoiceResult, PayInvoiceArgs, PaymentResult, Wallet } from './types';
+import type {
+  ArkadeLightningConfig,
+  CreateInvoiceResult,
+  DecodedInvoice,
+  PayInvoiceArgs,
+  PaymentResult,
+  SwapStatus,
+  Wallet,
+} from './types';
 import { randomBytes } from '@noble/hashes/utils';
 import { SubmarineSwapPostResponse, SwapStatusResponse } from './providers/boltz/types';
+import { IncomingPaymentSubscription } from '.';
+import EventEmitter from 'events';
+import bolt11 from 'light-bolt11-decoder';
 
 const DEFAULT_TIMEOUT_CONFIG = {
   swapExpiryBlocks: 144,
@@ -33,8 +44,8 @@ export class ArkadeLightning {
 
   constructor(config: ArkadeLightningConfig) {
     if (!config.wallet) throw new Error('Wallet is required.');
-    if (!config.swapProvider) throw new Error('SwapProvider is required.');
-    if (!config.arkProvider) throw new Error('ArkProvider is required.');
+    if (!config.swapProvider) throw new Error('Swap provider is required.');
+    if (!config.arkProvider) throw new Error('Ark provider is required.');
 
     this.wallet = config.wallet;
     this.arkProvider = config.arkProvider;
@@ -72,22 +83,39 @@ export class ArkadeLightning {
   }
 
   async monitorIncomingPayment(createInvoiceResult: CreateInvoiceResult) {
-    const { preimage, swapInfo } = createInvoiceResult;
-    return await this.swapProvider.waitAndClaim(swapInfo, preimage, this.claimVHTLC);
-  }
+    const emitter = new EventEmitter();
+    const { swapInfo } = createInvoiceResult;
 
-  async decodeInvoice(invoice: string): Promise<DecodedInvoice> {
-    // In a real implementation, use a proper BOLT11 decoder.
-    console.warn('Invoice decoding is mocked.');
-    const amountMatch = invoice.match(/ln(bc|tb)(\d+)/);
-    const amount = amountMatch ? parseInt(amountMatch[2], 10) : 0;
-    return {
-      amountSats: amount,
-      description: 'Mocked description',
-      destination: '02mockdestinationpubkey',
-      paymentHash: 'mockpaymenthash',
-      expiry: 3600,
+    const onUpdate = (type: SwapStatus, data?: any) => {
+      switch (type) {
+        case 'failed':
+          emitter.emit('failed', data);
+          break;
+        case 'pending':
+          emitter.emit('pending');
+          break;
+        case 'claimable':
+          this.claimVHTLC(createInvoiceResult);
+          break;
+        case 'completed':
+          emitter.emit('completed');
+          break;
+        default:
+          console.warn(`Unhandled swap status: ${type}`);
+      }
     };
+
+    this.swapProvider.monitorSwap(swapInfo.id, onUpdate);
+
+    return {
+      on(event: SwapStatus, listener: (...args: any[]) => void) {
+        emitter.on(event, listener);
+        return this;
+      },
+      unsubscribe() {
+        emitter.removeAllListeners();
+      },
+    } as IncomingPaymentSubscription;
   }
 
   async claimVHTLC(createInvoiceResult: CreateInvoiceResult) {
@@ -186,6 +214,19 @@ export class ArkadeLightning {
   // 2. create submarine swap with the decoded invoice
   // 3. send the swap address and expected amount to the wallet to create a transaction
   // 4. wait for the swap settlement and return the preimage and txid
+
+  decodeInvoice(invoice: string): DecodedInvoice {
+    const decoded = bolt11.decode(invoice);
+
+    const millisats = Number(decoded.sections.find((s) => s.name === 'amount')?.value ?? '0');
+
+    return {
+      expiry: decoded.expiry ?? 3600,
+      amountSats: Math.floor(millisats / 1000),
+      description: decoded.sections.find((s) => s.name === 'description')?.value ?? '',
+      paymentHash: decoded.sections.find((s) => s.name === 'payment_hash')?.value ?? '',
+    };
+  }
 
   async sendLightningPayment(args: PayInvoiceArgs): Promise<PaymentResult> {
     const refundPubkey = await this.wallet.getPublicKey();

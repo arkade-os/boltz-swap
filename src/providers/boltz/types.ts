@@ -10,6 +10,19 @@ export type LimitsResponse = {
   max: number;
 };
 
+export type SwapStages =
+  | 'invoice.settled'
+  | 'invoice.expired'
+  | 'invoice.settled'
+  | 'swap.successful'
+  | 'swap.created'
+  | 'swap.expired'
+  | 'transaction.claimed'
+  | 'transaction.failed'
+  | 'transaction.refunded'
+  | 'transaction.mempool'
+  | 'transaction.confirmed';
+
 export type SwapStatusResponse = {
   status: string;
   zeroConfRejected?: boolean;

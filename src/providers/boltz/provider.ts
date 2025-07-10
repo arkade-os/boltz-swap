@@ -1,6 +1,6 @@
 import { fetch } from 'undici';
 import { NetworkError } from '../../errors';
-import { Network } from '../../types';
+import { Network, SwapStatus } from '../../types';
 import { WebSocket } from 'ws';
 import {
   LimitsResponse,
@@ -13,6 +13,7 @@ import {
   ReverseSwapPostResponse,
   isReverseSwapPostResponse,
   SwapProviderConfig,
+  SwapStages,
 } from './types';
 
 const BASE_URLS: Record<Network, string> = {
@@ -79,86 +80,82 @@ export class BoltzSwapProvider {
     return { ...response };
   }
 
-  async waitAndClaim(swapInfo: ReverseSwapPostResponse, preimage: string, claimVHTLC: any): Promise<void> {
-    return new Promise((res, rej) => {
-      const webSocket = new WebSocket(this.wsUrl);
+  async monitorSwap(swapId: string, update: (type: SwapStatus, data?: any) => void): Promise<void> {
+    const webSocket = new WebSocket(this.wsUrl);
 
-      const reject = (error: string) => {
-        if (webSocket?.close) webSocket.close();
-        rej(error);
-      };
+    webSocket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      update('failed', 'WebSocket connection failed');
+    };
 
-      const resolve = () => {
-        if (webSocket?.close) webSocket.close();
-        res();
-      };
+    webSocket.onopen = () => {
+      webSocket.send(
+        JSON.stringify({
+          op: 'subscribe',
+          channel: 'swap.update',
+          args: [swapId],
+        })
+      );
+    };
 
-      webSocket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        reject('WebSocket connection failed');
-      };
+    webSocket.onmessage = async (rawMsg) => {
+      const msg = JSON.parse(rawMsg.data as string);
 
-      webSocket.onopen = () => {
-        webSocket.send(
-          JSON.stringify({
-            op: 'subscribe',
-            channel: 'swap.update',
-            args: [swapInfo.id],
-          })
-        );
-      };
+      // we are only interested in updates for the specific swap
+      if (msg.event !== 'update' || msg.args[0].id !== swapId) return;
 
-      webSocket.onmessage = async (rawMsg) => {
-        const msg = JSON.parse(rawMsg.data as string);
+      if (msg.args[0].error) {
+        webSocket.close();
+        update('failed', `WebSocket error message received: ${msg.args[0].error}`);
+      }
 
-        // we are only interested in updates for the specific swap
-        if (msg.event !== 'update' || msg.args[0].id !== swapInfo.id) return;
-
-        if (msg.args[0].error) {
-          reject('WebSocket error message received: ' + msg.args[0].error);
+      switch (msg.args[0].status as SwapStages) {
+        case 'swap.created': {
+          console.log('Waiting for invoice to be paid');
+          update('pending');
+          break;
         }
 
-        switch (msg.args[0].status) {
-          case 'swap.created': {
-            console.log('Waiting for invoice to be paid');
-            break;
-          }
-
-          // Boltz's lockup transaction is found in the mempool (or already confirmed)
-          // which will only happen after the user paid the Lightning hold invoice
-          case 'transaction.mempool':
-          case 'transaction.confirmed': {
-            await claimVHTLC({ preimage, swapInfo });
-            break;
-          }
-
-          case 'invoice.settled': {
-            console.log('Invoice was settled');
-            resolve();
-            break;
-          }
-
-          case 'invoice.expired': {
-            reject('Invoice expired');
-            break;
-          }
-
-          case 'swap.expired': {
-            reject('Swap expired');
-            break;
-          }
-
-          case 'transaction.failed': {
-            reject('Transaction failed');
-            break;
-          }
-
-          case 'transaction.refunded': {
-            reject('Transaction refunded');
-          }
+        // Boltz's lockup transaction is found in the mempool (or already confirmed)
+        // which will only happen after the user paid the Lightning hold invoice
+        case 'transaction.mempool':
+        case 'transaction.confirmed': {
+          console.log('Transaction is in mempool or confirmed');
+          update('claimable');
+          break;
         }
-      };
-    });
+
+        case 'invoice.settled': {
+          webSocket.close();
+          console.log('Invoice was settled');
+          update('completed');
+          break;
+        }
+
+        case 'invoice.expired': {
+          webSocket.close();
+          update('failed', 'Invoice expired');
+          break;
+        }
+
+        case 'swap.expired': {
+          webSocket.close();
+          update('failed', 'Swap expired');
+          break;
+        }
+
+        case 'transaction.failed': {
+          webSocket.close();
+          update('failed', 'Transaction failed');
+          break;
+        }
+
+        case 'transaction.refunded': {
+          webSocket.close();
+          update('failed', 'Transaction refunded');
+        }
+      }
+    };
   }
 
   private async request<T>(path: string, method: 'GET' | 'POST', body?: unknown): Promise<T> {

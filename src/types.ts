@@ -48,14 +48,7 @@ export interface PaymentResult {
 
 export type SwapData = SubmarineSwapPostResponse | ReverseSwapPostResponse | SwapStatusResponse;
 
-export type SwapStatus =
-  | 'pending'
-  | 'confirmed'
-  | 'failed'
-  | 'refundable'
-  | 'transaction.claimed'
-  | 'invoice.settled'
-  | 'swap.successful';
+export type SwapStatus = 'pending' | 'claimable' | 'completed' | 'failed';
 
 export interface RefundHandler {
   onRefundNeeded: (swapData: SubmarineSwapPostResponse) => Promise<void>;
@@ -85,4 +78,19 @@ export interface FeeConfig {
 export interface RetryConfig {
   maxAttempts: number;
   delayMs: number;
+}
+
+export interface DecodedInvoice {
+  expiry: number;
+  amountSats: number;
+  description: string;
+  paymentHash: string;
+}
+
+export interface IncomingPaymentSubscription {
+  on(event: 'pending', listener: () => void): this;
+  on(event: 'claimable', listener: () => void): this;
+  on(event: 'completed', listener: () => void): this;
+  on(event: 'failed', listener: (error: Error) => void): this;
+  unsubscribe(): void;
 }
