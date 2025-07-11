@@ -136,6 +136,7 @@ export class ArkadeLightning {
     const aspInfo = await this.arkProvider.getInfo();
     const address = await this.wallet.getAddress();
 
+    // validate we are using a x-only receiver public key
     let receiverXOnlyPublicKey = hex.decode(await this.wallet.getPublicKey());
     if (receiverXOnlyPublicKey.length == 33) {
       receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
@@ -143,6 +144,7 @@ export class ArkadeLightning {
       throw new Error(`Invalid receiver public key length: ${receiverXOnlyPublicKey.length}`);
     }
 
+    // validate we are using a x-only sender public key
     let senderXOnlyPublicKey = hex.decode(swapInfo.refundPublicKey);
     if (senderXOnlyPublicKey.length == 33) {
       senderXOnlyPublicKey = senderXOnlyPublicKey.slice(1);
@@ -150,6 +152,7 @@ export class ArkadeLightning {
       throw new Error(`Invalid sender public key length: ${senderXOnlyPublicKey.length}`);
     }
 
+    // validate we are using a x-only server public key
     let serverXOnlyPublicKey = hex.decode(aspInfo.signerPubkey);
     if (serverXOnlyPublicKey.length == 33) {
       serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
@@ -157,6 +160,7 @@ export class ArkadeLightning {
       throw new Error(`Invalid server public key length: ${serverXOnlyPublicKey.length}`);
     }
 
+    // build expected VHTLC script
     const vhtlcScript = new VHTLC.Script({
       preimageHash: ripemd160(sha256(preimage)),
       sender: senderXOnlyPublicKey,
@@ -187,6 +191,7 @@ export class ArkadeLightning {
     const spendableVtxos = await this.indexerProvider.getVtxos({ scripts, spendableOnly: true });
     if (spendableVtxos.vtxos.length === 0) throw new Error('No spendable virtual coins found');
 
+    // vtxo with the htlc to claim
     const vtxo = spendableVtxos.vtxos[0];
 
     // signing a VTHLC needs an extra witness element to be added to the PSBT input
@@ -202,7 +207,7 @@ export class ArkadeLightning {
       signerSession: this.wallet.signerSession,
     };
 
-    // Create the server unroll script for checkpoint transactions
+    // create the server unroll script for checkpoint transactions
     const serverUnrollScript = CSVMultisigTapscript.encode({
       pubkeys: [hex.decode(aspInfo.signerPubkey)],
       timelock: {
@@ -236,7 +241,6 @@ export class ArkadeLightning {
       checkpoints.map((cp) => base64.encode(cp.toPSBT()))
     );
 
-    console.log('Successfully claimed VHTLC! Transaction ID:', txid);
     return { amount: vtxo.value, txid: txid, preimage: preimage };
   }
 
@@ -290,7 +294,7 @@ export class ArkadeLightning {
     const swapInfo = await this.swapProvider.createSubmarineSwap(args.invoice, refundPubkey);
 
     if (!swapInfo.address || !swapInfo.expectedAmount) {
-      throw new SwapError('Invalid swap response from Boltz', {
+      throw new SwapError('Invalid swap response from swap provider', {
         swapData: swapInfo,
       });
     }
