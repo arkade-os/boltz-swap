@@ -2,12 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ArkadeLightning } from '../src/arkade-lightning';
 import { BoltzSwapProvider } from '../src/providers/boltz/provider';
 import type { Wallet, Network } from '../src/types';
-import { RestArkProvider } from '@arkade-os/sdk';
+import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
 
 // Scaffolding test file for ArkadeLightning
 // This file will be updated when implementing features from README.md
 
 describe('ArkadeLightning', () => {
+  let indexerProvider: RestIndexerProvider;
   let swapProvider: BoltzSwapProvider;
   let arkProvider: RestArkProvider;
   let lightning: ArkadeLightning;
@@ -41,7 +42,8 @@ describe('ArkadeLightning', () => {
     // Basic mock swap provider
     arkProvider = new RestArkProvider('http://localhost:7070');
     swapProvider = new BoltzSwapProvider({ network: 'regtest' });
-    lightning = new ArkadeLightning({ wallet: mockWallet, arkProvider, swapProvider });
+    indexerProvider = new RestIndexerProvider('http://localhost:7070');
+    lightning = new ArkadeLightning({ wallet: mockWallet, arkProvider, swapProvider, indexerProvider });
   });
 
   afterEach(() => {
@@ -87,7 +89,6 @@ describe('ArkadeLightning', () => {
     expect(() => lightning.decodeInvoice(invoice)).toThrow();
   });
 
-  // test lightning.sendLightningPayment
   it('should send a Lightning payment', async () => {
     // arrange
     vi.spyOn(swapProvider, 'createSubmarineSwap').mockResolvedValueOnce({
