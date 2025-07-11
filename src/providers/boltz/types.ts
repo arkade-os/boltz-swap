@@ -122,12 +122,13 @@ export type ReverseSwapPostResponse = {
 export const isReverseSwapPostResponse = (data: any): data is ReverseSwapPostResponse => {
   return (
     data &&
+    typeof data === 'object' &&
     typeof data.id === 'string' &&
     typeof data.invoice === 'string' &&
     typeof data.onchainAmount === 'number' &&
     typeof data.lockupAddress === 'string' &&
     typeof data.refundPublicKey === 'string' &&
-    data.timeoutBlockHeights &&
+    data.timeoutBlockHeights && typeof data.timeoutBlockHeights === 'object' &&
     typeof data.timeoutBlockHeights.unilateralClaim === 'number' &&
     typeof data.timeoutBlockHeights.unilateralRefund === 'number' &&
     typeof data.timeoutBlockHeights.unilateralRefundWithoutReceiver === 'number'
