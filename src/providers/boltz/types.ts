@@ -93,12 +93,13 @@ export type SubmarineSwapPostResponse = {
 export const isSubmarineSwapPostResponse = (data: any): data is SubmarineSwapPostResponse => {
   return (
     data &&
+    typeof data === 'object' &&
     typeof data.id === 'string' &&
     typeof data.address === 'string' &&
     typeof data.expectedAmount === 'number' &&
     typeof data.claimPublicKey === 'string' &&
     typeof data.acceptZeroConf === 'boolean' &&
-    data.timeoutBlockHeights &&
+    data.timeoutBlockHeights && typeof data.timeoutBlockHeights === 'object' &&
     typeof data.timeoutBlockHeights.unilateralClaim === 'number' &&
     typeof data.timeoutBlockHeights.unilateralRefund === 'number' &&
     typeof data.timeoutBlockHeights.unilateralRefundWithoutReceiver === 'number'
