@@ -250,7 +250,7 @@ export class ArkadeLightning {
     // create random preimage and its hash
     const preimage = randomBytes(32);
     const preimageHash = hex.encode(sha256(preimage));
-    if (!preimageHash) throw 'Failed to get preimage hash';
+    if (!preimageHash) throw new SwapError('Failed to get preimage hash');
 
     // make reverse swap request
     const swapInfo = await this.swapProvider.createReverseSwap(
