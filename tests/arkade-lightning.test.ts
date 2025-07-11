@@ -7,8 +7,6 @@ import { RestArkProvider } from '@arkade-os/sdk';
 // Scaffolding test file for ArkadeLightning
 // This file will be updated when implementing features from README.md
 
-// vi.mock('../src/providers/boltz/provider', { spy: true });
-
 describe('ArkadeLightning', () => {
   let swapProvider: BoltzSwapProvider;
   let arkProvider: RestArkProvider;
