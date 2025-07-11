@@ -1,7 +1,16 @@
 import { poll } from './utils/polling';
 import { BoltzSwapProvider } from './providers/boltz/provider';
 import { SwapError } from './errors';
-import { RestArkProvider, VHTLC, addConditionWitness, createVirtualTx } from '@arkade-os/sdk';
+import {
+  ArkAddress,
+  buildOffchainTx,
+  ConditionWitness,
+  CSVMultisigTapscript,
+  RestArkProvider,
+  RestIndexerProvider,
+  setArkPsbtField,
+  VHTLC,
+} from '@arkade-os/sdk';
 import { ripemd160 } from '@noble/hashes/legacy';
 import { sha256 } from '@noble/hashes/sha2';
 import { base64, hex } from '@scure/base';
@@ -40,6 +49,7 @@ export class ArkadeLightning {
   private readonly wallet: Wallet;
   private readonly arkProvider: RestArkProvider;
   private readonly swapProvider: BoltzSwapProvider;
+  private readonly indexerProvider: RestIndexerProvider;
   private readonly config: Required<ArkadeLightningConfig>;
 
   constructor(config: ArkadeLightningConfig) {
@@ -50,6 +60,7 @@ export class ArkadeLightning {
     this.wallet = config.wallet;
     this.arkProvider = config.arkProvider;
     this.swapProvider = config.swapProvider;
+    this.indexerProvider = config.indexerProvider;
     this.config = {
       ...config,
       refundHandler: config.refundHandler ?? { onRefundNeeded: async () => {} },
@@ -67,25 +78,25 @@ export class ArkadeLightning {
   // 4. return the preimage and the swap info
 
   async createLightningInvoice(args: { amountSats: number; description?: string }): Promise<CreateInvoiceResult> {
-    // create random preimage and its hash
-    const preimage = randomBytes(32);
-    const preimageHash = hex.encode(sha256(preimage));
-    if (!preimageHash) throw 'Failed to get preimage hash';
-
-    // make reverse swap request
-    const swapInfo = await this.swapProvider.createReverseSwap(
-      args.amountSats,
-      await this.wallet.getPublicKey(),
-      preimageHash
-    );
-
-    return { swapInfo, preimage: hex.encode(preimage) };
+    return new Promise((resolve, reject) => {
+      this.createReverseSwap(args)
+        .then((result) => {
+          const subscription = this.monitorIncomingPayment(result);
+          subscription.on('pending', () => console.log('waiting for payment...'));
+          subscription.on('claimable', () => this.claimVHTLC(result));
+          subscription.on('completed', () => resolve(result));
+          subscription.on('failed', () => reject(new Error('Swap failed')));
+        })
+        .catch(reject);
+    });
   }
 
-  async monitorIncomingPayment(createInvoiceResult: CreateInvoiceResult) {
+  // monitor incoming payment by waiting for the hold invoice to be paid
+  monitorIncomingPayment(createInvoiceResult: CreateInvoiceResult) {
     const emitter = new EventEmitter();
     const { swapInfo } = createInvoiceResult;
 
+    // callback function to handle swap status updates
     const onUpdate = (type: SwapStatus, data?: any) => {
       switch (type) {
         case 'failed':
@@ -105,6 +116,7 @@ export class ArkadeLightning {
       }
     };
 
+    // monitor the swap status
     this.swapProvider.monitorSwap(swapInfo.id, onUpdate);
 
     return {
@@ -118,8 +130,11 @@ export class ArkadeLightning {
     } as IncomingPaymentSubscription;
   }
 
-  async claimVHTLC(createInvoiceResult: CreateInvoiceResult) {
+  // claim the VHTLC by creating a virtual transaction that spends the VHTLC output
+  private async claimVHTLC(createInvoiceResult: CreateInvoiceResult) {
     const { preimage, swapInfo } = createInvoiceResult;
+    const aspInfo = await this.arkProvider.getInfo();
+    const address = await this.wallet.getAddress();
 
     let receiverXOnlyPublicKey = hex.decode(await this.wallet.getPublicKey());
     if (receiverXOnlyPublicKey.length == 33) {
@@ -135,7 +150,7 @@ export class ArkadeLightning {
       throw new Error(`Invalid sender public key length: ${senderXOnlyPublicKey.length}`);
     }
 
-    let serverXOnlyPublicKey = hex.decode((await this.arkProvider.getInfo()).pubkey);
+    let serverXOnlyPublicKey = hex.decode(aspInfo.signerPubkey);
     if (serverXOnlyPublicKey.length == 33) {
       serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
     } else if (serverXOnlyPublicKey.length !== 32) {
@@ -168,44 +183,84 @@ export class ArkadeLightning {
     if (vhtlcAddress !== swapInfo.lockupAddress) throw new Error('Boltz is trying to scam us');
 
     // get spendable VTXOs from the lockup address
-    const { spendableVtxos } = await this.arkProvider.getVirtualCoins(vhtlcAddress);
-    if (spendableVtxos.length === 0) throw new Error('No spendable virtual coins found');
-    if (spendableVtxos.length !== 1) throw new Error('Something went wrong, expected exactly one spendable VTXO');
-    const vtxo = spendableVtxos[0];
+    const scripts = [hex.encode(vhtlcScript.pkScript)];
+    const spendableVtxos = await this.indexerProvider.getVtxos({ scripts, spendableOnly: true });
+    if (spendableVtxos.vtxos.length === 0) throw new Error('No spendable virtual coins found');
 
+    const vtxo = spendableVtxos.vtxos[0];
+
+    // signing a VTHLC needs an extra witness element to be added to the PSBT input
+    // reveal the secret in the PSBT, thus the server can verify the claim script
+    // this witness must satisfy the preimageHash condition
     const vhtlcIdentity = {
       sign: async (tx: any, inputIndexes?: number[]) => {
         const cpy = tx.clone();
-        addConditionWitness(0, cpy, [hex.decode(preimage)]);
+        setArkPsbtField(cpy, 0, ConditionWitness, [hex.decode(preimage)]);
         return this.wallet.sign(cpy, inputIndexes);
       },
       xOnlyPublicKey: receiverXOnlyPublicKey,
       signerSession: this.wallet.signerSession,
     };
 
-    // create the virtual transaction to claim the VHTLC
-    const tx = createVirtualTx(
+    // Create the server unroll script for checkpoint transactions
+    const serverUnrollScript = CSVMultisigTapscript.encode({
+      pubkeys: [hex.decode(aspInfo.signerPubkey)],
+      timelock: {
+        type: aspInfo.unilateralExitDelay < 512 ? 'blocks' : 'seconds',
+        value: aspInfo.unilateralExitDelay,
+      },
+    });
+
+    // create the offchain transaction to claim the VHTLC
+    const { arkTx, checkpoints } = buildOffchainTx(
       [
         {
-          ...vtxo,
-          tapLeafScript: vhtlcScript.claim(),
-          scripts: vhtlcScript.encode(),
+          ...spendableVtxos.vtxos[0],
+          tapLeafScript: vhtlcScript.refund(),
+          tapTree: vhtlcScript.encode(),
         },
       ],
       [
         {
-          address: await this.wallet.getAddress(),
           amount: BigInt(vtxo.value),
+          script: ArkAddress.decode(address).pkScript,
         },
-      ]
+      ],
+      serverUnrollScript
     );
 
-    // sign and "broadcast" the virtual transaction
-    const signedTx = await vhtlcIdentity.sign(tx);
-    const txid = await this.arkProvider.submitVirtualTx(base64.encode(signedTx.toPSBT()));
+    // sign and submit the offchain transaction
+    const signedTx = await vhtlcIdentity.sign(arkTx);
+    const txid = await this.arkProvider.submitTx(
+      base64.encode(signedTx.toPSBT()),
+      checkpoints.map((cp) => base64.encode(cp.toPSBT()))
+    );
 
     console.log('Successfully claimed VHTLC! Transaction ID:', txid);
     return { amount: vtxo.value, txid: txid, preimage: preimage };
+  }
+
+  // create reverse submarine swap
+  //
+  // 1. create a random preimage and its hash
+  // 2. make a reverse swap request to the swap provider with the amount, public key, and preimage hash
+  // 3. return the swap info and the preimage
+
+  private async createReverseSwap(args: { amountSats: number; description?: string }): Promise<CreateInvoiceResult> {
+    // create random preimage and its hash
+    const preimage = randomBytes(32);
+    const preimageHash = hex.encode(sha256(preimage));
+    if (!preimageHash) throw 'Failed to get preimage hash';
+
+    // make reverse swap request
+    const swapInfo = await this.swapProvider.createReverseSwap(
+      args.amountSats,
+      await this.wallet.getPublicKey(),
+      preimageHash
+    );
+
+    // return the swap info and the preimage
+    return { swapInfo, preimage: hex.encode(preimage) };
   }
 
   // pay to lightning = submarine swap

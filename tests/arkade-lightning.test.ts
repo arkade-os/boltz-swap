@@ -69,7 +69,9 @@ describe('ArkadeLightning', () => {
   });
 
   it('should decode a Lightning invoice', async () => {
+    // act
     const decoded = lightning.decodeInvoice(invoice);
+    // assert
     expect(decoded).toHaveProperty('amountSats');
     expect(decoded).toHaveProperty('description');
     expect(decoded).toHaveProperty('paymentHash');
@@ -81,12 +83,15 @@ describe('ArkadeLightning', () => {
   });
 
   it('should throw on invalid Lightning invoice', async () => {
+    // act
     const invoice = 'lntb30m1invalid';
+    // assert
     expect(() => lightning.decodeInvoice(invoice)).toThrow();
   });
 
   // test lightning.sendLightningPayment
   it('should send a Lightning payment', async () => {
+    // arrange
     vi.spyOn(swapProvider, 'createSubmarineSwap').mockResolvedValueOnce({
       id: 'mock-id',
       address: 'mock-address',
@@ -107,7 +112,9 @@ describe('ArkadeLightning', () => {
         preimage: 'mock-preimage',
       },
     });
+    // act
     const result = await lightning.sendLightningPayment({ invoice });
+    // assert
     expect(mockWallet.sendBitcoin).toHaveBeenCalledWith('mock-address', 3000000);
     expect(result).toHaveProperty('txid');
     expect(result).toHaveProperty('preimage');

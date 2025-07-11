@@ -1,4 +1,4 @@
-import { RestArkProvider } from '@arkade-os/sdk';
+import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
 import { BoltzSwapProvider } from './providers/boltz/provider';
 import { ReverseSwapPostResponse, SubmarineSwapPostResponse, SwapStatusResponse } from './providers/boltz/types';
 
@@ -56,6 +56,7 @@ export interface RefundHandler {
 
 export interface ArkadeLightningConfig {
   wallet: Wallet;
+  indexerProvider: RestIndexerProvider;
   swapProvider: BoltzSwapProvider;
   arkProvider: RestArkProvider;
   refundHandler?: RefundHandler;
