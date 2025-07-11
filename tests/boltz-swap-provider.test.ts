@@ -174,6 +174,57 @@ describe('BoltzSwapProvider', () => {
     });
   });
 
+  describe('reverse swaps', () => {
+    it('should create a reverse swap', async () => {
+      // arrange
+      const mockResponse = {
+        id: 'mock-id',
+        invoice: 'mock-invoice',
+        onchainAmount: 21000,
+        lockupAddress: 'mock-lockupAddress',
+        refundPublicKey: 'mock-refundPublicKey',
+        timeoutBlockHeights: {
+          unilateralClaim: 21,
+          unilateralRefund: 42,
+          unilateralRefundWithoutReceiver: 63,
+        },
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers,
+        json: () => Promise.resolve(mockResponse),
+      });
+      // act
+      const response = await provider.createReverseSwap(21000, 'mock-claimPublicKey', 'mock-preimage-hash');
+      // assert
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/reverse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'BTC',
+          to: 'ARK',
+          invoiceAmount: 21000,
+          claimPublicKey: 'mock-claimPublicKey',
+          preimageHash: 'mock-preimage-hash',
+        }),
+      });
+      expect(response).toEqual(mockResponse);
+    });
+
+    it('should throw on invalid reverse swap response', async () => {
+      // arrange
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers,
+        json: () => Promise.resolve({ invalid: 'response' }),
+      });
+      // act & assert
+      await expect(provider.createReverseSwap(21000, 'mock-claimPublicKey', 'mock-preimage-hash')).rejects.toThrow(
+        'Invalid response from API'
+      );
+    });
+  });
+
   // TODO: Implement tests for features shown in README.md
   // Basic operations:
   // - Creating submarine swaps
