@@ -7,7 +7,7 @@ import { Headers } from 'undici';
 
 // Mock fetch
 const mockFetch = vi.fn();
-vi.mock(import('undici'), () => ({
+vi.mock('undici', () => ({
   fetch: (...args) => mockFetch(...args),
 }));
 
