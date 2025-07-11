@@ -35,10 +35,12 @@ export type SwapStatusResponse = {
 export const isSwapStatusResponse = (data: any): data is SwapStatusResponse => {
   return (
     data &&
+    typeof data === 'object' &&
     typeof data.status === 'string' &&
     (data.zeroConfRejected === undefined || typeof data.zeroConfRejected === 'boolean') &&
     (data.transaction === undefined ||
-      (typeof data.transaction.id === 'string' && typeof data.transaction.hex === 'string'))
+      (data.transaction && typeof data.transaction === 'object' &&
+       typeof data.transaction.id === 'string' && typeof data.transaction.hex === 'string'))
   );
 };
 
