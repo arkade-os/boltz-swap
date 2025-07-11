@@ -63,15 +63,16 @@ export type SubmarineSwapGetResponse = {
 export const isSubmarineSwapGetResponse = (data: any): data is SubmarineSwapGetResponse => {
   return (
     data &&
-    typeof data.ARK === 'object' &&
-    typeof data.ARK.BTC === 'object' &&
+    typeof data === 'object' &&
+    data.ARK && typeof data.ARK === 'object' &&
+    data.ARK.BTC && typeof data.ARK.BTC === 'object' &&
     typeof data.ARK.BTC.hash === 'string' &&
     typeof data.ARK.BTC.rate === 'number' &&
-    typeof data.ARK.BTC.limits === 'object' &&
+    data.ARK.BTC.limits && typeof data.ARK.BTC.limits === 'object' &&
     typeof data.ARK.BTC.limits.maximal === 'number' &&
     typeof data.ARK.BTC.limits.minimal === 'number' &&
     typeof data.ARK.BTC.limits.maximalZeroConf === 'number' &&
-    typeof data.ARK.BTC.fees === 'object' &&
+    data.ARK.BTC.fees && typeof data.ARK.BTC.fees === 'object' &&
     typeof data.ARK.BTC.fees.percentage === 'number' &&
     typeof data.ARK.BTC.fees.minerFees === 'number'
   );
