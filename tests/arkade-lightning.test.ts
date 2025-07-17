@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ArkadeLightning } from '../src/arkade-lightning';
-import { BoltzSwapProvider } from '../src/providers/boltz/provider';
+import { BoltzSwapProvider } from '../src/boltz-swap-provider';
 import type { Wallet, Network } from '../src/types';
 import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
 

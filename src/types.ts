@@ -1,6 +1,10 @@
 import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
-import { BoltzSwapProvider } from './providers/boltz/provider';
-import { ReverseSwapPostResponse, SubmarineSwapPostResponse, SwapStatusResponse } from './providers/boltz/types';
+import {
+  CreateReverseSwapResponse,
+  CreateSubmarineSwapResponse,
+  SwapStatusResponse,
+  BoltzSwapProvider,
+} from './boltz-swap-provider';
 
 // TODO: replace with better data structure
 export interface Vtxo {
@@ -29,16 +33,17 @@ export type Network = 'mainnet' | 'testnet' | 'regtest';
 
 export interface CreateInvoiceResult {
   preimage: string;
-  swapInfo: ReverseSwapPostResponse;
+  status?: 'pending' | 'claimable' | 'completed' | 'failed';
+  swapInfo: CreateReverseSwapResponse;
 }
 export interface PayInvoiceArgs {
   invoice: string;
-  sourceVtxos?: Vtxo[];
   maxFeeSats?: number;
 }
 
 export interface PayInvoiceResult {
-  swapInfo: SubmarineSwapPostResponse;
+  status?: 'pending' | 'claimable' | 'completed' | 'failed';
+  swapInfo: CreateSubmarineSwapResponse;
 }
 
 export interface PaymentResult {
@@ -46,12 +51,17 @@ export interface PaymentResult {
   txid: string;
 }
 
-export type SwapData = SubmarineSwapPostResponse | ReverseSwapPostResponse | SwapStatusResponse;
+export interface PendingSwaps {
+  reverseSwaps: CreateInvoiceResult[];
+  submarineSwaps: PayInvoiceResult[];
+}
+
+export type SwapData = CreateSubmarineSwapResponse | CreateReverseSwapResponse | SwapStatusResponse;
 
 export type SwapStatus = 'pending' | 'claimable' | 'completed' | 'failed';
 
 export interface RefundHandler {
-  onRefundNeeded: (swapData: SubmarineSwapPostResponse) => Promise<void>;
+  onRefundNeeded: (swapData: CreateSubmarineSwapResponse) => Promise<void>;
 }
 
 export interface ArkadeLightningConfig {

@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BoltzSwapProvider } from '../src/providers/boltz/provider';
-import { Headers } from 'undici';
+import { BoltzSwapProvider } from '../src/boltz-swap-provider';
 
 // Scaffolding test file for BoltzSwapProvider
 // This file will be updated when implementing features from README.md
@@ -73,6 +72,7 @@ describe('BoltzSwapProvider', () => {
       });
       expect(limits).toEqual({ min: 1000, max: 1000000 });
     });
+
     it('should throw on invalid limits response', async () => {
       // arrange
       mockFetch.mockResolvedValueOnce({

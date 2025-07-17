@@ -36,13 +36,13 @@ const wallet = await Wallet.create({
 // Initialize the Lightning swap provider
 const swapProvider = new BoltzSwapProvider({
   apiUrl: 'https://api.boltz.exchange',
-  network: 'mainnet'
+  network: 'mainnet',
 });
 
 // Create the ArkadeLightning instance
 const arkadeLightning = new ArkadeLightning({
   wallet,
-  swapProvider
+  swapProvider,
 });
 ```
 
@@ -54,7 +54,7 @@ To receive a Lightning payment into your Arkade wallet:
 // Create a Lightning invoice that will deposit funds to your Arkade wallet
 const result = await arkadeLightning.createLightningInvoice({
   amountSats: 50000, // 50,000 sats
-  description: 'Payment to my Arkade wallet'
+  description: 'Payment to my Arkade wallet',
 });
 
 console.log('Lightning Invoice:', result.invoice);
@@ -81,7 +81,7 @@ subscription.on('confirmed', (txDetails) => {
   console.log('Payment confirmed!');
   console.log('Transaction ID:', txDetails.txid);
   console.log('Amount received:', txDetails.amountSats, 'sats');
-  
+
   // Update your UI or notify the user
   updateBalanceDisplay();
 });
@@ -101,7 +101,7 @@ To send a payment from your Arkade wallet to a Lightning invoice:
 ```typescript
 // Parse a Lightning invoice
 const invoiceDetails = await arkadeLightning.decodeInvoice(
-  'lnbc500u1pj...'  // Lightning invoice string
+  'lnbc500u1pj...' // Lightning invoice string
 );
 
 console.log('Invoice amount:', invoiceDetails.amountSats, 'sats');
@@ -111,13 +111,10 @@ console.log('Destination:', invoiceDetails.destination);
 // Pay the Lightning invoice from your Arkade wallet
 try {
   const paymentResult = await arkadeLightning.sendLightningPayment({
-    invoice: 'lnbc500u1pj...',  // Lightning invoice string
-    // Optional: Specify which VTXOs to use
-    sourceVtxos: await wallet.getVtxos(),
-    // Optional: Maximum fee you're willing to pay (in sats)
-    maxFeeSats: 1000
+    invoice: 'lnbc500u1pj...', // Lightning invoice string
+    maxFeeSats: 1000, // Optional: Maximum fee you're willing to pay (in sats)
   });
-  
+
   console.log('Payment successful!');
   console.log('Preimage:', paymentResult.preimage);
   console.log('Transaction ID:', paymentResult.txid);
@@ -138,16 +135,16 @@ const arkadeLightning = new ArkadeLightning({
   refundHandler: {
     onRefundNeeded: async (swapData) => {
       console.log('Initiating refund for swap:', swapData.id);
-      
+
       // You can implement custom logic here, such as:
       // - Notifying the user
       // - Automatically claiming the refund
       // - Logging the event
-      
+
       // Claim the refund automatically
       return await arkadeLightning.claimRefund(swapData);
-    }
-  }
+    },
+  },
 });
 
 // Or handle refunds manually
@@ -168,25 +165,25 @@ The library supports advanced configuration options for more specific use cases:
 const arkadeLightning = new ArkadeLightning({
   wallet,
   swapProvider,
-  
+
   // Configure timeouts
   timeoutConfig: {
     swapExpiryBlocks: 144, // Number of blocks until swap expires
     invoiceExpirySeconds: 3600, // Invoice expiry in seconds
-    claimDelayBlocks: 10 // Blocks to wait before claiming
+    claimDelayBlocks: 10, // Blocks to wait before claiming
   },
-  
+
   // Configure fee limits
   feeConfig: {
     maxMinerFeeSats: 5000, // Maximum miner fee in sats
     maxSwapFeeSats: 1000, // Maximum swap fee in sats
   },
-  
+
   // Configure retry logic
   retryConfig: {
     maxAttempts: 3,
-    delayMs: 1000
-  }
+    delayMs: 1000,
+  },
 });
 ```
 
@@ -195,16 +192,11 @@ const arkadeLightning = new ArkadeLightning({
 The library provides detailed error types to help you handle different failure scenarios:
 
 ```typescript
-import { 
-  SwapError, 
-  InvoiceExpiredError,
-  InsufficientFundsError,
-  NetworkError 
-} from '@arkade-os/lightning-swap';
+import { SwapError, InvoiceExpiredError, InsufficientFundsError, NetworkError } from '@arkade-os/lightning-swap';
 
 try {
   await arkadeLightning.sendLightningPayment({
-    invoice: 'lnbc500u1pj...'
+    invoice: 'lnbc500u1pj...',
   });
 } catch (error) {
   if (error instanceof InvoiceExpiredError) {
@@ -215,7 +207,7 @@ try {
     console.error('Network issue. Please try again later:', error.message);
   } else if (error instanceof SwapError) {
     console.error('Swap failed:', error.message);
-    
+
     // You might be able to claim a refund
     if (error.isRefundable) {
       const refundResult = await arkadeLightning.claimRefund(error.swapData);
