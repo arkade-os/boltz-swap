@@ -66,7 +66,13 @@ export class StorageManager {
 
   private async get(key: string): Promise<any> {
     const item = await this.storageInstance.getItem(key);
-    return item ? JSON.parse(item) : null;
+    if (!item) return null;
+    try {
+      return JSON.parse(item);
+    } catch (error) {
+      console.error(`Failed to parse stored data for key ${key}:`, error);
+      return null;
+    }
   }
 }
 
