@@ -1,4 +1,0 @@
-{
-  "submarineSwaps": "[{\"request\":{\"invoice\":\"mock-invoice\",\"refundPublicKey\":\"mock-refundPublicKey\"},\"response\":{\"id\":\"mock-submarine-swap-id\",\"address\":\"mock-address\",\"expectedAmount\":21000,\"claimPublicKey\":\"mock-claimPublicKey\",\"acceptZeroConf\":true,\"timeoutBlockHeights\":{\"refund\":17,\"unilateralClaim\":21,\"unilateralRefund\":42,\"unilateralRefundWithoutReceiver\":63}},\"status\":\"pending\"}]",
-  "reverseSwaps": "[]"
-}

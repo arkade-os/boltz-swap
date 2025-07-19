@@ -2,14 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { CreateSubmarineSwapRequest, CreateSubmarineSwapResponse } from '../src/boltz-swap-provider';
 import { StorageProvider } from '../src/storage-provider';
 
-const sleep = (ms = 2000) => new Promise((resolve) => setTimeout(resolve, ms));
-
 describe('Storage provider', () => {
-  let storageProvider: StorageProvider;
-
-  beforeEach(() => {
-    storageProvider = new StorageProvider();
-  });
+  const storageProvider = new StorageProvider();
 
   describe('submarine swaps', () => {
     // mock request and response
@@ -38,8 +32,6 @@ describe('Storage provider', () => {
         response: mockResponse,
         status: 'pending',
       });
-      // wait for async storage operation
-      await sleep();
       // get swaps
       const swaps = await storageProvider.getPendingSubmarineSwaps();
       expect(swaps.length).toBeGreaterThan(0);
@@ -53,7 +45,7 @@ describe('Storage provider', () => {
       expect(found?.status).toBe('pending');
     });
 
-    it.skip('should remove a pending submarine swap', async () => {
+    it('should remove a pending submarine swap', async () => {
       // get pending swaps
       const swaps = await storageProvider.getPendingSubmarineSwaps();
       expect(swaps.length).toBeGreaterThan(0);
@@ -62,8 +54,6 @@ describe('Storage provider', () => {
       expect(swapToDelete).toBeDefined();
       // delete swap
       await storageProvider.deletePendingSubmarineSwap(swapToDelete!.response.id);
-      // wait for async storage operation
-      await sleep();
       // verify swap is deleted
       const updateSwaps = await storageProvider.getPendingSubmarineSwaps();
       expect(updateSwaps.length).toBe(swaps.length - 1);
@@ -101,8 +91,6 @@ describe('Storage provider', () => {
         response: mockResponse,
         status: 'pending',
       });
-      // wait for async storage operation
-      await sleep();
       // get swaps
       const swaps = await storageProvider.getPendingReverseSwaps();
       expect(swaps.length).toBeGreaterThan(0);

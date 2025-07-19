@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BoltzSwapProvider } from '../src/boltz-swap-provider';
+import { SchemaError } from '../src/errors';
 
 // Scaffolding test file for BoltzSwapProvider
 // This file will be updated when implementing features from README.md
@@ -81,7 +82,7 @@ describe('BoltzSwapProvider', () => {
         json: () => Promise.resolve({ invalid: 'response' }),
       });
       // act & assert
-      await expect(provider.getLimits()).rejects.toThrow('Invalid response from API');
+      await expect(provider.getLimits()).rejects.toThrow(SchemaError);
     });
   });
 
@@ -120,7 +121,7 @@ describe('BoltzSwapProvider', () => {
         json: () => Promise.resolve({ invalid: 'response' }),
       });
       // act & assert
-      await expect(provider.getSwapStatus('mock-id')).rejects.toThrow('Invalid response from API');
+      await expect(provider.getSwapStatus('mock-id')).rejects.toThrow(SchemaError);
     });
   });
 
@@ -169,7 +170,7 @@ describe('BoltzSwapProvider', () => {
       });
       // act & assert
       await expect(provider.createSubmarineSwap({ invoice, refundPublicKey: 'mock-refundPublicKey' })).rejects.toThrow(
-        'Invalid response from API'
+        SchemaError
       );
     });
   });
@@ -229,7 +230,7 @@ describe('BoltzSwapProvider', () => {
           claimPublicKey: 'mock-claimPublicKey',
           preimageHash: 'mock-preimage-hash',
         })
-      ).rejects.toThrow('Invalid response from API');
+      ).rejects.toThrow(SchemaError);
     });
   });
 
