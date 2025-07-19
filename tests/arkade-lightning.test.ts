@@ -56,9 +56,14 @@ describe('ArkadeLightning', () => {
 
   it('should fail to instantiate without required config', () => {
     expect(() => new ArkadeLightning({} as any)).toThrow('Wallet is required.');
-    expect(() => new ArkadeLightning({ wallet: mockWallet } as any)).toThrow('Swap provider is required.');
-    expect(() => new ArkadeLightning({ wallet: mockWallet, swapProvider } as any)).toThrow('Ark provider is required.');
-    expect(() => new ArkadeLightning({ wallet: mockWallet, swapProvider, arkProvider } as any)).not.toThrow();
+    expect(() => new ArkadeLightning({ wallet: mockWallet } as any)).toThrow('Ark provider is required.');
+    expect(() => new ArkadeLightning({ wallet: mockWallet, arkProvider } as any)).toThrow('Swap provider is required.');
+    expect(() => new ArkadeLightning({ wallet: mockWallet, arkProvider, swapProvider } as any)).toThrow(
+      'Indexer provider is required.'
+    );
+    expect(
+      () => new ArkadeLightning({ wallet: mockWallet, swapProvider, arkProvider, indexerProvider } as any)
+    ).not.toThrow();
   });
 
   it('should have expected interface methods', () => {
@@ -98,6 +103,7 @@ describe('ArkadeLightning', () => {
       claimPublicKey: 'mock-claimPublicKey',
       acceptZeroConf: true,
       timeoutBlockHeights: {
+        refund: 17,
         unilateralClaim: 21,
         unilateralRefund: 42,
         unilateralRefundWithoutReceiver: 63,
@@ -118,6 +124,44 @@ describe('ArkadeLightning', () => {
     expect(result).toHaveProperty('txid');
     expect(result).toHaveProperty('preimage');
     expect(result.txid).toBe('mock-txid');
+    expect(result.preimage).toBe('mock-preimage');
+  });
+
+  it('should receive a Lightning invoice', async () => {
+    // arrange
+    vi.spyOn(swapProvider, 'createReverseSwap').mockResolvedValueOnce({
+      id: 'mock-id',
+      invoice: 'mock-invoice',
+      onchainAmount: 21000,
+      lockupAddress: 'mock-address',
+      refundPublicKey: 'mock-refundPublicKey',
+      timeoutBlockHeights: {
+        refund: 17,
+        unilateralClaim: 21,
+        unilateralRefund: 42,
+        unilateralRefundWithoutReceiver: 63,
+      },
+    });
+    vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValueOnce({
+      status: 'transaction.claimed',
+      transaction: {
+        id: 'mock-txid',
+        hex: 'mock-tx-hex',
+        preimage: 'mock-preimage',
+      },
+    });
+    vi.spyOn(lightning, 'claimVHTLC').mockResolvedValueOnce({
+      amount: 21000,
+      txid: 'mock-txid',
+      preimage: 'mock-preimage',
+    });
+    // act
+    const result = await lightning.createLightningInvoice({ amountSats: 21000, description: 'Test invoice' });
+    // assert
+    expect(lightning.claimVHTLC).toHaveBeenCalledWith('mock-address', 3000000);
+    expect(result).toHaveProperty('status');
+    expect(result).toHaveProperty('preimage');
+    expect(result.status).toBe('transaction.claimed');
     expect(result.preimage).toBe('mock-preimage');
   });
   // TODO: Implement tests for features shown in README.md

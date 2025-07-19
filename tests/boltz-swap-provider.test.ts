@@ -145,7 +145,7 @@ describe('BoltzSwapProvider', () => {
         json: () => Promise.resolve(mockResponse),
       });
       // act
-      const response = await provider.createSubmarineSwap(invoice, 'mock-refundPublicKey');
+      const response = await provider.createSubmarineSwap({ invoice, refundPublicKey: 'mock-refundPublicKey' });
       // assert
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/submarine', {
         method: 'POST',
@@ -168,7 +168,7 @@ describe('BoltzSwapProvider', () => {
         json: () => Promise.resolve({ invalid: 'response' }),
       });
       // act & assert
-      await expect(provider.createSubmarineSwap(invoice, 'mock-refundPublicKey')).rejects.toThrow(
+      await expect(provider.createSubmarineSwap({ invoice, refundPublicKey: 'mock-refundPublicKey' })).rejects.toThrow(
         'Invalid response from API'
       );
     });
@@ -195,7 +195,11 @@ describe('BoltzSwapProvider', () => {
         json: () => Promise.resolve(mockResponse),
       });
       // act
-      const response = await provider.createReverseSwap(21000, 'mock-claimPublicKey', 'mock-preimage-hash');
+      const response = await provider.createReverseSwap({
+        invoiceAmount: 21000,
+        claimPublicKey: 'mock-claimPublicKey',
+        preimageHash: 'mock-preimage-hash',
+      });
       // assert
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/reverse', {
         method: 'POST',
@@ -219,9 +223,13 @@ describe('BoltzSwapProvider', () => {
         json: () => Promise.resolve({ invalid: 'response' }),
       });
       // act & assert
-      await expect(provider.createReverseSwap(21000, 'mock-claimPublicKey', 'mock-preimage-hash')).rejects.toThrow(
-        'Invalid response from API'
-      );
+      await expect(
+        provider.createReverseSwap({
+          invoiceAmount: 21000,
+          claimPublicKey: 'mock-claimPublicKey',
+          preimageHash: 'mock-preimage-hash',
+        })
+      ).rejects.toThrow('Invalid response from API');
     });
   });
 

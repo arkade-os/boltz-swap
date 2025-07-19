@@ -8,9 +8,9 @@ import {
   RestArkProvider,
   RestIndexerProvider,
   setArkPsbtField,
+  TapLeafScript,
   VHTLC,
 } from '@arkade-os/sdk';
-import { ripemd160 } from '@noble/hashes/legacy';
 import { sha256 } from '@noble/hashes/sha2';
 import { base64, hex } from '@scure/base';
 import type {
@@ -18,19 +18,28 @@ import type {
   CreateInvoiceResult,
   DecodedInvoice,
   PayInvoiceArgs,
-  PayInvoiceResult,
   PaymentResult,
+  PendingReverseSwap,
+  PendingSubmarineSwap,
   PendingSwaps,
   SwapStatus,
   Wallet,
 } from './types';
 import { randomBytes } from '@noble/hashes/utils';
-import { CreateSubmarineSwapResponse, SwapStatusResponse, BoltzSwapProvider } from './boltz-swap-provider';
+import {
+  SwapStatusResponse,
+  BoltzSwapProvider,
+  CreateSubmarineSwapRequest,
+  CreateReverseSwapParams,
+  isCreateReverseSwapResponse,
+} from './boltz-swap-provider';
 import { IncomingPaymentSubscription } from '.';
 import EventEmitter from 'events';
 import bolt11 from 'light-bolt11-decoder';
-import { StorageManager } from './storage';
+import { StorageProvider } from './storage-provider';
 import { Transaction } from '@scure/btc-signer';
+import { hash160 } from '@scure/btc-signer/utils';
+import { TransactionInput } from '@scure/btc-signer/psbt';
 
 const DEFAULT_TIMEOUT_CONFIG = {
   swapExpiryBlocks: 144,
@@ -52,19 +61,20 @@ export class ArkadeLightning {
   private readonly wallet: Wallet;
   private readonly arkProvider: RestArkProvider;
   private readonly swapProvider: BoltzSwapProvider;
-  private readonly storageProvider: StorageManager;
+  private readonly storageProvider: StorageProvider;
   private readonly indexerProvider: RestIndexerProvider;
   private readonly config: Required<ArkadeLightningConfig>;
 
   constructor(config: ArkadeLightningConfig) {
     if (!config.wallet) throw new Error('Wallet is required.');
-    if (!config.swapProvider) throw new Error('Swap provider is required.');
     if (!config.arkProvider) throw new Error('Ark provider is required.');
+    if (!config.swapProvider) throw new Error('Swap provider is required.');
+    if (!config.indexerProvider) throw new Error('Indexer provider is required.');
 
     this.wallet = config.wallet;
     this.arkProvider = config.arkProvider;
     this.swapProvider = config.swapProvider;
-    this.storageProvider = new StorageManager();
+    this.storageProvider = new StorageProvider();
     this.indexerProvider = config.indexerProvider;
     this.config = {
       ...config,
@@ -88,21 +98,48 @@ export class ArkadeLightning {
         .then((result) => {
           const subscription = this.monitorIncomingPayment(result);
           subscription.on('failed', () => reject(new Error('Swap failed')));
-          subscription.on('pending', () => this.storageProvider.saveReverseSwap(result));
-          subscription.on('claimable', () => this.claimVHTLC(result));
-          subscription.on('completed', () => {
-            this.storageProvider.deleteReverseSwap(result);
-            resolve(result);
+          subscription.on('created', () => this.storageProvider.savePendingReverseSwap(result));
+          subscription.on('pending', () => this.claimVHTLC(result));
+          subscription.on('settled', () => {
+            this.storageProvider.deletePendingReverseSwap(result.response.id);
+            resolve({
+              swapInfo: result.response,
+              preimage: result.preimage,
+            });
           });
         })
         .catch(reject);
     });
   }
 
+  // create reverse submarine swap
+  async createReverseSwap(args: { amountSats: number; description?: string }): Promise<PendingReverseSwap> {
+    // create random preimage and its hash
+    const preimage = randomBytes(32);
+    const preimageHash = hex.encode(sha256(preimage));
+    if (!preimageHash) throw new SwapError('Failed to get preimage hash');
+
+    const createReverseSwapParams: CreateReverseSwapParams = {
+      invoiceAmount: args.amountSats,
+      claimPublicKey: await this.wallet.getPublicKey(),
+      preimageHash,
+    };
+
+    // make reverse swap request
+    const swapResponse = await this.swapProvider.createReverseSwap(createReverseSwapParams);
+
+    return {
+      preimage: hex.encode(preimage),
+      request: createReverseSwapParams,
+      response: swapResponse,
+      status: 'pending',
+    } as PendingReverseSwap;
+  }
+
   // monitor incoming payment by waiting for the hold invoice to be paid
-  monitorIncomingPayment(createInvoiceResult: CreateInvoiceResult) {
+  monitorIncomingPayment(pendingSwap: PendingReverseSwap) {
     const emitter = new EventEmitter();
-    const { swapInfo } = createInvoiceResult;
+    const swapInfo = pendingSwap.response;
 
     // callback function to handle swap status updates
     const onUpdate = (type: SwapStatus, data?: any) => {
@@ -110,14 +147,14 @@ export class ArkadeLightning {
         case 'failed':
           emitter.emit('failed', data);
           break;
+        case 'created':
+          emitter.emit('created');
+          break;
         case 'pending':
-          emitter.emit('pending');
+          this.claimVHTLC(pendingSwap);
           break;
-        case 'claimable':
-          this.claimVHTLC(createInvoiceResult);
-          break;
-        case 'completed':
-          emitter.emit('completed');
+        case 'settled':
+          emitter.emit('settled');
           break;
         default:
           console.warn(`Unhandled swap status: ${type}`);
@@ -139,8 +176,8 @@ export class ArkadeLightning {
   }
 
   // claim the VHTLC by creating a virtual transaction that spends the VHTLC output
-  private async claimVHTLC(createInvoiceResult: CreateInvoiceResult) {
-    const { preimage, swapInfo } = createInvoiceResult;
+  async claimVHTLC(pendingSwap: PendingReverseSwap) {
+    const { preimage, response: swapInfo } = pendingSwap;
     const aspInfo = await this.arkProvider.getInfo();
     const address = await this.wallet.getAddress();
 
@@ -241,12 +278,132 @@ export class ArkadeLightning {
     return { amount: vtxo.value, txid: arkTxid, preimage: preimage };
   }
 
-  // Check if the final Ark transaction is valid
-  private validFinalArkTx(_finalArkTx: string): boolean {
-    // TODO: Implement your validation logic here
-    return true;
+  /**
+   * Sends a Lightning payment.
+   * 1. decode the invoice to get the amount and destination
+   * 2. create submarine swap with the decoded invoice
+   * 3. send the swap address and expected amount to the wallet to create a transaction
+   * 4. wait for the swap settlement and return the preimage and txid
+   * @param args - The arguments for sending a Lightning payment.
+   * @returns The result of the payment.
+   */
+  async sendLightningPayment(args: PayInvoiceArgs): Promise<PaymentResult> {
+    const refundPublicKey = await this.wallet.getPublicKey();
+    if (!refundPublicKey) throw new SwapError('Failed to get refund public key from wallet');
+
+    const invoice = args.invoice;
+    if (!invoice) throw new SwapError('Invoice is required');
+
+    const swapRequest: CreateSubmarineSwapRequest = { invoice, refundPublicKey };
+
+    const swapResponse = await this.swapProvider.createSubmarineSwap(swapRequest);
+
+    const swapData: PendingSubmarineSwap = {
+      status: 'pending',
+      request: swapRequest,
+      response: swapResponse,
+    };
+
+    if (!isCreateReverseSwapResponse(swapResponse)) {
+      throw new SwapError('Invalid swap response from swap provider', {
+        swapData: { ...swapData, status: 'failed' },
+      });
+    }
+
+    // validate max fee if provided
+    if (args.maxFeeSats) {
+      const invoiceAmount = this.decodeInvoice(args.invoice).amountSats;
+      const fees = swapResponse.expectedAmount - invoiceAmount;
+      if (fees > args.maxFeeSats) {
+        throw new SwapError(`Swap fees ${fees} exceed max allowed ${args.maxFeeSats}`);
+      }
+    }
+
+    // save swap info to storage
+    await this.storageProvider.savePendingSubmarineSwap(swapData);
+
+    // send funds to the swap address
+    const txid = await this.wallet.sendBitcoin(swapResponse.address, swapResponse.expectedAmount);
+
+    const finalStatus = await this.waitForSwapSettlement(swapData);
+
+    if (finalStatus.transaction?.preimage) {
+      await this.storageProvider.deletePendingSubmarineSwap(swapResponse.id);
+      return {
+        preimage: finalStatus.transaction.preimage,
+        txid,
+      };
+    }
+
+    throw new SwapError('Swap settlement did not return a preimage', {
+      isRefundable: true,
+      swapData: { ...swapData, status: 'failed' },
+    });
   }
 
+  /**
+   * Waits for the swap settlement.
+   * @param swapData - The swap data to wait for.
+   * @returns The status of the swap settlement.
+   */
+  async waitForSwapSettlement(swapData: PendingSubmarineSwap): Promise<SwapStatusResponse> {
+    const status = await poll(
+      () => this.swapProvider.getSwapStatus(swapData.response.id),
+      (status) => status.status === 'transaction.claimed',
+      this.config.retryConfig.delayMs ?? 2000,
+      this.config.retryConfig.maxAttempts ?? 5
+    ).catch((err) => {
+      this.config.refundHandler.onRefundNeeded(swapData);
+      throw new SwapError(`Swap settlement failed: ${(err as Error).message}`, {
+        isRefundable: true,
+        swapData: { ...swapData, status: 'failed' },
+      });
+    });
+
+    if (status.status === 'transaction.claimed') {
+      this.storageProvider.deletePendingSubmarineSwap(swapData.response.id);
+    }
+
+    return status;
+  }
+
+  // validators
+
+  /**
+   * Validates the final Ark transaction.
+   * checks that all inputs have a signature for the given pubkey
+   * and the signature is correct for the given tapscript leaf
+   * TODO: This is a simplified check, we should verify the actual signatures
+   * @param finalArkTx The final Ark transaction in PSBT format.
+   * @param _pubkey The public key of the user.
+   * @param _tapLeaves The taproot script leaves.
+   * @returns True if the final Ark transaction is valid, false otherwise.
+   */
+  private validFinalArkTx = (finalArkTx: string, _pubkey?: Uint8Array, _tapLeaves?: TapLeafScript[]): boolean => {
+    // decode the final Ark transaction
+    const tx = Transaction.fromPSBT(base64.decode(finalArkTx), { allowUnknown: true });
+    if (!tx) return false;
+
+    // push all inputs to an array
+    const inputs: TransactionInput[] = [];
+    for (let i = 0; i < tx.inputsLength; i++) {
+      inputs.push(tx.getInput(i));
+    }
+
+    // basic check that all inputs have a witnessUtxo
+    // this is a simplified check, we should verify the actual signatures
+    return inputs.every((input) => input.witnessUtxo);
+  };
+
+  /**
+   * Creates a VHTLC script for the swap.
+   * works for submarine swaps and reverse swaps
+   * it creates a VHTLC script that can be used to claim or refund the swap
+   * it validates the receiver, sender and server public keys are x-only
+   * it validates the VHTLC script matches the expected lockup address
+   * @param param0 - The parameters for creating the VHTLC script.
+   * @returns The created VHTLC script.
+   */
   private async createVHTLC({
     network,
     preimage,
@@ -289,7 +446,7 @@ export class ArkadeLightning {
     }
 
     const vhtlcScript = new VHTLC.Script({
-      preimageHash: ripemd160(sha256(preimage)),
+      preimageHash: hash160(preimage),
       sender: senderXOnlyPublicKey,
       receiver: receiverXOnlyPublicKey,
       server: serverXOnlyPublicKey,
@@ -322,74 +479,13 @@ export class ArkadeLightning {
     return vhtlcScript;
   }
 
-  // create reverse submarine swap
-  private async createReverseSwap(args: { amountSats: number; description?: string }): Promise<CreateInvoiceResult> {
-    // create random preimage and its hash
-    const preimage = randomBytes(32);
-    const preimageHash = hex.encode(sha256(preimage));
-    if (!preimageHash) throw new SwapError('Failed to get preimage hash');
+  // utils
 
-    // make reverse swap request
-    const swapInfo = await this.swapProvider.createReverseSwap(
-      args.amountSats,
-      await this.wallet.getPublicKey(),
-      preimageHash
-    );
-
-    // return the swap info and the preimage
-    return { swapInfo, preimage: hex.encode(preimage) };
-  }
-
-  // pay to lightning = submarine swap
-  //
-  // 1. decode the invoice to get the amount and destination
-  // 2. create submarine swap with the decoded invoice
-  // 3. send the swap address and expected amount to the wallet to create a transaction
-  // 4. wait for the swap settlement and return the preimage and txid
-
-  async sendLightningPayment(args: PayInvoiceArgs): Promise<PaymentResult> {
-    const refundPubkey = await this.wallet.getPublicKey();
-    if (!refundPubkey) throw new SwapError('Failed to get refund public key from wallet');
-
-    const swapInfo = await this.swapProvider.createSubmarineSwap(args.invoice, refundPubkey);
-
-    if (!swapInfo.address || !swapInfo.expectedAmount) {
-      throw new SwapError('Invalid swap response from swap provider', {
-        swapData: swapInfo,
-      });
-    }
-
-    // validate max fee if provided
-    if (args.maxFeeSats) {
-      const invoiceAmount = this.decodeInvoice(args.invoice).amountSats;
-      const fees = swapInfo.expectedAmount - invoiceAmount;
-      if (fees > args.maxFeeSats) {
-        throw new SwapError(`Swap fees ${fees} exceed max allowed ${args.maxFeeSats}`);
-      }
-    }
-
-    // save swap info to storage
-    await this.storageProvider.saveSubmarineSwap({ status: 'pending', swapInfo });
-
-    // send funds to the swap address
-    const txid = await this.wallet.sendBitcoin(swapInfo.address, swapInfo.expectedAmount);
-
-    const finalStatus = await this.waitForSwapSettlement(swapInfo);
-
-    if (finalStatus.transaction?.preimage) {
-      await this.storageProvider.deleteSubmarineSwap({ swapInfo });
-      return {
-        preimage: finalStatus.transaction.preimage,
-        txid,
-      };
-    }
-
-    throw new SwapError('Swap settlement did not return a preimage', {
-      isRefundable: true,
-      swapData: { ...swapInfo, ...finalStatus },
-    });
-  }
-
+  /**
+   * Decodes a Lightning invoice.
+   * @param invoice - The Lightning invoice to decode.
+   * @returns The decoded invoice.
+   */
   decodeInvoice(invoice: string): DecodedInvoice {
     const decoded = bolt11.decode(invoice);
     const millisats = Number(decoded.sections.find((s) => s.name === 'amount')?.value ?? '0');
@@ -401,42 +497,40 @@ export class ArkadeLightning {
     };
   }
 
-  private async waitForSwapSettlement(swapInfo: CreateSubmarineSwapResponse): Promise<SwapStatusResponse> {
-    const status = await poll(
-      () => this.swapProvider.getSwapStatus(swapInfo.id),
-      (status) => status.status === 'transaction.claimed',
-      this.config.retryConfig.delayMs ?? 2000,
-      this.config.retryConfig.maxAttempts ?? 5
-    ).catch((err) => {
-      this.config.refundHandler.onRefundNeeded(swapInfo);
-      throw new SwapError(`Swap settlement failed: ${(err as Error).message}`, {
-        isRefundable: true,
-        swapData: swapInfo,
-      });
-    });
-
-    if (status.status === 'transaction.claimed') {
-      this.storageProvider.deleteSubmarineSwap({ swapInfo });
-    }
-
-    return status;
-  }
-
-  // utils
+  /**
+   * Retrieves all pending swaps, both reverse and submarine.
+   * This method retrieves pending reverse swaps and pending submarine swaps from the storage provider.
+   * It returns an object containing two arrays: reverseSwaps and submarineSwaps.
+   * Each array contains the pending swaps of the respective type.
+   * This method is useful for checking the status of all pending swaps in the system.
+   * @returns PendingSwaps - Returns all pending swaps, both reverse and submarine.
+   */
   async getPendingSwaps(): Promise<PendingSwaps> {
     return {
-      reverseSwaps: await this.getPendingReverseSwaps(),
+      reverseSwaps: await this.getPendingReverseSwapss(),
       submarineSwaps: await this.getPendingSubmarineSwaps(),
     };
   }
 
-  async getPendingSubmarineSwaps(): Promise<PayInvoiceResult[]> {
-    const swaps = await this.storageProvider.getSubmarineSwaps();
+  /**
+   * Retrieves all pending submarine swaps from the storage provider.
+   * This method filters the pending swaps to return only those with a status of 'pending'.
+   * It is useful for checking the status of all pending submarine swaps in the system.
+   * @returns PendingSubmarineSwap[]
+   */
+  async getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[]> {
+    const swaps = await this.storageProvider.getPendingSubmarineSwaps();
     return swaps.filter((swap) => swap.status === 'pending');
   }
 
-  async getPendingReverseSwaps(): Promise<CreateInvoiceResult[]> {
-    const swaps = await this.storageProvider.getReverseSwaps();
+  /**
+   * Retrieves all pending reverse swaps from the storage provider.
+   * This method filters the pending swaps to return only those with a status of 'pending'.
+   * It is useful for checking the status of all pending reverse swaps in the system.
+   * @returns PendingReverseSwap[]
+   */
+  async getPendingReverseSwapss(): Promise<PendingReverseSwap[]> {
+    const swaps = await this.storageProvider.getPendingReverseSwaps();
     return swaps.filter((swap) => swap.status === 'pending');
   }
 }

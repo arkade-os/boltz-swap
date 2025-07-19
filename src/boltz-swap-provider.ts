@@ -1,5 +1,5 @@
 import { fetch } from 'undici';
-import { NetworkError } from './errors';
+import { InvoiceExpiredError, NetworkError, SchemaError, SwapExpiredError, TransactionFailedError } from './errors';
 import { Network, SwapStatus } from './types';
 import { WebSocket } from 'ws';
 
@@ -89,6 +89,11 @@ export const isGetPairsResponse = (data: any): data is GetPairsResponse => {
   );
 };
 
+export type CreateSubmarineSwapRequest = {
+  invoice: string;
+  refundPublicKey: string;
+};
+
 export type CreateSubmarineSwapResponse = {
   id: string;
   address: string;
@@ -96,6 +101,7 @@ export type CreateSubmarineSwapResponse = {
   claimPublicKey: string;
   acceptZeroConf: boolean;
   timeoutBlockHeights: {
+    refund: number;
     unilateralClaim: number;
     unilateralRefund: number;
     unilateralRefundWithoutReceiver: number;
@@ -117,6 +123,12 @@ export const isCreateSubmarineSwapResponse = (data: any): data is CreateSubmarin
     typeof data.timeoutBlockHeights.unilateralRefund === 'number' &&
     typeof data.timeoutBlockHeights.unilateralRefundWithoutReceiver === 'number'
   );
+};
+
+export type CreateReverseSwapParams = {
+  claimPublicKey: string;
+  invoiceAmount: number;
+  preimageHash: string;
 };
 
 export type CreateReverseSwapResponse = {
@@ -173,7 +185,7 @@ export class BoltzSwapProvider {
 
   async getLimits(): Promise<LimitsResponse> {
     const response = await this.request<GetPairsResponse>('/v2/swap/submarine', 'GET');
-    if (!isGetPairsResponse(response)) throw new NetworkError(`Invalid response from API`);
+    if (!isGetPairsResponse(response)) throw new SchemaError('error fetching limits');
     return {
       min: response.ARK.BTC.limits.minimal,
       max: response.ARK.BTC.limits.maximal,
@@ -182,26 +194,29 @@ export class BoltzSwapProvider {
 
   async getSwapStatus(id: string): Promise<SwapStatusResponse> {
     const response = await this.request<SwapStatusResponse>(`/swap/${id}`, 'GET');
-    if (!isSwapStatusResponse(response)) throw new NetworkError('Invalid response from API');
+    if (!isSwapStatusResponse(response)) throw new SchemaError(`error fetching swap status for id: ${id}`);
     return response;
   }
 
-  async createSubmarineSwap(invoice: string, refundPublicKey: string): Promise<CreateSubmarineSwapResponse> {
+  async createSubmarineSwap({
+    invoice,
+    refundPublicKey,
+  }: CreateSubmarineSwapRequest): Promise<CreateSubmarineSwapResponse> {
     const response = await this.request<CreateSubmarineSwapResponse>('/v2/swap/submarine', 'POST', {
       from: 'ARK',
       to: 'BTC',
       invoice,
       refundPublicKey,
     });
-    if (!isCreateSubmarineSwapResponse(response)) throw new NetworkError('Invalid response from API');
+    if (!isCreateSubmarineSwapResponse(response)) throw new SchemaError('Error creating submarine swap');
     return response;
   }
 
-  async createReverseSwap(
-    invoiceAmount: number,
-    claimPublicKey: string,
-    preimageHash: string
-  ): Promise<CreateReverseSwapResponse> {
+  async createReverseSwap({
+    invoiceAmount,
+    claimPublicKey,
+    preimageHash,
+  }: CreateReverseSwapParams): Promise<CreateReverseSwapResponse> {
     const response = await this.request<CreateReverseSwapResponse>('/v2/swap/reverse', 'POST', {
       from: 'BTC',
       to: 'ARK',
@@ -209,8 +224,7 @@ export class BoltzSwapProvider {
       claimPublicKey,
       preimageHash,
     });
-    if (!isCreateReverseSwapResponse(response)) throw new NetworkError('Invalid response from API');
-    if (!response.invoice) throw new NetworkError('Failed to create reverse swap invoice');
+    if (!isCreateReverseSwapResponse(response)) throw new SchemaError('Error creating reverse swap');
     return response;
   }
 
@@ -219,7 +233,7 @@ export class BoltzSwapProvider {
 
     webSocket.onerror = (error) => {
       console.error('WebSocket error:', error);
-      update('failed', 'WebSocket connection failed');
+      update('failed', new NetworkError('WebSocket connection failed'));
     };
 
     webSocket.onopen = () => {
@@ -240,13 +254,13 @@ export class BoltzSwapProvider {
 
       if (msg.args[0].error) {
         webSocket.close();
-        update('failed', `WebSocket error message received: ${msg.args[0].error}`);
+        update('failed', new NetworkError(`WebSocket error: ${msg.args[0].error}`));
       }
 
       switch (msg.args[0].status as SwapStages) {
         case 'swap.created': {
           console.log('Waiting for invoice to be paid');
-          update('pending');
+          update('created');
           break;
         }
 
@@ -255,38 +269,38 @@ export class BoltzSwapProvider {
         case 'transaction.mempool':
         case 'transaction.confirmed': {
           console.log('Transaction is in mempool or confirmed');
-          update('claimable');
+          update('pending');
           break;
         }
 
         case 'invoice.settled': {
           webSocket.close();
           console.log('Invoice was settled');
-          update('completed');
+          update('settled');
           break;
         }
 
         case 'invoice.expired': {
           webSocket.close();
-          update('failed', 'Invoice expired');
+          update('failed', new InvoiceExpiredError());
           break;
         }
 
         case 'swap.expired': {
           webSocket.close();
-          update('failed', 'Swap expired');
+          update('failed', new SwapExpiredError());
           break;
         }
 
         case 'transaction.failed': {
           webSocket.close();
-          update('failed', 'Transaction failed');
+          update('failed', new TransactionFailedError());
           break;
         }
 
         case 'transaction.refunded': {
           webSocket.close();
-          update('failed', 'Transaction refunded');
+          update('refunded');
         }
       }
     };

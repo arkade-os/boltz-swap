@@ -2,8 +2,9 @@ import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
 import {
   CreateReverseSwapResponse,
   CreateSubmarineSwapResponse,
-  SwapStatusResponse,
   BoltzSwapProvider,
+  CreateReverseSwapParams,
+  CreateSubmarineSwapRequest,
 } from './boltz-swap-provider';
 
 // TODO: replace with better data structure
@@ -33,7 +34,7 @@ export type Network = 'mainnet' | 'testnet' | 'regtest';
 
 export interface CreateInvoiceResult {
   preimage: string;
-  status?: 'pending' | 'claimable' | 'completed' | 'failed';
+  status?: SwapStatus;
   swapInfo: CreateReverseSwapResponse;
 }
 export interface PayInvoiceArgs {
@@ -42,7 +43,7 @@ export interface PayInvoiceArgs {
 }
 
 export interface PayInvoiceResult {
-  status?: 'pending' | 'claimable' | 'completed' | 'failed';
+  status?: SwapStatus;
   swapInfo: CreateSubmarineSwapResponse;
 }
 
@@ -51,17 +52,28 @@ export interface PaymentResult {
   txid: string;
 }
 
-export interface PendingSwaps {
-  reverseSwaps: CreateInvoiceResult[];
-  submarineSwaps: PayInvoiceResult[];
+export interface PendingReverseSwap {
+  preimage: string;
+  request: CreateReverseSwapParams;
+  response: CreateReverseSwapResponse;
+  status: SwapStatus;
 }
 
-export type SwapData = CreateSubmarineSwapResponse | CreateReverseSwapResponse | SwapStatusResponse;
+export interface PendingSubmarineSwap {
+  request: CreateSubmarineSwapRequest;
+  response: CreateSubmarineSwapResponse;
+  status: SwapStatus;
+}
 
-export type SwapStatus = 'pending' | 'claimable' | 'completed' | 'failed';
+export interface PendingSwaps {
+  reverseSwaps: PendingReverseSwap[];
+  submarineSwaps: PendingSubmarineSwap[];
+}
+
+export type SwapStatus = 'pending' | 'created' | 'refundable' | 'refunded' | 'settled' | 'failed';
 
 export interface RefundHandler {
-  onRefundNeeded: (swapData: CreateSubmarineSwapResponse) => Promise<void>;
+  onRefundNeeded: (swapData: PendingSubmarineSwap) => Promise<void>;
 }
 
 export interface ArkadeLightningConfig {
@@ -100,8 +112,8 @@ export interface DecodedInvoice {
 
 export interface IncomingPaymentSubscription {
   on(event: 'pending', listener: () => void): this;
-  on(event: 'claimable', listener: () => void): this;
-  on(event: 'completed', listener: () => void): this;
+  on(event: 'created', listener: () => void): this;
+  on(event: 'settled', listener: () => void): this;
   on(event: 'failed', listener: (error: Error) => void): this;
   unsubscribe(): void;
 }
