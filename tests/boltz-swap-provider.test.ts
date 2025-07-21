@@ -135,6 +135,7 @@ describe('BoltzSwapProvider', () => {
         claimPublicKey: 'mock-claimPublicKey',
         acceptZeroConf: true,
         timeoutBlockHeights: {
+          refund: 17,
           unilateralClaim: 21,
           unilateralRefund: 42,
           unilateralRefundWithoutReceiver: 63,
@@ -185,6 +186,7 @@ describe('BoltzSwapProvider', () => {
         lockupAddress: 'mock-lockupAddress',
         refundPublicKey: 'mock-refundPublicKey',
         timeoutBlockHeights: {
+          refund: 17,
           unilateralClaim: 21,
           unilateralRefund: 42,
           unilateralRefundWithoutReceiver: 63,

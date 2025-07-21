@@ -36,7 +36,7 @@ const wallet = await Wallet.create({
 // Initialize the Lightning swap provider
 const swapProvider = new BoltzSwapProvider({
   apiUrl: 'https://api.boltz.exchange',
-  network: 'mainnet',
+  network: 'bitcoin',
 });
 
 // Create the ArkadeLightning instance

@@ -31,7 +31,6 @@ import {
   BoltzSwapProvider,
   CreateSubmarineSwapRequest,
   CreateReverseSwapParams,
-  isCreateReverseSwapResponse,
 } from './boltz-swap-provider';
 import { IncomingPaymentSubscription } from '.';
 import EventEmitter from 'events';
@@ -65,16 +64,11 @@ export class ArkadeLightning {
   private readonly indexerProvider: RestIndexerProvider;
   private readonly config: Required<ArkadeLightningConfig>;
 
-  constructor(config: ArkadeLightningConfig) {
-    if (!config.wallet) throw new Error('Wallet is required.');
-    if (!config.arkProvider) throw new Error('Ark provider is required.');
-    if (!config.swapProvider) throw new Error('Swap provider is required.');
-    if (!config.indexerProvider) throw new Error('Indexer provider is required.');
-
+  private constructor(config: ArkadeLightningConfig, storageProvider: StorageProvider) {
     this.wallet = config.wallet;
     this.arkProvider = config.arkProvider;
     this.swapProvider = config.swapProvider;
-    this.storageProvider = new StorageProvider();
+    this.storageProvider = storageProvider;
     this.indexerProvider = config.indexerProvider;
     this.config = {
       ...config,
@@ -83,6 +77,15 @@ export class ArkadeLightning {
       feeConfig: { ...DEFAULT_FEE_CONFIG, ...config.feeConfig },
       retryConfig: { ...DEFAULT_RETRY_CONFIG, ...config.retryConfig },
     } as Required<ArkadeLightningConfig>;
+  }
+
+  static async create(config: ArkadeLightningConfig): Promise<ArkadeLightning> {
+    if (!config.wallet) throw new Error('Wallet is required.');
+    if (!config.arkProvider) throw new Error('Ark provider is required.');
+    if (!config.swapProvider) throw new Error('Swap provider is required.');
+    if (!config.indexerProvider) throw new Error('Indexer provider is required.');
+    const storageProvider = await StorageProvider.create();
+    return new ArkadeLightning(config, storageProvider);
   }
 
   // receive from lightning = reverse submarine swap
@@ -95,16 +98,16 @@ export class ArkadeLightning {
   async createLightningInvoice(args: { amountSats: number; description?: string }): Promise<CreateInvoiceResult> {
     return new Promise((resolve, reject) => {
       this.createReverseSwap(args)
-        .then((result) => {
-          const subscription = this.monitorIncomingPayment(result);
-          subscription.on('failed', () => reject(new Error('Swap failed')));
-          subscription.on('created', () => this.storageProvider.savePendingReverseSwap(result));
-          subscription.on('pending', () => this.claimVHTLC(result));
+        .then((swapResponse) => {
+          const subscription = this.monitorIncomingPayment(swapResponse);
+          subscription.on('failed', () => reject(new SwapError('Swap failed')));
+          subscription.on('created', () => this.storageProvider.savePendingReverseSwap(swapResponse));
+          subscription.on('pending', () => this.claimVHTLC(swapResponse));
           subscription.on('settled', () => {
-            this.storageProvider.deletePendingReverseSwap(result.response.id);
+            this.storageProvider.deletePendingReverseSwap(swapResponse.response.id);
             resolve({
-              swapInfo: result.response,
-              preimage: result.preimage,
+              swapInfo: swapResponse.response,
+              preimage: swapResponse.preimage,
             });
           });
         })
@@ -298,18 +301,6 @@ export class ArkadeLightning {
 
     const swapResponse = await this.swapProvider.createSubmarineSwap(swapRequest);
 
-    const swapData: PendingSubmarineSwap = {
-      status: 'pending',
-      request: swapRequest,
-      response: swapResponse,
-    };
-
-    if (!isCreateReverseSwapResponse(swapResponse)) {
-      throw new SwapError('Invalid swap response from swap provider', {
-        swapData: { ...swapData, status: 'failed' },
-      });
-    }
-
     // validate max fee if provided
     if (args.maxFeeSats) {
       const invoiceAmount = this.decodeInvoice(args.invoice).amountSats;
@@ -318,6 +309,12 @@ export class ArkadeLightning {
         throw new SwapError(`Swap fees ${fees} exceed max allowed ${args.maxFeeSats}`);
       }
     }
+
+    const swapData: PendingSubmarineSwap = {
+      status: 'pending',
+      request: swapRequest,
+      response: swapResponse,
+    };
 
     // save swap info to storage
     await this.storageProvider.savePendingSubmarineSwap(swapData);

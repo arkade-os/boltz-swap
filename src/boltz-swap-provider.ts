@@ -156,6 +156,7 @@ export const isCreateReverseSwapResponse = (data: any): data is CreateReverseSwa
     typeof data.refundPublicKey === 'string' &&
     data.timeoutBlockHeights &&
     typeof data.timeoutBlockHeights === 'object' &&
+    typeof data.timeoutBlockHeights.refund === 'number' &&
     typeof data.timeoutBlockHeights.unilateralClaim === 'number' &&
     typeof data.timeoutBlockHeights.unilateralRefund === 'number' &&
     typeof data.timeoutBlockHeights.unilateralRefundWithoutReceiver === 'number'
@@ -163,7 +164,7 @@ export const isCreateReverseSwapResponse = (data: any): data is CreateReverseSwa
 };
 
 const BASE_URLS: Record<Network, string> = {
-  mainnet: 'https://api.boltz.exchange',
+  bitcoin: 'https://api.boltz.exchange',
   testnet: 'https://api.testnet.boltz.exchange',
   regtest: 'http://localhost:9090',
 };
@@ -224,6 +225,7 @@ export class BoltzSwapProvider {
       claimPublicKey,
       preimageHash,
     });
+    console.log('createReverseSwap response:', response);
     if (!isCreateReverseSwapResponse(response)) throw new SchemaError('Error creating reverse swap');
     return response;
   }
@@ -301,6 +303,7 @@ export class BoltzSwapProvider {
         case 'transaction.refunded': {
           webSocket.close();
           update('refunded');
+          break;
         }
       }
     };

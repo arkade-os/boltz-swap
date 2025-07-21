@@ -30,7 +30,7 @@ export interface Wallet {
   signerSession(): any;
 }
 
-export type Network = 'mainnet' | 'testnet' | 'regtest';
+export type Network = 'bitcoin' | 'testnet' | 'regtest';
 
 export interface CreateInvoiceResult {
   preimage: string;

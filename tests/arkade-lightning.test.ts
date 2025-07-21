@@ -23,7 +23,7 @@ describe('ArkadeLightning', () => {
     'zsrgtz8sxdym7yedew6v2jyfswg9zeqetpj2yw3f52ny77c5xsrg' +
     '53q9273vvmwhc6p0gucz2av5gtk3esevk0cfhyvzgxgpgyyavt';
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
 
     // Basic mock wallet implementation
@@ -43,7 +43,7 @@ describe('ArkadeLightning', () => {
     arkProvider = new RestArkProvider('http://localhost:7070');
     swapProvider = new BoltzSwapProvider({ network: 'regtest' });
     indexerProvider = new RestIndexerProvider('http://localhost:7070');
-    lightning = new ArkadeLightning({ wallet: mockWallet, arkProvider, swapProvider, indexerProvider });
+    lightning = await ArkadeLightning.create({ wallet: mockWallet, arkProvider, swapProvider, indexerProvider });
   });
 
   afterEach(() => {
@@ -54,16 +54,18 @@ describe('ArkadeLightning', () => {
     expect(lightning).toBeInstanceOf(ArkadeLightning);
   });
 
-  it('should fail to instantiate without required config', () => {
-    expect(() => new ArkadeLightning({} as any)).toThrow('Wallet is required.');
-    expect(() => new ArkadeLightning({ wallet: mockWallet } as any)).toThrow('Ark provider is required.');
-    expect(() => new ArkadeLightning({ wallet: mockWallet, arkProvider } as any)).toThrow('Swap provider is required.');
-    expect(() => new ArkadeLightning({ wallet: mockWallet, arkProvider, swapProvider } as any)).toThrow(
+  it('should fail to instantiate without required config', async () => {
+    await expect(ArkadeLightning.create({} as any)).rejects.toThrow('Wallet is required.');
+    await expect(ArkadeLightning.create({ wallet: mockWallet } as any)).rejects.toThrow('Ark provider is required.');
+    await expect(ArkadeLightning.create({ wallet: mockWallet, arkProvider } as any)).rejects.toThrow(
+      'Swap provider is required.'
+    );
+    await expect(ArkadeLightning.create({ wallet: mockWallet, arkProvider, swapProvider } as any)).rejects.toThrow(
       'Indexer provider is required.'
     );
-    expect(
-      () => new ArkadeLightning({ wallet: mockWallet, swapProvider, arkProvider, indexerProvider } as any)
-    ).not.toThrow();
+    await expect(
+      ArkadeLightning.create({ wallet: mockWallet, swapProvider, arkProvider, indexerProvider } as any)
+    ).resolves.not.toThrow();
   });
 
   it('should have expected interface methods', () => {
@@ -99,7 +101,7 @@ describe('ArkadeLightning', () => {
     vi.spyOn(swapProvider, 'createSubmarineSwap').mockResolvedValueOnce({
       id: 'mock-id',
       address: 'mock-address',
-      expectedAmount: 3000000,
+      expectedAmount: 21000,
       claimPublicKey: 'mock-claimPublicKey',
       acceptZeroConf: true,
       timeoutBlockHeights: {
@@ -120,7 +122,7 @@ describe('ArkadeLightning', () => {
     // act
     const result = await lightning.sendLightningPayment({ invoice });
     // assert
-    expect(mockWallet.sendBitcoin).toHaveBeenCalledWith('mock-address', 3000000);
+    expect(mockWallet.sendBitcoin).toHaveBeenCalledWith('mock-address', 21000);
     expect(result).toHaveProperty('txid');
     expect(result).toHaveProperty('preimage');
     expect(result.txid).toBe('mock-txid');
@@ -158,7 +160,7 @@ describe('ArkadeLightning', () => {
     // act
     const result = await lightning.createLightningInvoice({ amountSats: 21000, description: 'Test invoice' });
     // assert
-    expect(lightning.claimVHTLC).toHaveBeenCalledWith('mock-address', 3000000);
+    expect(lightning.claimVHTLC).toHaveBeenCalledWith('mock-address', 21000);
     expect(result).toHaveProperty('status');
     expect(result).toHaveProperty('preimage');
     expect(result.status).toBe('transaction.claimed');

@@ -14,8 +14,9 @@ class Storage {
   private isBrowser: boolean;
   private storagePath: string;
   private localStorage: any;
+  private initPromise?: Promise<void>;
 
-  constructor(options: StorageOptions = {}) {
+  private constructor(options: StorageOptions = {}) {
     this.storage = null;
     this.storagePath = options.storagePath || './storage.json';
     this.isBrowser =
@@ -25,9 +26,13 @@ class Storage {
 
     if (this.isBrowser) {
       this.localStorage = (globalThis as any).window.localStorage;
-    } else {
-      this.initializeFileStorage();
     }
+  }
+
+  static async create(options: StorageOptions = {}): Promise<Storage> {
+    const storage = new Storage(options);
+    if (!storage.isBrowser) await storage.initializeFileStorage();
+    return storage;
   }
 
   async initializeFileStorage() {
@@ -92,7 +97,10 @@ class Storage {
 
   async ensureInitialized() {
     if (!this.isBrowser && !this.storage) {
-      await this.initializeFileStorage();
+      if (!this.initPromise) {
+        this.initPromise = this.initializeFileStorage();
+      }
+      await this.initPromise;
     }
   }
 }
@@ -101,13 +109,19 @@ export class StorageProvider {
   private storageInstance: Storage;
   private storage: PendingSwaps;
 
-  constructor() {
+  private constructor(instance: Storage) {
+    this.storageInstance = instance;
     this.storage = {
       reverseSwaps: [],
       submarineSwaps: [],
     };
-    this.storageInstance = new Storage();
-    this.initializeStorage();
+  }
+
+  static async create(options: StorageOptions = {}): Promise<StorageProvider> {
+    const storageInstance = await Storage.create(options);
+    const storage = new StorageProvider(storageInstance);
+    await storage.initializeStorage();
+    return storage;
   }
 
   getPendingReverseSwaps(): PendingReverseSwap[] {
