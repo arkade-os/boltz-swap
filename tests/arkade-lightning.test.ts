@@ -237,8 +237,8 @@ describe('ArkadeLightning', () => {
     // Mock the monitorIncomingPayment method to simulate the WebSocket events
     vi.spyOn(lightning, 'monitorIncomingPayment').mockImplementationOnce((pendingSwap) => {
       const mockEmitter = {
-        listeners: {} as Record<string, Function[]>,
-        on(event: string, listener: Function) {
+        listeners: {} as Record<string, ((...args: any[]) => void)[]>,
+        on(event: string, listener: (...args: any[]) => void) {
           if (!this.listeners[event]) this.listeners[event] = [];
           this.listeners[event].push(listener);
           return this;
