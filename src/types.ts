@@ -1,4 +1,5 @@
 import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
+import { StorageProvider } from './storage-provider';
 import {
   CreateReverseSwapResponse,
   CreateSubmarineSwapResponse,
@@ -78,12 +79,13 @@ export interface RefundHandler {
 
 export interface ArkadeLightningConfig {
   wallet: Wallet;
-  indexerProvider: RestIndexerProvider;
-  swapProvider: BoltzSwapProvider;
   arkProvider: RestArkProvider;
-  refundHandler?: RefundHandler;
-  timeoutConfig?: Partial<TimeoutConfig>;
+  swapProvider: BoltzSwapProvider;
+  indexerProvider: RestIndexerProvider;
   feeConfig?: Partial<FeeConfig>;
+  refundHandler?: RefundHandler;
+  storageProvider?: StorageProvider | null;
+  timeoutConfig?: Partial<TimeoutConfig>;
   retryConfig?: Partial<RetryConfig>;
 }
 

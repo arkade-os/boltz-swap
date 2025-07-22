@@ -225,7 +225,6 @@ export class BoltzSwapProvider {
       claimPublicKey,
       preimageHash,
     });
-    console.log('createReverseSwap response:', response);
     if (!isCreateReverseSwapResponse(response)) throw new SchemaError('Error creating reverse swap');
     return response;
   }

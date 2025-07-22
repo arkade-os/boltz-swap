@@ -197,9 +197,17 @@ export class StorageProvider {
   }
 
   private async initializeStorage(): Promise<void> {
-    this.storage = {
-      reverseSwaps: (await this.get(KEY_REVERSE_SWAPS)) as PendingReverseSwap[],
-      submarineSwaps: (await this.get(KEY_SUBMARINE_SWAPS)) as PendingSubmarineSwap[],
-    };
+    try {
+      this.storage = {
+        reverseSwaps: (await this.get(KEY_REVERSE_SWAPS)) as PendingReverseSwap[],
+        submarineSwaps: (await this.get(KEY_SUBMARINE_SWAPS)) as PendingSubmarineSwap[],
+      };
+    } catch (error) {
+      console.error('Failed to initialize storage:', error);
+      this.storage = {
+        reverseSwaps: [],
+        submarineSwaps: [],
+      };
+    }
   }
 }

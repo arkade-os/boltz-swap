@@ -60,15 +60,19 @@ export class ArkadeLightning {
   private readonly wallet: Wallet;
   private readonly arkProvider: RestArkProvider;
   private readonly swapProvider: BoltzSwapProvider;
-  private readonly storageProvider: StorageProvider;
+  private readonly storageProvider: StorageProvider | null;
   private readonly indexerProvider: RestIndexerProvider;
   private readonly config: Required<ArkadeLightningConfig>;
 
-  private constructor(config: ArkadeLightningConfig, storageProvider: StorageProvider) {
+  constructor(config: ArkadeLightningConfig) {
+    if (!config.wallet) throw new Error('Wallet is required.');
+    if (!config.arkProvider) throw new Error('Ark provider is required.');
+    if (!config.swapProvider) throw new Error('Swap provider is required.');
+    if (!config.indexerProvider) throw new Error('Indexer provider is required.');
     this.wallet = config.wallet;
     this.arkProvider = config.arkProvider;
     this.swapProvider = config.swapProvider;
-    this.storageProvider = storageProvider;
+    this.storageProvider = config.storageProvider ?? null;
     this.indexerProvider = config.indexerProvider;
     this.config = {
       ...config,
@@ -77,15 +81,6 @@ export class ArkadeLightning {
       feeConfig: { ...DEFAULT_FEE_CONFIG, ...config.feeConfig },
       retryConfig: { ...DEFAULT_RETRY_CONFIG, ...config.retryConfig },
     } as Required<ArkadeLightningConfig>;
-  }
-
-  static async create(config: ArkadeLightningConfig): Promise<ArkadeLightning> {
-    if (!config.wallet) throw new Error('Wallet is required.');
-    if (!config.arkProvider) throw new Error('Ark provider is required.');
-    if (!config.swapProvider) throw new Error('Swap provider is required.');
-    if (!config.indexerProvider) throw new Error('Indexer provider is required.');
-    const storageProvider = await StorageProvider.create();
-    return new ArkadeLightning(config, storageProvider);
   }
 
   // receive from lightning = reverse submarine swap
@@ -101,10 +96,10 @@ export class ArkadeLightning {
         .then((swapResponse) => {
           const subscription = this.monitorIncomingPayment(swapResponse);
           subscription.on('failed', () => reject(new SwapError('Swap failed')));
-          subscription.on('created', () => this.storageProvider.savePendingReverseSwap(swapResponse));
+          subscription.on('created', () => this.storageProvider?.savePendingReverseSwap(swapResponse));
           subscription.on('pending', () => this.claimVHTLC(swapResponse));
           subscription.on('settled', () => {
-            this.storageProvider.deletePendingReverseSwap(swapResponse.response.id);
+            this.storageProvider?.deletePendingReverseSwap(swapResponse.response.id);
             resolve({
               swapInfo: swapResponse.response,
               preimage: swapResponse.preimage,
@@ -317,7 +312,7 @@ export class ArkadeLightning {
     };
 
     // save swap info to storage
-    await this.storageProvider.savePendingSubmarineSwap(swapData);
+    await this.storageProvider?.savePendingSubmarineSwap(swapData);
 
     // send funds to the swap address
     const txid = await this.wallet.sendBitcoin(swapResponse.address, swapResponse.expectedAmount);
@@ -325,7 +320,7 @@ export class ArkadeLightning {
     const finalStatus = await this.waitForSwapSettlement(swapData);
 
     if (finalStatus.transaction?.preimage) {
-      await this.storageProvider.deletePendingSubmarineSwap(swapResponse.id);
+      await this.storageProvider?.deletePendingSubmarineSwap(swapResponse.id);
       return {
         preimage: finalStatus.transaction.preimage,
         txid,
@@ -357,8 +352,8 @@ export class ArkadeLightning {
       });
     });
 
-    if (status.status === 'transaction.claimed') {
-      this.storageProvider.deletePendingSubmarineSwap(swapData.response.id);
+    if (status.status === 'transaction.claimed' && this.storageProvider) {
+      await this.storageProvider.deletePendingSubmarineSwap(swapData.response.id);
     }
 
     return status;
@@ -504,8 +499,8 @@ export class ArkadeLightning {
    */
   async getPendingSwaps(): Promise<PendingSwaps> {
     return {
-      reverseSwaps: await this.getPendingReverseSwapss(),
-      submarineSwaps: await this.getPendingSubmarineSwaps(),
+      reverseSwaps: this.getPendingReverseSwaps(),
+      submarineSwaps: this.getPendingSubmarineSwaps(),
     };
   }
 
@@ -515,8 +510,9 @@ export class ArkadeLightning {
    * It is useful for checking the status of all pending submarine swaps in the system.
    * @returns PendingSubmarineSwap[]
    */
-  async getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[]> {
-    const swaps = await this.storageProvider.getPendingSubmarineSwaps();
+  getPendingSubmarineSwaps(): PendingSubmarineSwap[] {
+    if (!this.storageProvider) return [];
+    const swaps = this.storageProvider.getPendingSubmarineSwaps();
     return swaps.filter((swap) => swap.status === 'pending');
   }
 
@@ -526,8 +522,9 @@ export class ArkadeLightning {
    * It is useful for checking the status of all pending reverse swaps in the system.
    * @returns PendingReverseSwap[]
    */
-  async getPendingReverseSwapss(): Promise<PendingReverseSwap[]> {
-    const swaps = await this.storageProvider.getPendingReverseSwaps();
+  getPendingReverseSwaps(): PendingReverseSwap[] {
+    if (!this.storageProvider) return [];
+    const swaps = this.storageProvider.getPendingReverseSwaps();
     return swaps.filter((swap) => swap.status === 'pending');
   }
 }

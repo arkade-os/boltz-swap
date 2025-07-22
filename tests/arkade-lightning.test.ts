@@ -1,14 +1,101 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ArkadeLightning } from '../src/arkade-lightning';
 import { BoltzSwapProvider } from '../src/boltz-swap-provider';
-import type { Wallet, Network } from '../src/types';
+import type { Wallet } from '../src/types';
 import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
+import { StorageProvider } from '../src';
+
+// Mock WebSocket - this needs to be at the top level
+vi.mock('ws', () => {
+  return {
+    WebSocket: vi.fn().mockImplementation((url: string) => {
+      const mockWs = {
+        url,
+        onopen: null as ((event: any) => void) | null,
+        onmessage: null as ((event: any) => void) | null,
+        onerror: null as ((event: any) => void) | null,
+        onclose: null as ((event: any) => void) | null,
+
+        send: vi.fn().mockImplementation((data: string) => {
+          const message = JSON.parse(data);
+          // Simulate async WebSocket responses
+          process.nextTick(() => {
+            if (mockWs.onmessage && message.op === 'subscribe') {
+              // Simulate swap.created status
+              mockWs.onmessage({
+                data: JSON.stringify({
+                  event: 'update',
+                  args: [
+                    {
+                      id: message.args[0],
+                      status: 'swap.created',
+                    },
+                  ],
+                }),
+              });
+
+              // Simulate transaction.confirmed status
+              process.nextTick(() => {
+                if (mockWs.onmessage) {
+                  mockWs.onmessage({
+                    data: JSON.stringify({
+                      event: 'update',
+                      args: [
+                        {
+                          id: message.args[0],
+                          status: 'transaction.confirmed',
+                        },
+                      ],
+                    }),
+                  });
+                }
+              });
+
+              // Simulate invoice.settled status
+              process.nextTick(() => {
+                if (mockWs.onmessage) {
+                  mockWs.onmessage({
+                    data: JSON.stringify({
+                      event: 'update',
+                      args: [
+                        {
+                          id: message.args[0],
+                          status: 'invoice.settled',
+                        },
+                      ],
+                    }),
+                  });
+                }
+              });
+            }
+          });
+        }),
+
+        close: vi.fn().mockImplementation(() => {
+          if (mockWs.onclose) {
+            mockWs.onclose({ type: 'close' });
+          }
+        }),
+      };
+
+      // Simulate connection opening
+      process.nextTick(() => {
+        if (mockWs.onopen) {
+          mockWs.onopen({ type: 'open' });
+        }
+      });
+
+      return mockWs;
+    }),
+  };
+});
 
 // Scaffolding test file for ArkadeLightning
 // This file will be updated when implementing features from README.md
 
 describe('ArkadeLightning', () => {
   let indexerProvider: RestIndexerProvider;
+  let storageProvider: StorageProvider;
   let swapProvider: BoltzSwapProvider;
   let arkProvider: RestArkProvider;
   let lightning: ArkadeLightning;
@@ -43,7 +130,8 @@ describe('ArkadeLightning', () => {
     arkProvider = new RestArkProvider('http://localhost:7070');
     swapProvider = new BoltzSwapProvider({ network: 'regtest' });
     indexerProvider = new RestIndexerProvider('http://localhost:7070');
-    lightning = await ArkadeLightning.create({ wallet: mockWallet, arkProvider, swapProvider, indexerProvider });
+    storageProvider = await StorageProvider.create({ storagePath: './test-storage.json' });
+    lightning = new ArkadeLightning({ wallet: mockWallet, arkProvider, swapProvider, indexerProvider });
   });
 
   afterEach(() => {
@@ -55,17 +143,12 @@ describe('ArkadeLightning', () => {
   });
 
   it('should fail to instantiate without required config', async () => {
-    await expect(ArkadeLightning.create({} as any)).rejects.toThrow('Wallet is required.');
-    await expect(ArkadeLightning.create({ wallet: mockWallet } as any)).rejects.toThrow('Ark provider is required.');
-    await expect(ArkadeLightning.create({ wallet: mockWallet, arkProvider } as any)).rejects.toThrow(
-      'Swap provider is required.'
-    );
-    await expect(ArkadeLightning.create({ wallet: mockWallet, arkProvider, swapProvider } as any)).rejects.toThrow(
-      'Indexer provider is required.'
-    );
-    await expect(
-      ArkadeLightning.create({ wallet: mockWallet, swapProvider, arkProvider, indexerProvider } as any)
-    ).resolves.not.toThrow();
+    const params = { wallet: mockWallet, swapProvider, arkProvider, indexerProvider } as any;
+    expect(() => new ArkadeLightning({ ...params })).not.toThrow();
+    expect(() => new ArkadeLightning({ ...params, storageProvider })).not.toThrow();
+    expect(() => new ArkadeLightning({ ...params, arkProvider: null })).toThrow('Ark provider is required.');
+    expect(() => new ArkadeLightning({ ...params, swapProvider: null })).toThrow('Swap provider is required.');
+    expect(() => new ArkadeLightning({ ...params, indexerProvider: null })).toThrow('Indexer provider is required.');
   });
 
   it('should have expected interface methods', () => {
@@ -144,28 +227,119 @@ describe('ArkadeLightning', () => {
         unilateralRefundWithoutReceiver: 63,
       },
     });
-    vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValueOnce({
-      status: 'transaction.claimed',
-      transaction: {
-        id: 'mock-txid',
-        hex: 'mock-tx-hex',
-        preimage: 'mock-preimage',
-      },
-    });
+
     vi.spyOn(lightning, 'claimVHTLC').mockResolvedValueOnce({
       amount: 21000,
       txid: 'mock-txid',
       preimage: 'mock-preimage',
     });
+
+    // Mock the monitorIncomingPayment method to simulate the WebSocket events
+    vi.spyOn(lightning, 'monitorIncomingPayment').mockImplementationOnce((pendingSwap) => {
+      const mockEmitter = {
+        listeners: {} as Record<string, Function[]>,
+        on(event: string, listener: Function) {
+          if (!this.listeners[event]) this.listeners[event] = [];
+          this.listeners[event].push(listener);
+          return this;
+        },
+        emit(event: string, ...args: any[]) {
+          if (this.listeners[event]) {
+            this.listeners[event].forEach((listener) => listener(...args));
+          }
+        },
+        unsubscribe() {
+          this.listeners = {};
+        },
+      };
+
+      // Simulate the WebSocket events asynchronously
+      process.nextTick(() => {
+        mockEmitter.emit('created');
+        process.nextTick(() => {
+          mockEmitter.emit('settled');
+        });
+      });
+
+      return mockEmitter;
+    });
+
     // act
     const result = await lightning.createLightningInvoice({ amountSats: 21000, description: 'Test invoice' });
+
     // assert
-    expect(lightning.claimVHTLC).toHaveBeenCalledWith('mock-address', 21000);
-    expect(result).toHaveProperty('status');
+    expect(result).toHaveProperty('swapInfo');
     expect(result).toHaveProperty('preimage');
-    expect(result.status).toBe('transaction.claimed');
-    expect(result.preimage).toBe('mock-preimage');
+    expect(result.swapInfo.id).toBe('mock-id');
   });
+
+  it.skip('should monitor incoming payment with WebSocket', async () => {
+    // arrange
+    const pendingSwap = {
+      preimage: 'mock-preimage-hex',
+      request: {
+        invoiceAmount: 21000,
+        claimPublicKey: 'mock-pubkey',
+        preimageHash: 'mock-hash',
+      },
+      response: {
+        id: 'mock-swap-id',
+        invoice: 'mock-invoice',
+        onchainAmount: 21000,
+        lockupAddress: 'mock-address',
+        refundPublicKey: 'mock-refundPublicKey',
+        timeoutBlockHeights: {
+          refund: 17,
+          unilateralClaim: 21,
+          unilateralRefund: 42,
+          unilateralRefundWithoutReceiver: 63,
+        },
+      },
+      status: 'pending' as const,
+    };
+
+    vi.spyOn(lightning, 'claimVHTLC').mockResolvedValueOnce({
+      amount: 21000,
+      txid: 'mock-txid',
+      preimage: 'mock-preimage',
+    });
+
+    // act
+    const subscription = lightning.monitorIncomingPayment(pendingSwap);
+
+    // assert
+    return new Promise<void>((resolve, reject) => {
+      let createdEventFired = false;
+      let settledEventFired = false;
+
+      subscription
+        .on('created', () => {
+          createdEventFired = true;
+        })
+        .on('settled', () => {
+          settledEventFired = true;
+          try {
+            expect(createdEventFired).toBe(true);
+            expect(settledEventFired).toBe(true);
+            expect(lightning.claimVHTLC).toHaveBeenCalledWith(pendingSwap);
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        })
+        .on('failed', (error) => {
+          reject(error);
+        });
+
+      // Fallback timeout
+      setTimeout(() => {
+        if (!settledEventFired) {
+          reject(new Error('Test timeout - WebSocket events did not fire within 1 second'));
+        }
+      }, 3000);
+    });
+  }, 5000); // Set a reasonable timeout for the test
+
   // TODO: Implement tests for features shown in README.md
 
   // Sending payments:

@@ -3,7 +3,7 @@ import { CreateSubmarineSwapRequest, CreateSubmarineSwapResponse } from '../src/
 import { StorageProvider } from '../src/storage-provider';
 
 describe('Storage provider', async () => {
-  const storageProvider = await StorageProvider.create();
+  const storageProvider = await StorageProvider.create({ storagePath: './test-storage.json' });
 
   describe('submarine swaps', () => {
     // mock request and response
