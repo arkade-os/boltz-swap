@@ -39,10 +39,14 @@ const swapProvider = new BoltzSwapProvider({
   network: 'bitcoin',
 });
 
+// Optionaly: initialize a storage provider
+const storageProvider = StorageProvider();
+
 // Create the ArkadeLightning instance
 const arkadeLightning = new ArkadeLightning({
   wallet,
   swapProvider,
+  storageProvider, // optional
 });
 ```
 
@@ -165,6 +169,8 @@ The library supports advanced configuration options for more specific use cases:
 const arkadeLightning = new ArkadeLightning({
   wallet,
   swapProvider,
+  indexerProvider,
+  storageProvider,
 
   // Configure timeouts
   timeoutConfig: {

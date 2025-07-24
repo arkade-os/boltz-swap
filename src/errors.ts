@@ -28,6 +28,13 @@ export class InvoiceExpiredError extends SwapError {
   }
 }
 
+export class InvoiceFailedToPayError extends SwapError {
+  constructor(message: string = 'The invoice has failed to pay.') {
+    super(message);
+    this.name = 'InvoiceFailedToPayError';
+  }
+}
+
 export class InsufficientFundsError extends SwapError {
   constructor(message: string) {
     super(message);
@@ -65,5 +72,19 @@ export class TransactionFailedError extends SwapError {
   constructor(message: string = 'The transaction has failed.') {
     super(message);
     this.name = 'TransactionFailedError';
+  }
+}
+
+export class TransactionLockupFailedError extends SwapError {
+  constructor(message: string = 'The transaction lockup has failed.') {
+    super(message);
+    this.name = 'TransactionLockupFailedError';
+  }
+}
+
+export class TransactionRefundedError extends SwapError {
+  constructor(message: string = 'The transaction has been refunded.') {
+    super(message);
+    this.name = 'TransactionRefundedError';
   }
 }

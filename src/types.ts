@@ -1,12 +1,14 @@
-import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
+import { RestArkProvider, RestIndexerProvider, SignerSession } from '@arkade-os/sdk';
 import { StorageProvider } from './storage-provider';
 import {
   CreateReverseSwapResponse,
   CreateSubmarineSwapResponse,
   BoltzSwapProvider,
-  CreateReverseSwapParams,
+  CreateReverseSwapRequest,
   CreateSubmarineSwapRequest,
+  BoltzSwapStatus,
 } from './boltz-swap-provider';
+import { Transaction } from '@scure/btc-signer';
 
 // TODO: replace with better data structure
 export interface Vtxo {
@@ -26,52 +28,49 @@ export interface Wallet {
   getPublicKey(): Promise<string>;
   getVtxos(): Promise<Vtxo[]>;
   sendBitcoin(address: string, amount: number): Promise<string>;
-  sign(tx: any, indexes?: number[]): Promise<any>;
+  sign(tx: Transaction, indexes?: number[]): Promise<Transaction>;
   broadcastTx(tx: any): Promise<{ txid: string }>;
-  signerSession(): any;
+  signerSession(): SignerSession; // Define SignerSession interface
 }
 
 export type Network = 'bitcoin' | 'testnet' | 'regtest';
 
-export interface CreateInvoiceResult {
-  preimage: string;
-  status?: SwapStatus;
-  swapInfo: CreateReverseSwapResponse;
+export interface CreateLightningInvoiceRequest {
+  amount: number;
+  description?: string;
 }
-export interface PayInvoiceArgs {
+export interface CreateLightningInvoiceResponse {
+  preimage: string;
+  invoice: string;
+}
+export interface SendLightningPaymentRequest {
   invoice: string;
   maxFeeSats?: number;
 }
 
-export interface PayInvoiceResult {
-  status?: SwapStatus;
-  swapInfo: CreateSubmarineSwapResponse;
-}
-
-export interface PaymentResult {
+export interface SendLightningPaymentResponse {
+  amount: number;
   preimage: string;
   txid: string;
 }
 
 export interface PendingReverseSwap {
   preimage: string;
-  request: CreateReverseSwapParams;
+  status: BoltzSwapStatus;
+  request: CreateReverseSwapRequest;
   response: CreateReverseSwapResponse;
-  status: SwapStatus;
 }
 
 export interface PendingSubmarineSwap {
+  status: BoltzSwapStatus;
   request: CreateSubmarineSwapRequest;
   response: CreateSubmarineSwapResponse;
-  status: SwapStatus;
 }
 
 export interface PendingSwaps {
   reverseSwaps: PendingReverseSwap[];
   submarineSwaps: PendingSubmarineSwap[];
 }
-
-export type SwapStatus = 'pending' | 'created' | 'refundable' | 'refunded' | 'settled' | 'failed';
 
 export interface RefundHandler {
   onRefundNeeded: (swapData: PendingSubmarineSwap) => Promise<void>;

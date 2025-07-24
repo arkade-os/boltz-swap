@@ -1,6 +1,14 @@
 import { fetch } from 'undici';
-import { InvoiceExpiredError, NetworkError, SchemaError, SwapExpiredError, TransactionFailedError } from './errors';
-import { Network, SwapStatus } from './types';
+import {
+  InvoiceExpiredError,
+  InvoiceFailedToPayError,
+  NetworkError,
+  SchemaError,
+  SwapExpiredError,
+  TransactionFailedError,
+  TransactionLockupFailedError,
+} from './errors';
+import { Network } from './types';
 import { WebSocket } from 'ws';
 
 export interface SwapProviderConfig {
@@ -13,19 +21,25 @@ export type LimitsResponse = {
   max: number;
 };
 
-export type SwapStages =
-  | 'invoice.settled'
+// Boltz swap status types
+export type BoltzSwapStatus =
   | 'invoice.expired'
-  | 'swap.successful'
+  | 'invoice.failedToPay'
+  | 'invoice.paid'
+  | 'invoice.pending'
+  | 'invoice.set'
+  | 'invoice.settled'
   | 'swap.created'
   | 'swap.expired'
+  | 'transaction.claim.pending'
   | 'transaction.claimed'
+  | 'transaction.confirmed'
   | 'transaction.failed'
-  | 'transaction.refunded'
+  | 'transaction.lockupFailed'
   | 'transaction.mempool'
-  | 'transaction.confirmed';
+  | 'transaction.refunded';
 
-export type SwapStatusResponse = {
+export type GetSwapStatusResponse = {
   status: string;
   zeroConfRejected?: boolean;
   transaction?: {
@@ -35,7 +49,7 @@ export type SwapStatusResponse = {
   };
 };
 
-export const isSwapStatusResponse = (data: any): data is SwapStatusResponse => {
+export const isGetSwapStatusResponse = (data: any): data is GetSwapStatusResponse => {
   return (
     data &&
     typeof data === 'object' &&
@@ -125,7 +139,7 @@ export const isCreateSubmarineSwapResponse = (data: any): data is CreateSubmarin
   );
 };
 
-export type CreateReverseSwapParams = {
+export type CreateReverseSwapRequest = {
   claimPublicKey: string;
   invoiceAmount: number;
   preimageHash: string;
@@ -193,9 +207,9 @@ export class BoltzSwapProvider {
     };
   }
 
-  async getSwapStatus(id: string): Promise<SwapStatusResponse> {
-    const response = await this.request<SwapStatusResponse>(`/swap/${id}`, 'GET');
-    if (!isSwapStatusResponse(response)) throw new SchemaError(`error fetching swap status for id: ${id}`);
+  async getSwapStatus(id: string): Promise<GetSwapStatusResponse> {
+    const response = await this.request<GetSwapStatusResponse>(`/swap/${id}`, 'GET');
+    if (!isGetSwapStatusResponse(response)) throw new SchemaError(`error fetching swap status for id: ${id}`);
     return response;
   }
 
@@ -217,7 +231,7 @@ export class BoltzSwapProvider {
     invoiceAmount,
     claimPublicKey,
     preimageHash,
-  }: CreateReverseSwapParams): Promise<CreateReverseSwapResponse> {
+  }: CreateReverseSwapRequest): Promise<CreateReverseSwapResponse> {
     const response = await this.request<CreateReverseSwapResponse>('/v2/swap/reverse', 'POST', {
       from: 'BTC',
       to: 'ARK',
@@ -229,83 +243,85 @@ export class BoltzSwapProvider {
     return response;
   }
 
-  async monitorSwap(swapId: string, update: (type: SwapStatus, data?: any) => void): Promise<void> {
-    const webSocket = new WebSocket(this.wsUrl);
+  async monitorSwap(swapId: string, update: (type: BoltzSwapStatus, data?: any) => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const webSocket = new WebSocket(this.wsUrl);
 
-    webSocket.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      update('failed', new NetworkError('WebSocket connection failed'));
-    };
-
-    webSocket.onopen = () => {
-      webSocket.send(
-        JSON.stringify({
-          op: 'subscribe',
-          channel: 'swap.update',
-          args: [swapId],
-        })
-      );
-    };
-
-    webSocket.onmessage = async (rawMsg) => {
-      const msg = JSON.parse(rawMsg.data as string);
-
-      // we are only interested in updates for the specific swap
-      if (msg.event !== 'update' || msg.args[0].id !== swapId) return;
-
-      if (msg.args[0].error) {
+      const connectionTimeout = setTimeout(() => {
         webSocket.close();
-        update('failed', new NetworkError(`WebSocket error: ${msg.args[0].error}`));
-      }
+        reject(new NetworkError('WebSocket connection timeout'));
+      }, 30000); // 30 second timeout
 
-      switch (msg.args[0].status as SwapStages) {
-        case 'swap.created': {
-          console.log('Waiting for invoice to be paid');
-          update('created');
-          break;
+      const closeAndReject = (error: Error) => {
+        webSocket.close();
+        reject(error);
+      };
+
+      webSocket.onerror = (error) => {
+        clearTimeout(connectionTimeout);
+        reject(new NetworkError(`WebSocket error: ${error.message}`));
+      };
+
+      webSocket.onopen = () => {
+        clearTimeout(connectionTimeout);
+        webSocket.send(
+          JSON.stringify({
+            op: 'subscribe',
+            channel: 'swap.update',
+            args: [swapId],
+          })
+        );
+      };
+
+      webSocket.onclose = () => {
+        clearTimeout(connectionTimeout);
+        resolve();
+      };
+
+      webSocket.onmessage = async (rawMsg) => {
+        const msg = JSON.parse(rawMsg.data as string);
+
+        // we are only interested in updates for the specific swap
+        if (msg.event !== 'update' || msg.args[0].id !== swapId) return;
+
+        if (msg.args[0].error) {
+          closeAndReject(new NetworkError(`WebSocket error: ${msg.args[0].error}`));
         }
 
-        // Boltz's lockup transaction is found in the mempool (or already confirmed)
-        // which will only happen after the user paid the Lightning hold invoice
-        case 'transaction.mempool':
-        case 'transaction.confirmed': {
-          console.log('Transaction is in mempool or confirmed');
-          update('pending');
-          break;
-        }
+        const status = msg.args[0].status as BoltzSwapStatus;
 
-        case 'invoice.settled': {
-          webSocket.close();
-          console.log('Invoice was settled');
-          update('settled');
-          break;
+        switch (status) {
+          case 'invoice.settled':
+          case 'transaction.claimed':
+          case 'transaction.refunded':
+            webSocket.close();
+            break;
+          case 'invoice.expired':
+            closeAndReject(new InvoiceExpiredError());
+            break;
+          case 'invoice.failedToPay':
+            closeAndReject(new InvoiceFailedToPayError());
+            break;
+          case 'transaction.failed':
+            closeAndReject(new TransactionFailedError());
+            break;
+          case 'transaction.lockupFailed':
+            closeAndReject(new TransactionLockupFailedError());
+            break;
+          case 'swap.expired':
+            closeAndReject(new SwapExpiredError());
+            break;
+          case 'invoice.paid':
+          case 'invoice.pending':
+          case 'invoice.set':
+          case 'swap.created':
+          case 'transaction.claim.pending':
+          case 'transaction.confirmed':
+          case 'transaction.mempool':
+            update(status);
         }
-
-        case 'invoice.expired': {
-          webSocket.close();
-          update('failed', new InvoiceExpiredError());
-          break;
-        }
-
-        case 'swap.expired': {
-          webSocket.close();
-          update('failed', new SwapExpiredError());
-          break;
-        }
-
-        case 'transaction.failed': {
-          webSocket.close();
-          update('failed', new TransactionFailedError());
-          break;
-        }
-
-        case 'transaction.refunded': {
-          webSocket.close();
-          update('refunded');
-          break;
-        }
-      }
-    };
+      };
+    });
   }
 
   private async request<T>(path: string, method: 'GET' | 'POST', body?: unknown): Promise<T> {

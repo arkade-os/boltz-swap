@@ -114,8 +114,6 @@ describe('Storage provider', async () => {
       expect(swapToDelete).toBeDefined();
       // delete swap
       await storageProvider.deletePendingReverseSwap(swapToDelete!.response.id);
-      // wait for async storage operation
-      await new Promise((resolve) => setTimeout(resolve, 2000));
       // verify swap is deleted
       const updateSwaps = storageProvider.getPendingReverseSwaps();
       expect(updateSwaps.length).toBe(swaps.length - 1);

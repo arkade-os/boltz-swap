@@ -1,5 +1,11 @@
 import { poll } from './utils/polling';
-import { SwapError } from './errors';
+import {
+  InvoiceExpiredError,
+  SwapError,
+  SwapExpiredError,
+  TransactionFailedError,
+  TransactionRefundedError,
+} from './errors';
 import {
   ArkAddress,
   buildOffchainTx,
@@ -15,30 +21,29 @@ import { sha256 } from '@noble/hashes/sha2';
 import { base64, hex } from '@scure/base';
 import type {
   ArkadeLightningConfig,
-  CreateInvoiceResult,
+  CreateLightningInvoiceResponse,
   DecodedInvoice,
-  PayInvoiceArgs,
-  PaymentResult,
+  SendLightningPaymentRequest,
+  SendLightningPaymentResponse,
   PendingReverseSwap,
   PendingSubmarineSwap,
   PendingSwaps,
-  SwapStatus,
   Wallet,
+  CreateLightningInvoiceRequest,
 } from './types';
 import { randomBytes } from '@noble/hashes/utils';
 import {
-  SwapStatusResponse,
+  GetSwapStatusResponse,
   BoltzSwapProvider,
   CreateSubmarineSwapRequest,
-  CreateReverseSwapParams,
+  CreateReverseSwapRequest,
+  BoltzSwapStatus,
 } from './boltz-swap-provider';
-import { IncomingPaymentSubscription } from '.';
-import EventEmitter from 'events';
 import bolt11 from 'light-bolt11-decoder';
 import { StorageProvider } from './storage-provider';
 import { Transaction } from '@scure/btc-signer';
-import { hash160 } from '@scure/btc-signer/utils';
 import { TransactionInput } from '@scure/btc-signer/psbt';
+import { ripemd160 } from '@noble/hashes/legacy';
 
 const DEFAULT_TIMEOUT_CONFIG = {
   swapExpiryBlocks: 144,
@@ -90,92 +95,135 @@ export class ArkadeLightning {
   // 3. claim the VHTLC by creating a virtual transaction that spends the VHTLC output
   // 4. return the preimage and the swap info
 
-  async createLightningInvoice(args: { amountSats: number; description?: string }): Promise<CreateInvoiceResult> {
+  async createLightningInvoice(
+    args: CreateLightningInvoiceRequest,
+    onUpdate: (args: { invoice: string; amountSats: number; preimage: string }) => void
+  ): Promise<CreateLightningInvoiceResponse> {
     return new Promise((resolve, reject) => {
-      this.createReverseSwap(args)
-        .then((swapResponse) => {
-          const subscription = this.monitorIncomingPayment(swapResponse);
-          subscription.on('failed', () => reject(new SwapError('Swap failed')));
-          subscription.on('created', () => this.storageProvider?.savePendingReverseSwap(swapResponse));
-          subscription.on('pending', () => this.claimVHTLC(swapResponse));
-          subscription.on('settled', () => {
-            this.storageProvider?.deletePendingReverseSwap(swapResponse.response.id);
-            resolve({
-              swapInfo: swapResponse.response,
-              preimage: swapResponse.preimage,
-            });
-          });
+      this.createReverseSwap(args.amount)
+        .then((pendingSwap) => {
+          // save pending swap to storage if available
+          this.storageProvider?.savePendingReverseSwap(pendingSwap);
+          // call onUpdate with the invoice details
+          const invoice = pendingSwap.response.invoice;
+          onUpdate({ invoice, amountSats: pendingSwap.response.onchainAmount, preimage: pendingSwap.preimage });
+          this.waitAndClaim(pendingSwap)
+            .then(async () => {
+              // delete pending swap to storage if available
+              this.storageProvider?.deletePendingReverseSwap(pendingSwap.response.id);
+              const status = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
+              resolve({
+                amount: pendingSwap.response.onchainAmount,
+                invoice: pendingSwap.response.invoice,
+                preimage: pendingSwap.preimage,
+                txid: status.transaction?.id ?? '',
+              } as CreateLightningInvoiceResponse);
+            })
+            .catch(reject);
         })
         .catch(reject);
     });
   }
 
+  /**
+   * Sends a Lightning payment.
+   * 1. decode the invoice to get the amount and destination
+   * 2. create submarine swap with the decoded invoice
+   * 3. send the swap address and expected amount to the wallet to create a transaction
+   * 4. wait for the swap settlement and return the preimage and txid
+   * @param args - The arguments for sending a Lightning payment.
+   * @returns The result of the payment.
+   */
+  async sendLightningPayment(args: SendLightningPaymentRequest): Promise<SendLightningPaymentResponse> {
+    return new Promise<SendLightningPaymentResponse>((resolve, reject) => {
+      this.createSubmarineSwap(args).then((pendingSwap) => {
+        // validate max fee if provided
+        if (args.maxFeeSats) {
+          const invoiceAmount = this.decodeInvoice(args.invoice).amountSats;
+          const fees = pendingSwap.response.expectedAmount - invoiceAmount;
+          if (fees > args.maxFeeSats) {
+            reject(new SwapError(`Swap fees ${fees} exceed max allowed ${args.maxFeeSats}`));
+          }
+        }
+        // save pending swap to storage if available
+        this.storageProvider?.savePendingSubmarineSwap(pendingSwap);
+        // send funds to the swap address
+        this.wallet
+          .sendBitcoin(pendingSwap.response.address, pendingSwap.response.expectedAmount)
+          .then((txid) => {
+            this.waitForSwapSettlement(pendingSwap)
+              .then(async () => {
+                this.storageProvider?.deletePendingSubmarineSwap(pendingSwap.response.id);
+                const finalStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
+                const preimage = finalStatus.transaction?.preimage ?? '';
+                resolve({ amount: pendingSwap.response.expectedAmount, preimage, txid });
+              })
+              .catch(({ isRefundable }) => {
+                if (isRefundable) {
+                  this.refundVHTLC(pendingSwap)
+                    .then(reject)
+                    .catch(reject)
+                    .finally(() => {
+                      this.storageProvider?.deletePendingSubmarineSwap(pendingSwap.response.id);
+                    });
+                } else {
+                  reject(new TransactionFailedError());
+                }
+              });
+          })
+          .catch(reject);
+      });
+    });
+  }
+
   // create reverse submarine swap
-  async createReverseSwap(args: { amountSats: number; description?: string }): Promise<PendingReverseSwap> {
+  async createSubmarineSwap(args: SendLightningPaymentRequest): Promise<PendingSubmarineSwap> {
+    const refundPublicKey = await this.wallet.getPublicKey();
+    if (!refundPublicKey) throw new SwapError('Failed to get refund public key from wallet');
+
+    const invoice = args.invoice;
+    if (!invoice) throw new SwapError('Invoice is required');
+
+    const swapRequest: CreateSubmarineSwapRequest = { invoice, refundPublicKey };
+
+    // make reverse swap request
+    const swapResponse = await this.swapProvider.createSubmarineSwap(swapRequest);
+
+    return {
+      request: swapRequest,
+      response: swapResponse,
+      status: 'invoice.set',
+    } as PendingSubmarineSwap;
+  }
+
+  // create reverse submarine swap
+  async createReverseSwap(amountSats: number): Promise<PendingReverseSwap> {
     // create random preimage and its hash
     const preimage = randomBytes(32);
     const preimageHash = hex.encode(sha256(preimage));
     if (!preimageHash) throw new SwapError('Failed to get preimage hash');
 
-    const createReverseSwapParams: CreateReverseSwapParams = {
-      invoiceAmount: args.amountSats,
+    // build request object for reverse swap
+    const swapRequest: CreateReverseSwapRequest = {
+      invoiceAmount: amountSats,
       claimPublicKey: await this.wallet.getPublicKey(),
       preimageHash,
     };
 
     // make reverse swap request
-    const swapResponse = await this.swapProvider.createReverseSwap(createReverseSwapParams);
+    const swapResponse = await this.swapProvider.createReverseSwap(swapRequest);
 
     return {
       preimage: hex.encode(preimage),
-      request: createReverseSwapParams,
+      request: swapRequest,
       response: swapResponse,
-      status: 'pending',
+      status: 'swap.created',
     } as PendingReverseSwap;
-  }
-
-  // monitor incoming payment by waiting for the hold invoice to be paid
-  monitorIncomingPayment(pendingSwap: PendingReverseSwap) {
-    const emitter = new EventEmitter();
-    const swapInfo = pendingSwap.response;
-
-    // callback function to handle swap status updates
-    const onUpdate = (type: SwapStatus, data?: any) => {
-      switch (type) {
-        case 'failed':
-          emitter.emit('failed', data);
-          break;
-        case 'created':
-          emitter.emit('created');
-          break;
-        case 'pending':
-          this.claimVHTLC(pendingSwap);
-          break;
-        case 'settled':
-          emitter.emit('settled');
-          break;
-        default:
-          console.warn(`Unhandled swap status: ${type}`);
-      }
-    };
-
-    // monitor the swap status
-    this.swapProvider.monitorSwap(swapInfo.id, onUpdate);
-
-    return {
-      on(event: SwapStatus, listener: (...args: any[]) => void) {
-        emitter.on(event, listener);
-        return this;
-      },
-      unsubscribe() {
-        emitter.removeAllListeners();
-      },
-    } as IncomingPaymentSubscription;
   }
 
   // claim the VHTLC by creating a virtual transaction that spends the VHTLC output
   async claimVHTLC(pendingSwap: PendingReverseSwap) {
-    const { preimage, response: swapInfo } = pendingSwap;
+    const preimage = hex.decode(pendingSwap.preimage);
     const aspInfo = await this.arkProvider.getInfo();
     const address = await this.wallet.getAddress();
 
@@ -187,19 +235,32 @@ export class ArkadeLightning {
       throw new Error(`Invalid receiver public key length: ${receiverXOnlyPublicKey.length}`);
     }
 
+    // validate we are using a x-only server public key
+    let serverXOnlyPublicKey = hex.decode(aspInfo.signerPubkey);
+    if (serverXOnlyPublicKey.length == 33) {
+      serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
+    } else if (serverXOnlyPublicKey.length !== 32) {
+      throw new Error(`Invalid server public key length: ${serverXOnlyPublicKey.length}`);
+    }
+
     // build expected VHTLC script
-    const vhtlcScript = await this.createVHTLC({
+    const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
       network: aspInfo.network,
-      preimage: hex.decode(preimage),
+      preimageHash: sha256(preimage),
       receiverPubkey: await this.wallet.getPublicKey(),
-      senderPubkey: swapInfo.refundPublicKey,
+      senderPubkey: pendingSwap.response.refundPublicKey,
       serverPubkey: aspInfo.signerPubkey,
-      swapInfo,
+      timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
     });
 
+    if (!vhtlcScript) throw new Error('Failed to create VHTLC script for reverse swap');
+    if (vhtlcAddress !== pendingSwap.response.lockupAddress) throw new Error('Boltz is trying to scam us');
+
     // get spendable VTXOs from the lockup address
-    const scripts = [hex.encode(vhtlcScript.pkScript)];
-    const spendableVtxos = await this.indexerProvider.getVtxos({ scripts, spendableOnly: true });
+    const spendableVtxos = await this.indexerProvider.getVtxos({
+      scripts: [hex.encode(vhtlcScript.pkScript)],
+      spendableOnly: true,
+    });
     if (spendableVtxos.vtxos.length === 0) throw new Error('No spendable virtual coins found');
 
     // vtxo with the htlc to claim
@@ -213,7 +274,7 @@ export class ArkadeLightning {
         const cpy = tx.clone();
         let signedTx = await this.wallet.sign(cpy, inputIndexes);
         signedTx = Transaction.fromPSBT(signedTx.toPSBT(), { allowUnknown: true });
-        setArkPsbtField(signedTx, 0, ConditionWitness, [hex.decode(preimage)]);
+        setArkPsbtField(signedTx, 0, ConditionWitness, [preimage]);
         return signedTx;
       },
       xOnlyPublicKey: receiverXOnlyPublicKey,
@@ -255,7 +316,7 @@ export class ArkadeLightning {
     );
 
     // verify the server signed the transaction with correct key
-    if (!this.validFinalArkTx(finalArkTx)) {
+    if (!this.validFinalArkTx(finalArkTx, serverXOnlyPublicKey, vhtlcScript.leaves)) {
       throw new Error('Invalid final Ark transaction');
     }
 
@@ -276,60 +337,172 @@ export class ArkadeLightning {
     return { amount: vtxo.value, txid: arkTxid, preimage: preimage };
   }
 
-  /**
-   * Sends a Lightning payment.
-   * 1. decode the invoice to get the amount and destination
-   * 2. create submarine swap with the decoded invoice
-   * 3. send the swap address and expected amount to the wallet to create a transaction
-   * 4. wait for the swap settlement and return the preimage and txid
-   * @param args - The arguments for sending a Lightning payment.
-   * @returns The result of the payment.
-   */
-  async sendLightningPayment(args: PayInvoiceArgs): Promise<PaymentResult> {
-    const refundPublicKey = await this.wallet.getPublicKey();
-    if (!refundPublicKey) throw new SwapError('Failed to get refund public key from wallet');
+  async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
+    // prepare variables for claiming the VHTLC
+    const aspInfo = await this.arkProvider.getInfo();
+    const amount = pendingSwap.response.expectedAmount;
+    const address = await this.wallet.getAddress();
+    if (!address) throw 'Failed to get ark address from service worker wallet';
 
-    const invoice = args.invoice;
-    if (!invoice) throw new SwapError('Invoice is required');
-
-    const swapRequest: CreateSubmarineSwapRequest = { invoice, refundPublicKey };
-
-    const swapResponse = await this.swapProvider.createSubmarineSwap(swapRequest);
-
-    // validate max fee if provided
-    if (args.maxFeeSats) {
-      const invoiceAmount = this.decodeInvoice(args.invoice).amountSats;
-      const fees = swapResponse.expectedAmount - invoiceAmount;
-      if (fees > args.maxFeeSats) {
-        throw new SwapError(`Swap fees ${fees} exceed max allowed ${args.maxFeeSats}`);
-      }
+    // validate we are using a x-only receiver public key
+    let receiverXOnlyPublicKey = hex.decode(await this.wallet.getPublicKey());
+    if (receiverXOnlyPublicKey.length == 33) {
+      receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
+    } else if (receiverXOnlyPublicKey.length !== 32) {
+      throw new Error(`Invalid receiver public key length: ${receiverXOnlyPublicKey.length}`);
+    }
+    // validate we are using a x-only server public key
+    let serverXOnlyPublicKey = hex.decode(aspInfo.signerPubkey);
+    if (serverXOnlyPublicKey.length == 33) {
+      serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
+    } else if (serverXOnlyPublicKey.length !== 32) {
+      throw new Error(`Invalid server public key length: ${serverXOnlyPublicKey.length}`);
     }
 
-    const swapData: PendingSubmarineSwap = {
-      status: 'pending',
-      request: swapRequest,
-      response: swapResponse,
+    const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
+      network: aspInfo.network,
+      preimageHash: hex.decode(this.getInvoicePaymentHash(pendingSwap.request.invoice)),
+      receiverPubkey: pendingSwap.response.claimPublicKey,
+      senderPubkey: await this.wallet.getPublicKey(),
+      serverPubkey: aspInfo.signerPubkey,
+      timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
+    });
+
+    if (!vhtlcScript) throw new Error('Failed to create VHTLC script for reverse swap');
+    if (vhtlcAddress !== pendingSwap.response.address) throw new Error('Boltz is trying to scam us');
+
+    // get spendable VTXOs from the lockup address
+    const spendableVtxos = await this.indexerProvider.getVtxos({
+      scripts: [hex.encode(vhtlcScript.pkScript)],
+      spendableOnly: true,
+    });
+    if (spendableVtxos.vtxos.length === 0) {
+      throw new Error('No spendable virtual coins found');
+    }
+
+    // signing a VTHLC needs an extra witness element to be added to the PSBT input
+    // reveal the secret in the PSBT, thus the server can verify the claim script
+    // this witness must satisfy the preimageHash condition
+    const vhtlcIdentity = {
+      sign: async (tx: any, inputIndexes?: number[]) => {
+        const cpy = tx.clone();
+        let signedTx = await this.wallet.sign(cpy, inputIndexes);
+        return Transaction.fromPSBT(signedTx.toPSBT(), { allowUnknown: true });
+      },
+      xOnlyPublicKey: receiverXOnlyPublicKey,
+      signerSession: this.wallet.signerSession,
     };
 
-    // save swap info to storage
-    await this.storageProvider?.savePendingSubmarineSwap(swapData);
+    // Create the server unroll script for checkpoint transactions
+    const serverUnrollScript = CSVMultisigTapscript.encode({
+      pubkeys: [serverXOnlyPublicKey],
+      timelock: {
+        type: aspInfo.unilateralExitDelay < 512 ? 'blocks' : 'seconds',
+        value: aspInfo.unilateralExitDelay,
+      },
+    });
 
-    // send funds to the swap address
-    const txid = await this.wallet.sendBitcoin(swapResponse.address, swapResponse.expectedAmount);
+    // create the virtual transaction to claim the VHTLC
+    const { arkTx, checkpoints } = buildOffchainTx(
+      [
+        {
+          ...spendableVtxos.vtxos[0],
+          tapLeafScript: vhtlcScript.refund(),
+          tapTree: vhtlcScript.encode(),
+        },
+      ],
+      [
+        {
+          amount: BigInt(amount),
+          script: ArkAddress.decode(address).pkScript,
+        },
+      ],
+      serverUnrollScript
+    );
 
-    const finalStatus = await this.waitForSwapSettlement(swapData);
+    // sign and submit the virtual transaction
+    const signedArkTx = await vhtlcIdentity.sign(arkTx);
+    const { arkTxid, finalArkTx, signedCheckpointTxs } = await this.arkProvider.submitTx(
+      base64.encode(signedArkTx.toPSBT()),
+      checkpoints.map((c) => base64.encode(c.toPSBT()))
+    );
 
-    if (finalStatus.transaction?.preimage) {
-      await this.storageProvider?.deletePendingSubmarineSwap(swapResponse.id);
-      return {
-        preimage: finalStatus.transaction.preimage,
-        txid,
-      };
+    // verify the server signed the transaction with correct key
+    if (!this.validFinalArkTx(finalArkTx, serverXOnlyPublicKey, vhtlcScript.leaves)) {
+      throw new Error('Invalid final Ark transaction');
     }
 
-    throw new SwapError('Swap settlement did not return a preimage', {
-      isRefundable: true,
-      swapData: { ...swapData, status: 'failed' },
+    const finalCheckpoints = await Promise.all(
+      signedCheckpointTxs.map(async (c) => {
+        const tx = Transaction.fromPSBT(base64.decode(c), {
+          allowUnknown: true,
+        });
+        const signedCheckpoint = await vhtlcIdentity.sign(tx, [0]);
+        return base64.encode(signedCheckpoint.toPSBT());
+      })
+    );
+    await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
+
+    console.log('Successfully claimed VHTLC! Transaction ID:', arkTxid);
+  }
+
+  async waitAndClaim(pendingSwap: PendingReverseSwap) {
+    return new Promise<number>((resolve, reject) => {
+      // https://api.docs.boltz.exchange/lifecycle.html#swap-states
+      const onStatusUpdate = (status: BoltzSwapStatus) => {
+        switch (status) {
+          case 'transaction.mempool':
+          case 'transaction.confirmed':
+            this.claimVHTLC(pendingSwap);
+            break;
+          case 'invoice.settled':
+            resolve(pendingSwap.response.onchainAmount);
+            break;
+          case 'invoice.expired':
+            reject(new InvoiceExpiredError());
+            break;
+          case 'swap.expired':
+            reject(new SwapExpiredError());
+            break;
+          case 'transaction.failed':
+            reject(new TransactionFailedError());
+            break;
+          case 'transaction.refunded':
+            reject(new TransactionRefundedError());
+            break;
+          default:
+            break;
+        }
+      };
+
+      this.swapProvider.monitorSwap(pendingSwap.response.id, onStatusUpdate);
+    });
+  }
+
+  /**
+   * Waits for the swap settlement.
+   * @param pendingSwap - The pending swap.
+   * @returns The status of the swap settlement.
+   */
+  async waitForSwapSettlement(pendingSwap: PendingSubmarineSwap): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      // https://api.docs.boltz.exchange/lifecycle.html#swap-states
+      const onStatusUpdate = async (status: BoltzSwapStatus) => {
+        switch (status) {
+          case 'swap.expired':
+          case 'invoice.failedToPay':
+          case 'transaction.lockupFailed':
+            reject({ isRefundable: true });
+            break;
+          case 'transaction.claimed':
+            resolve();
+            break;
+          default:
+            break;
+        }
+      };
+
+      this.swapProvider.monitorSwap(pendingSwap.response.id, onStatusUpdate);
     });
   }
 
@@ -338,7 +511,7 @@ export class ArkadeLightning {
    * @param swapData - The swap data to wait for.
    * @returns The status of the swap settlement.
    */
-  async waitForSwapSettlement(swapData: PendingSubmarineSwap): Promise<SwapStatusResponse> {
+  async waitForSwapSettlementold(swapData: PendingSubmarineSwap): Promise<GetSwapStatusResponse> {
     const status = await poll(
       () => this.swapProvider.getSwapStatus(swapData.response.id),
       (status) => status.status === 'transaction.claimed',
@@ -348,7 +521,7 @@ export class ArkadeLightning {
       this.config.refundHandler.onRefundNeeded(swapData);
       throw new SwapError(`Swap settlement failed: ${(err as Error).message}`, {
         isRefundable: true,
-        swapData: { ...swapData, status: 'failed' },
+        swapData: { ...swapData },
       });
     });
 
@@ -371,7 +544,7 @@ export class ArkadeLightning {
    * @param _tapLeaves The taproot script leaves.
    * @returns True if the final Ark transaction is valid, false otherwise.
    */
-  private validFinalArkTx = (finalArkTx: string, _pubkey?: Uint8Array, _tapLeaves?: TapLeafScript[]): boolean => {
+  private validFinalArkTx = (finalArkTx: string, _pubkey: Uint8Array, _tapLeaves: TapLeafScript[]): boolean => {
     // decode the final Ark transaction
     const tx = Transaction.fromPSBT(base64.decode(finalArkTx), { allowUnknown: true });
     if (!tx) return false;
@@ -396,23 +569,26 @@ export class ArkadeLightning {
    * @param param0 - The parameters for creating the VHTLC script.
    * @returns The created VHTLC script.
    */
-  private async createVHTLC({
+  private createVHTLCScript({
     network,
-    preimage,
+    preimageHash,
     receiverPubkey,
-    refundLocktime,
     senderPubkey,
     serverPubkey,
-    swapInfo,
+    timeoutBlockHeights,
   }: {
     network: string;
-    preimage: Uint8Array;
-    swapInfo: CreateInvoiceResult['swapInfo'];
+    preimageHash: Uint8Array;
     receiverPubkey: string;
-    refundLocktime?: number;
     senderPubkey: string;
     serverPubkey: string;
-  }): Promise<VHTLC.Script> {
+    timeoutBlockHeights: {
+      refund: number;
+      unilateralClaim: number;
+      unilateralRefund: number;
+      unilateralRefundWithoutReceiver: number;
+    };
+  }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string } {
     // validate we are using a x-only receiver public key
     let receiverXOnlyPublicKey = hex.decode(receiverPubkey);
     if (receiverXOnlyPublicKey.length == 33) {
@@ -438,37 +614,32 @@ export class ArkadeLightning {
     }
 
     const vhtlcScript = new VHTLC.Script({
-      preimageHash: hash160(preimage),
+      preimageHash: ripemd160(preimageHash),
       sender: senderXOnlyPublicKey,
       receiver: receiverXOnlyPublicKey,
       server: serverXOnlyPublicKey,
-      refundLocktime: BigInt(refundLocktime ?? swapInfo.timeoutBlockHeights.refund),
+      refundLocktime: BigInt(timeoutBlockHeights.refund),
       unilateralClaimDelay: {
         type: 'blocks',
-        value: BigInt(swapInfo.timeoutBlockHeights.unilateralClaim),
+        value: BigInt(timeoutBlockHeights.unilateralClaim),
       },
       unilateralRefundDelay: {
         type: 'blocks',
-        value: BigInt(swapInfo.timeoutBlockHeights.unilateralRefund),
+        value: BigInt(timeoutBlockHeights.unilateralRefund),
       },
       unilateralRefundWithoutReceiverDelay: {
         type: 'blocks',
-        value: BigInt(swapInfo.timeoutBlockHeights.unilateralRefundWithoutReceiver),
+        value: BigInt(timeoutBlockHeights.unilateralRefundWithoutReceiver),
       },
     });
 
-    if (!vhtlcScript) {
-      throw new Error('Failed to create VHTLC script');
-    }
+    if (!vhtlcScript) throw new Error('Failed to create VHTLC script');
 
     // validate vhtlc script
     const hrp = network === 'bitcoin' ? 'ark' : 'tark';
     const vhtlcAddress = vhtlcScript.address(hrp, serverXOnlyPublicKey).encode();
-    if (vhtlcAddress !== swapInfo.lockupAddress) {
-      throw new Error('Boltz is trying to scam us');
-    }
 
-    return vhtlcScript;
+    return { vhtlcScript, vhtlcAddress };
   }
 
   // utils
@@ -487,6 +658,14 @@ export class ArkadeLightning {
       description: decoded.sections.find((s) => s.name === 'description')?.value ?? '',
       paymentHash: decoded.sections.find((s) => s.name === 'payment_hash')?.value ?? '',
     };
+  }
+
+  getInvoiceSatoshis(invoice: string): number {
+    return this.decodeInvoice(invoice).amountSats;
+  }
+
+  getInvoicePaymentHash(invoice: string): string {
+    return this.decodeInvoice(invoice).paymentHash;
   }
 
   /**
@@ -513,7 +692,7 @@ export class ArkadeLightning {
   getPendingSubmarineSwaps(): PendingSubmarineSwap[] {
     if (!this.storageProvider) return [];
     const swaps = this.storageProvider.getPendingSubmarineSwaps();
-    return swaps.filter((swap) => swap.status === 'pending');
+    return swaps.filter((swap) => swap.status === 'invoice.set');
   }
 
   /**
@@ -525,6 +704,6 @@ export class ArkadeLightning {
   getPendingReverseSwaps(): PendingReverseSwap[] {
     if (!this.storageProvider) return [];
     const swaps = this.storageProvider.getPendingReverseSwaps();
-    return swaps.filter((swap) => swap.status === 'pending');
+    return swaps.filter((swap) => swap.status === 'swap.created');
   }
 }

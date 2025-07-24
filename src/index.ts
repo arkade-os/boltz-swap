@@ -5,10 +5,10 @@ export { SwapError, InvoiceExpiredError, InsufficientFundsError, NetworkError } 
 export type {
   IncomingPaymentSubscription,
   ArkadeLightningConfig,
-  CreateInvoiceResult,
+  CreateLightningInvoiceResponse,
   DecodedInvoice,
-  PayInvoiceArgs,
-  PaymentResult,
+  SendLightningPaymentRequest,
+  SendLightningPaymentResponse,
   RefundHandler,
   TimeoutConfig,
   RetryConfig,
