@@ -100,7 +100,7 @@ export class ArkadeLightning {
     onUpdate: (args: { invoice: string; amountSats: number; preimage: string }) => void
   ): Promise<CreateLightningInvoiceResponse> {
     return new Promise((resolve, reject) => {
-      this.createReverseSwap(args.amount)
+      this.createReverseSwap(args)
         .then((pendingSwap) => {
           // save pending swap to storage if available
           this.storageProvider?.savePendingReverseSwap(pendingSwap);
@@ -197,7 +197,7 @@ export class ArkadeLightning {
   }
 
   // create reverse submarine swap
-  async createReverseSwap(amountSats: number): Promise<PendingReverseSwap> {
+  async createReverseSwap(args: CreateLightningInvoiceRequest): Promise<PendingReverseSwap> {
     // create random preimage and its hash
     const preimage = randomBytes(32);
     const preimageHash = hex.encode(sha256(preimage));
@@ -205,7 +205,7 @@ export class ArkadeLightning {
 
     // build request object for reverse swap
     const swapRequest: CreateReverseSwapRequest = {
-      invoiceAmount: amountSats,
+      invoiceAmount: args.amount,
       claimPublicKey: await this.wallet.getPublicKey(),
       preimageHash,
     };
@@ -446,8 +446,8 @@ export class ArkadeLightning {
     console.log('Successfully claimed VHTLC! Transaction ID:', arkTxid);
   }
 
-  async waitAndClaim(pendingSwap: PendingReverseSwap) {
-    return new Promise<number>((resolve, reject) => {
+  async waitAndClaim(pendingSwap: PendingReverseSwap): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
       // https://api.docs.boltz.exchange/lifecycle.html#swap-states
       const onStatusUpdate = (status: BoltzSwapStatus) => {
         switch (status) {
@@ -456,7 +456,7 @@ export class ArkadeLightning {
             this.claimVHTLC(pendingSwap);
             break;
           case 'invoice.settled':
-            resolve(pendingSwap.response.onchainAmount);
+            resolve();
             break;
           case 'invoice.expired':
             reject(new InvoiceExpiredError());

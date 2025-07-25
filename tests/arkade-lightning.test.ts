@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ArkadeLightning } from '../src/arkade-lightning';
-import { BoltzSwapProvider } from '../src/boltz-swap-provider';
-import type { Wallet } from '../src/types';
+import {
+  BoltzSwapProvider,
+  CreateReverseSwapRequest,
+  CreateReverseSwapResponse,
+  CreateSubmarineSwapRequest,
+  CreateSubmarineSwapResponse,
+} from '../src/boltz-swap-provider';
+import type { PendingReverseSwap, PendingSubmarineSwap, Wallet } from '../src/types';
 import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
 import { StorageProvider } from '../src';
 
@@ -110,6 +116,45 @@ describe('ArkadeLightning', () => {
     'zsrgtz8sxdym7yedew6v2jyfswg9zeqetpj2yw3f52ny77c5xsrg' +
     '53q9273vvmwhc6p0gucz2av5gtk3esevk0cfhyvzgxgpgyyavt';
 
+  const createSubmarineSwapRequest: CreateSubmarineSwapRequest = {
+    invoice,
+    refundPublicKey: 'wallet-public-key',
+  };
+
+  const createSubmarineSwapResponse: CreateSubmarineSwapResponse = {
+    id: 'mock-swap-id',
+    address: 'mock-address',
+    expectedAmount: 21000,
+    acceptZeroConf: true,
+    claimPublicKey: 'mock-claim-public-key',
+    timeoutBlockHeights: {
+      refund: 17,
+      unilateralClaim: 21,
+      unilateralRefund: 42,
+      unilateralRefundWithoutReceiver: 63,
+    },
+  };
+
+  const createReverseSwapRequest: CreateReverseSwapRequest = {
+    claimPublicKey: 'wallet-public-key',
+    preimageHash: 'mock-preimage-hash',
+    invoiceAmount: 21000,
+  };
+
+  const createReverseSwapResponse: CreateReverseSwapResponse = {
+    id: 'mock-swap-id',
+    invoice: 'mock-invoice',
+    onchainAmount: 21000,
+    lockupAddress: 'mock-lockup-address',
+    refundPublicKey: 'wallet-public-key',
+    timeoutBlockHeights: {
+      refund: 17,
+      unilateralClaim: 21,
+      unilateralRefund: 42,
+      unilateralRefundWithoutReceiver: 63,
+    },
+  };
+
   beforeEach(async () => {
     vi.clearAllMocks();
 
@@ -120,7 +165,7 @@ describe('ArkadeLightning', () => {
       signerSession: vi.fn().mockReturnValue({
         sign: vi.fn().mockResolvedValue({ txid: 'mock-signed-txid', hex: 'mock-tx-hex' }),
       }),
-      getPublicKey: vi.fn().mockResolvedValue('pubkey'),
+      getPublicKey: vi.fn().mockResolvedValue('wallet-public-key'),
       getVtxos: vi.fn().mockResolvedValue([]),
       sign: vi.fn(),
       broadcastTx: vi.fn(),
@@ -154,8 +199,13 @@ describe('ArkadeLightning', () => {
   it('should have expected interface methods', () => {
     expect(lightning.decodeInvoice).toBeInstanceOf(Function);
     expect(lightning.sendLightningPayment).toBeInstanceOf(Function);
+    expect(lightning.createSubmarineSwap).toBeInstanceOf(Function);
+    expect(lightning.waitForSwapSettlement).toBeInstanceOf(Function);
+    expect(lightning.refundVHTLC).toBeInstanceOf(Function);
     expect(lightning.createLightningInvoice).toBeInstanceOf(Function);
-    expect(lightning.monitorIncomingPayment).toBeInstanceOf(Function);
+    expect(lightning.createReverseSwap).toBeInstanceOf(Function);
+    expect(lightning.waitAndClaim).toBeInstanceOf(Function);
+    expect(lightning.claimVHTLC).toBeInstanceOf(Function);
   });
 
   it('should decode a Lightning invoice', async () => {
@@ -181,19 +231,13 @@ describe('ArkadeLightning', () => {
 
   it('should send a Lightning payment', async () => {
     // arrange
-    vi.spyOn(swapProvider, 'createSubmarineSwap').mockResolvedValueOnce({
-      id: 'mock-id',
-      address: 'mock-address',
-      expectedAmount: 21000,
-      claimPublicKey: 'mock-claimPublicKey',
-      acceptZeroConf: true,
-      timeoutBlockHeights: {
-        refund: 17,
-        unilateralClaim: 21,
-        unilateralRefund: 42,
-        unilateralRefundWithoutReceiver: 63,
-      },
-    });
+    const pendingSwap: PendingSubmarineSwap = {
+      request: createSubmarineSwapRequest,
+      response: createSubmarineSwapResponse,
+      status: 'swap.created',
+    };
+    vi.spyOn(lightning, 'createSubmarineSwap').mockResolvedValueOnce(pendingSwap);
+    vi.spyOn(lightning, 'waitForSwapSettlement').mockResolvedValueOnce();
     vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValueOnce({
       status: 'transaction.claimed',
       transaction: {
@@ -206,139 +250,83 @@ describe('ArkadeLightning', () => {
     const result = await lightning.sendLightningPayment({ invoice });
     // assert
     expect(mockWallet.sendBitcoin).toHaveBeenCalledWith('mock-address', 21000);
-    expect(result).toHaveProperty('txid');
     expect(result).toHaveProperty('preimage');
+    expect(result).toHaveProperty('amount');
+    expect(result).toHaveProperty('txid');
+    expect(result.amount).toBe(21000);
     expect(result.txid).toBe('mock-txid');
     expect(result.preimage).toBe('mock-preimage');
   });
 
-  it('should receive a Lightning invoice', async () => {
+  it('should receive a Lightning payment', async () => {
     // arrange
-    vi.spyOn(swapProvider, 'createReverseSwap').mockResolvedValueOnce({
-      id: 'mock-id',
-      invoice: 'mock-invoice',
-      onchainAmount: 21000,
-      lockupAddress: 'mock-address',
-      refundPublicKey: 'mock-refundPublicKey',
-      timeoutBlockHeights: {
-        refund: 17,
-        unilateralClaim: 21,
-        unilateralRefund: 42,
-        unilateralRefundWithoutReceiver: 63,
+    const pendingSwap: PendingReverseSwap = {
+      preimage: 'mock-preimage-hex',
+      request: createReverseSwapRequest,
+      response: createReverseSwapResponse,
+      status: 'swap.created',
+    };
+    vi.spyOn(lightning, 'createReverseSwap').mockResolvedValueOnce(pendingSwap);
+    vi.spyOn(lightning, 'waitAndClaim').mockResolvedValueOnce();
+    vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValueOnce({
+      status: 'transaction.claimed',
+      transaction: {
+        id: 'mock-txid',
+        hex: 'mock-tx-hex',
+        preimage: 'mock-preimage',
       },
     });
 
-    vi.spyOn(lightning, 'claimVHTLC').mockResolvedValueOnce({
-      amount: 21000,
-      txid: 'mock-txid',
-      preimage: 'mock-preimage',
-    });
-
-    // Mock the monitorIncomingPayment method to simulate the WebSocket events
-    vi.spyOn(lightning, 'monitorIncomingPayment').mockImplementationOnce((pendingSwap) => {
-      const mockEmitter = {
-        listeners: {} as Record<string, ((...args: any[]) => void)[]>,
-        on(event: string, listener: (...args: any[]) => void) {
-          if (!this.listeners[event]) this.listeners[event] = [];
-          this.listeners[event].push(listener);
-          return this;
-        },
-        emit(event: string, ...args: any[]) {
-          if (this.listeners[event]) {
-            this.listeners[event].forEach((listener) => listener(...args));
-          }
-        },
-        unsubscribe() {
-          this.listeners = {};
-        },
-      };
-
-      // Simulate the WebSocket events asynchronously
-      process.nextTick(() => {
-        mockEmitter.emit('created');
-        process.nextTick(() => {
-          mockEmitter.emit('settled');
-        });
-      });
-
-      return mockEmitter;
-    });
-
     // act
-    const result = await lightning.createLightningInvoice({ amountSats: 21000, description: 'Test invoice' });
+    const onUpdate = vi.fn();
+    const result = await lightning.createLightningInvoice({ amount: 21000 }, onUpdate);
 
     // assert
-    expect(result).toHaveProperty('swapInfo');
+    expect(result).toHaveProperty('invoice');
     expect(result).toHaveProperty('preimage');
-    expect(result.swapInfo.id).toBe('mock-id');
+    expect(result.invoice).toBe('mock-invoice');
+    expect(result.preimage).toBe('mock-preimage-hex');
+    expect(onUpdate).toHaveBeenCalledWith({
+      invoice: 'mock-invoice',
+      amountSats: 21000,
+      preimage: 'mock-preimage-hex',
+    });
   });
 
-  it.skip('should monitor incoming payment with WebSocket', async () => {
+  it('should create a submarine swap', async () => {
     // arrange
-    const pendingSwap = {
-      preimage: 'mock-preimage-hex',
-      request: {
-        invoiceAmount: 21000,
-        claimPublicKey: 'mock-pubkey',
-        preimageHash: 'mock-hash',
-      },
-      response: {
-        id: 'mock-swap-id',
-        invoice: 'mock-invoice',
-        onchainAmount: 21000,
-        lockupAddress: 'mock-address',
-        refundPublicKey: 'mock-refundPublicKey',
-        timeoutBlockHeights: {
-          refund: 17,
-          unilateralClaim: 21,
-          unilateralRefund: 42,
-          unilateralRefundWithoutReceiver: 63,
-        },
-      },
-      status: 'pending' as const,
-    };
-
-    vi.spyOn(lightning, 'claimVHTLC').mockResolvedValueOnce({
-      amount: 21000,
-      txid: 'mock-txid',
-      preimage: 'mock-preimage',
-    });
+    vi.spyOn(swapProvider, 'createSubmarineSwap').mockResolvedValueOnce(createSubmarineSwapResponse);
 
     // act
-    const subscription = lightning.monitorIncomingPayment(pendingSwap);
+    const pendingSwap = await lightning.createSubmarineSwap({ invoice });
 
     // assert
-    return new Promise<void>((resolve, reject) => {
-      let createdEventFired = false;
-      let settledEventFired = false;
+    expect(pendingSwap).toHaveProperty('status');
+    expect(pendingSwap).toHaveProperty('request');
+    expect(pendingSwap).toHaveProperty('response');
+    expect(pendingSwap.status).toEqual('invoice.set');
+    expect(pendingSwap.request).toEqual(createSubmarineSwapRequest);
+    expect(pendingSwap.response).toEqual(createSubmarineSwapResponse);
+  });
 
-      subscription
-        .on('created', () => {
-          createdEventFired = true;
-        })
-        .on('settled', () => {
-          settledEventFired = true;
-          try {
-            expect(createdEventFired).toBe(true);
-            expect(settledEventFired).toBe(true);
-            expect(lightning.claimVHTLC).toHaveBeenCalledWith(pendingSwap);
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        })
-        .on('failed', (error) => {
-          reject(error);
-        });
+  it('should create a reverse swap', async () => {
+    // arrange
+    vi.spyOn(swapProvider, 'createReverseSwap').mockResolvedValueOnce(createReverseSwapResponse);
 
-      // Fallback timeout
-      setTimeout(() => {
-        if (!settledEventFired) {
-          reject(new Error('Test timeout - WebSocket events did not fire within 1 second'));
-        }
-      }, 3000);
-    });
-  }, 5000); // Set a reasonable timeout for the test
+    // act
+    const pendingSwap = await lightning.createReverseSwap({ amount: 21000 });
+
+    // assert
+    expect(pendingSwap.request).toBeDefined();
+    expect(pendingSwap.response).toBeDefined();
+    expect(pendingSwap.status).toEqual('swap.created');
+    expect(pendingSwap.request.invoiceAmount).toBe(21000);
+    expect(pendingSwap.request.preimageHash).toHaveLength(64);
+    expect(pendingSwap.response.lockupAddress).toBe('mock-lockup-address');
+    expect(pendingSwap.response.refundPublicKey).toBe('wallet-public-key');
+    expect(pendingSwap.response.invoice).toBe('mock-invoice');
+    expect(pendingSwap.response.onchainAmount).toBe(21000);
+  });
 
   // TODO: Implement tests for features shown in README.md
 
