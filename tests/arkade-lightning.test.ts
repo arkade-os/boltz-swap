@@ -115,6 +115,8 @@ describe('ArkadeLightning', () => {
     'wf0d46kcarfwpshyaplw3skw0tdw4k8g6tsv9e8gcqpfmy8keu46' +
     'zsrgtz8sxdym7yedew6v2jyfswg9zeqetpj2yw3f52ny77c5xsrg' +
     '53q9273vvmwhc6p0gucz2av5gtk3esevk0cfhyvzgxgpgyyavt';
+  const expiry = 28800; // 8 hours in seconds
+  const paymentHash = '850aeaf5f69670e8889936fc2e0cff3ceb0c3b5eab8f04ae57767118db673a91';
 
   const createSubmarineSwapRequest: CreateSubmarineSwapRequest = {
     invoice,
@@ -142,8 +144,8 @@ describe('ArkadeLightning', () => {
   };
 
   const createReverseSwapResponse: CreateReverseSwapResponse = {
+    invoice,
     id: 'mock-swap-id',
-    invoice: 'mock-invoice',
     onchainAmount: 21000,
     lockupAddress: 'mock-lockup-address',
     refundPublicKey: 'wallet-public-key',
@@ -212,14 +214,10 @@ describe('ArkadeLightning', () => {
     // act
     const decoded = lightning.decodeInvoice(invoice);
     // assert
-    expect(decoded).toHaveProperty('amountSats');
-    expect(decoded).toHaveProperty('description');
-    expect(decoded).toHaveProperty('paymentHash');
-    expect(decoded).toHaveProperty('expiry');
-    expect(decoded.expiry).toBe(28800);
+    expect(decoded.expiry).toBe(expiry);
     expect(decoded.amountSats).toBe(3000000);
     expect(decoded.description).toBe('Payment request with multipart support');
-    expect(decoded.paymentHash).toBe('850aeaf5f69670e8889936fc2e0cff3ceb0c3b5eab8f04ae57767118db673a91');
+    expect(decoded.paymentHash).toBe(paymentHash);
   });
 
   it('should throw on invalid Lightning invoice', async () => {
@@ -267,30 +265,16 @@ describe('ArkadeLightning', () => {
       status: 'swap.created',
     };
     vi.spyOn(lightning, 'createReverseSwap').mockResolvedValueOnce(pendingSwap);
-    vi.spyOn(lightning, 'waitAndClaim').mockResolvedValueOnce();
-    vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValueOnce({
-      status: 'transaction.claimed',
-      transaction: {
-        id: 'mock-txid',
-        hex: 'mock-tx-hex',
-        preimage: 'mock-preimage',
-      },
-    });
 
     // act
-    const onUpdate = vi.fn();
-    const result = await lightning.createLightningInvoice({ amount: 21000 }, onUpdate);
+    const result = await lightning.createLightningInvoice({ amount: 21000 });
 
     // assert
-    expect(result).toHaveProperty('invoice');
-    expect(result).toHaveProperty('preimage');
-    expect(result.invoice).toBe('mock-invoice');
+    expect(result.invoice).toBe(invoice);
+    expect(result.expiry).toBe(28800);
+    expect(result.paymentHash).toBe('850aeaf5f69670e8889936fc2e0cff3ceb0c3b5eab8f04ae57767118db673a91');
     expect(result.preimage).toBe('mock-preimage-hex');
-    expect(onUpdate).toHaveBeenCalledWith({
-      invoice: 'mock-invoice',
-      amountSats: 21000,
-      preimage: 'mock-preimage-hex',
-    });
+    expect(result.pendingSwap.request.claimPublicKey).toBe('wallet-public-key');
   });
 
   it('should create a submarine swap', async () => {
@@ -324,7 +308,7 @@ describe('ArkadeLightning', () => {
     expect(pendingSwap.request.preimageHash).toHaveLength(64);
     expect(pendingSwap.response.lockupAddress).toBe('mock-lockup-address');
     expect(pendingSwap.response.refundPublicKey).toBe('wallet-public-key');
-    expect(pendingSwap.response.invoice).toBe('mock-invoice');
+    expect(pendingSwap.response.invoice).toBe(invoice);
     expect(pendingSwap.response.onchainAmount).toBe(21000);
   });
 

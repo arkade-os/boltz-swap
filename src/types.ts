@@ -40,8 +40,11 @@ export interface CreateLightningInvoiceRequest {
   description?: string;
 }
 export interface CreateLightningInvoiceResponse {
-  preimage: string;
+  expiry: number;
   invoice: string;
+  paymentHash: string;
+  pendingSwap: PendingReverseSwap;
+  preimage: string;
 }
 export interface SendLightningPaymentRequest {
   invoice: string;
@@ -65,11 +68,6 @@ export interface PendingSubmarineSwap {
   status: BoltzSwapStatus;
   request: CreateSubmarineSwapRequest;
   response: CreateSubmarineSwapResponse;
-}
-
-export interface PendingSwaps {
-  reverseSwaps: PendingReverseSwap[];
-  submarineSwaps: PendingSubmarineSwap[];
 }
 
 export interface RefundHandler {

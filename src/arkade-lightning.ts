@@ -1,9 +1,11 @@
 import { poll } from './utils/polling';
 import {
   InvoiceExpiredError,
+  InvoiceFailedToPayError,
   SwapError,
   SwapExpiredError,
   TransactionFailedError,
+  TransactionLockupFailedError,
   TransactionRefundedError,
 } from './errors';
 import {
@@ -27,7 +29,6 @@ import type {
   SendLightningPaymentResponse,
   PendingReverseSwap,
   PendingSubmarineSwap,
-  PendingSwaps,
   Wallet,
   CreateLightningInvoiceRequest,
 } from './types';
@@ -95,31 +96,22 @@ export class ArkadeLightning {
   // 3. claim the VHTLC by creating a virtual transaction that spends the VHTLC output
   // 4. return the preimage and the swap info
 
-  async createLightningInvoice(
-    args: CreateLightningInvoiceRequest,
-    onUpdate: (args: { invoice: string; amountSats: number; preimage: string }) => void
-  ): Promise<CreateLightningInvoiceResponse> {
+  async createLightningInvoice(args: CreateLightningInvoiceRequest): Promise<CreateLightningInvoiceResponse> {
     return new Promise((resolve, reject) => {
       this.createReverseSwap(args)
         .then((pendingSwap) => {
           // save pending swap to storage if available
           this.storageProvider?.savePendingReverseSwap(pendingSwap);
-          // call onUpdate with the invoice details
-          const invoice = pendingSwap.response.invoice;
-          onUpdate({ invoice, amountSats: pendingSwap.response.onchainAmount, preimage: pendingSwap.preimage });
-          this.waitAndClaim(pendingSwap)
-            .then(async () => {
-              // delete pending swap to storage if available
-              this.storageProvider?.deletePendingReverseSwap(pendingSwap.response.id);
-              const status = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
-              resolve({
-                amount: pendingSwap.response.onchainAmount,
-                invoice: pendingSwap.response.invoice,
-                preimage: pendingSwap.preimage,
-                txid: status.transaction?.id ?? '',
-              } as CreateLightningInvoiceResponse);
-            })
-            .catch(reject);
+          const decodedInvoice = this.decodeInvoice(pendingSwap.response.invoice);
+          //
+          resolve({
+            amount: pendingSwap.response.onchainAmount,
+            expiry: decodedInvoice.expiry,
+            invoice: pendingSwap.response.invoice,
+            paymentHash: decodedInvoice.paymentHash,
+            pendingSwap,
+            preimage: pendingSwap.preimage,
+          } as CreateLightningInvoiceResponse);
         })
         .catch(reject);
     });
@@ -142,7 +134,7 @@ export class ArkadeLightning {
           const invoiceAmount = this.decodeInvoice(args.invoice).amountSats;
           const fees = pendingSwap.response.expectedAmount - invoiceAmount;
           if (fees > args.maxFeeSats) {
-            reject(new SwapError(`Swap fees ${fees} exceed max allowed ${args.maxFeeSats}`));
+            reject(new SwapError({ message: `Swap fees ${fees} exceed max allowed ${args.maxFeeSats}` }));
           }
         }
         // save pending swap to storage if available
@@ -179,10 +171,10 @@ export class ArkadeLightning {
   // create reverse submarine swap
   async createSubmarineSwap(args: SendLightningPaymentRequest): Promise<PendingSubmarineSwap> {
     const refundPublicKey = await this.wallet.getPublicKey();
-    if (!refundPublicKey) throw new SwapError('Failed to get refund public key from wallet');
+    if (!refundPublicKey) throw new SwapError({ message: 'Failed to get refund public key from wallet' });
 
     const invoice = args.invoice;
-    if (!invoice) throw new SwapError('Invoice is required');
+    if (!invoice) throw new SwapError({ message: 'Invoice is required' });
 
     const swapRequest: CreateSubmarineSwapRequest = { invoice, refundPublicKey };
 
@@ -201,7 +193,7 @@ export class ArkadeLightning {
     // create random preimage and its hash
     const preimage = randomBytes(32);
     const preimageHash = hex.encode(sha256(preimage));
-    if (!preimageHash) throw new SwapError('Failed to get preimage hash');
+    if (!preimageHash) throw new SwapError({ message: 'Failed to get preimage hash' });
 
     // build request object for reverse swap
     const swapRequest: CreateReverseSwapRequest = {
@@ -334,6 +326,9 @@ export class ArkadeLightning {
     // submit the final transaction to the Ark provider
     await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
 
+    // remove the pending swap from storage if available
+    this.storageProvider?.deletePendingReverseSwap(pendingSwap.response.id);
+
     return { amount: vtxo.value, txid: arkTxid, preimage: preimage };
   }
 
@@ -446,23 +441,25 @@ export class ArkadeLightning {
     console.log('Successfully claimed VHTLC! Transaction ID:', arkTxid);
   }
 
-  async waitAndClaim(pendingSwap: PendingReverseSwap): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+  async waitAndClaim(pendingSwap: PendingReverseSwap): Promise<{ txid: string }> {
+    return new Promise<{ txid: string }>((resolve, reject) => {
       // https://api.docs.boltz.exchange/lifecycle.html#swap-states
-      const onStatusUpdate = (status: BoltzSwapStatus) => {
+      const onStatusUpdate = async (status: BoltzSwapStatus) => {
         switch (status) {
           case 'transaction.mempool':
           case 'transaction.confirmed':
             this.claimVHTLC(pendingSwap);
             break;
-          case 'invoice.settled':
-            resolve();
+          case 'invoice.settled': {
+            const status = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
+            resolve({ txid: status.transaction?.id ?? '' });
             break;
+          }
           case 'invoice.expired':
-            reject(new InvoiceExpiredError());
+            reject(new InvoiceExpiredError({ isRefundable: true, pendingSwap }));
             break;
           case 'swap.expired':
-            reject(new SwapExpiredError());
+            reject(new SwapExpiredError({ isRefundable: true, pendingSwap }));
             break;
           case 'transaction.failed':
             reject(new TransactionFailedError());
@@ -490,9 +487,13 @@ export class ArkadeLightning {
       const onStatusUpdate = async (status: BoltzSwapStatus) => {
         switch (status) {
           case 'swap.expired':
+            reject(new SwapExpiredError({ isRefundable: true, pendingSwap }));
+            break;
           case 'invoice.failedToPay':
+            reject(new InvoiceFailedToPayError({ isRefundable: true, pendingSwap }));
+            break;
           case 'transaction.lockupFailed':
-            reject({ isRefundable: true });
+            reject(new TransactionLockupFailedError({ isRefundable: true, pendingSwap }));
             break;
           case 'transaction.claimed':
             resolve();
@@ -519,9 +520,10 @@ export class ArkadeLightning {
       this.config.retryConfig.maxAttempts ?? 5
     ).catch((err) => {
       this.config.refundHandler.onRefundNeeded(swapData);
-      throw new SwapError(`Swap settlement failed: ${(err as Error).message}`, {
+      throw new SwapError({
+        message: `Swap settlement failed: ${err.message}`,
         isRefundable: true,
-        swapData: { ...swapData },
+        pendingSwap: { ...swapData },
       });
     });
 
@@ -669,41 +671,30 @@ export class ArkadeLightning {
   }
 
   /**
-   * Retrieves all pending swaps, both reverse and submarine.
-   * This method retrieves pending reverse swaps and pending submarine swaps from the storage provider.
-   * It returns an object containing two arrays: reverseSwaps and submarineSwaps.
-   * Each array contains the pending swaps of the respective type.
-   * This method is useful for checking the status of all pending swaps in the system.
-   * @returns PendingSwaps - Returns all pending swaps, both reverse and submarine.
-   */
-  async getPendingSwaps(): Promise<PendingSwaps> {
-    return {
-      reverseSwaps: this.getPendingReverseSwaps(),
-      submarineSwaps: this.getPendingSubmarineSwaps(),
-    };
-  }
-
-  /**
    * Retrieves all pending submarine swaps from the storage provider.
-   * This method filters the pending swaps to return only those with a status of 'pending'.
+   * This method filters the pending swaps to return only those with a status of 'invoice.set'.
    * It is useful for checking the status of all pending submarine swaps in the system.
-   * @returns PendingSubmarineSwap[]
+   * @returns PendingSubmarineSwap[] or null if no storage provider is set.
+   * If no swaps are found, it returns an empty array.
    */
-  getPendingSubmarineSwaps(): PendingSubmarineSwap[] {
-    if (!this.storageProvider) return [];
+  getPendingSubmarineSwaps(): PendingSubmarineSwap[] | null {
+    if (!this.storageProvider) return null;
     const swaps = this.storageProvider.getPendingSubmarineSwaps();
+    if (!swaps) return [];
     return swaps.filter((swap) => swap.status === 'invoice.set');
   }
 
   /**
    * Retrieves all pending reverse swaps from the storage provider.
-   * This method filters the pending swaps to return only those with a status of 'pending'.
+   * This method filters the pending swaps to return only those with a status of 'swap.created'.
    * It is useful for checking the status of all pending reverse swaps in the system.
-   * @returns PendingReverseSwap[]
+   * @returns PendingReverseSwap[] or null if no storage provider is set.
+   * If no swaps are found, it returns an empty array.
    */
-  getPendingReverseSwaps(): PendingReverseSwap[] {
-    if (!this.storageProvider) return [];
+  getPendingReverseSwaps(): PendingReverseSwap[] | null {
+    if (!this.storageProvider) return null;
     const swaps = this.storageProvider.getPendingReverseSwaps();
+    if (!swaps) return [];
     return swaps.filter((swap) => swap.status === 'swap.created');
   }
 }

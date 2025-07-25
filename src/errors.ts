@@ -1,43 +1,43 @@
 import { PendingReverseSwap, PendingSubmarineSwap } from './types';
 
+interface ErrorOptions {
+  message?: string;
+  isClaimable?: boolean;
+  isRefundable?: boolean;
+  pendingSwap?: PendingReverseSwap | PendingSubmarineSwap;
+}
+
 export class SwapError extends Error {
   public isClaimable: boolean;
   public isRefundable: boolean;
-  public swapData?: PendingReverseSwap | PendingSubmarineSwap;
+  public pendingSwap?: PendingReverseSwap | PendingSubmarineSwap;
 
-  constructor(
-    message: string,
-    options: {
-      isClaimable?: boolean;
-      isRefundable?: boolean;
-      swapData?: PendingReverseSwap | PendingSubmarineSwap;
-    } = {}
-  ) {
-    super(message);
+  constructor(options: ErrorOptions = {}) {
+    super(options.message ?? 'Error during swap.');
     this.name = 'SwapError';
     this.isClaimable = options.isClaimable ?? false;
     this.isRefundable = options.isRefundable ?? false;
-    this.swapData = options.swapData;
+    this.pendingSwap = options.pendingSwap;
   }
 }
 
 export class InvoiceExpiredError extends SwapError {
-  constructor(message: string = 'The invoice has expired.') {
-    super(message);
+  constructor(options: ErrorOptions) {
+    super({ message: 'The invoice has expired.', ...options });
     this.name = 'InvoiceExpiredError';
   }
 }
 
 export class InvoiceFailedToPayError extends SwapError {
-  constructor(message: string = 'The invoice has failed to pay.') {
-    super(message);
+  constructor(options: ErrorOptions) {
+    super({ message: 'The provider failed to pay the invoice', ...options });
     this.name = 'InvoiceFailedToPayError';
   }
 }
 
 export class InsufficientFundsError extends SwapError {
-  constructor(message: string) {
-    super(message);
+  constructor(options: ErrorOptions = {}) {
+    super({ message: 'Not enough funds available', ...options });
     this.name = 'InsufficientFundsError';
   }
 }
@@ -50,41 +50,36 @@ export class NetworkError extends Error {
 }
 
 export class SchemaError extends SwapError {
-  constructor(
-    message: string,
-    options: {
-      swapData?: PendingReverseSwap | PendingSubmarineSwap;
-    } = {}
-  ) {
-    super(message, options);
+  constructor(options: ErrorOptions = {}) {
+    super({ message: 'Invalid API response', ...options });
     this.name = 'SchemaError';
   }
 }
 
 export class SwapExpiredError extends SwapError {
-  constructor(message: string = 'The swap has expired.') {
-    super(message);
+  constructor(options: ErrorOptions) {
+    super({ message: 'The swap has expired', ...options });
     this.name = 'SwapExpiredError';
   }
 }
 
 export class TransactionFailedError extends SwapError {
-  constructor(message: string = 'The transaction has failed.') {
-    super(message);
+  constructor(options: ErrorOptions = {}) {
+    super({ message: 'The transaction has failed.', ...options });
     this.name = 'TransactionFailedError';
   }
 }
 
 export class TransactionLockupFailedError extends SwapError {
-  constructor(message: string = 'The transaction lockup has failed.') {
-    super(message);
+  constructor(options: ErrorOptions = {}) {
+    super({ message: 'The transaction lockup has failed.', ...options });
     this.name = 'TransactionLockupFailedError';
   }
 }
 
 export class TransactionRefundedError extends SwapError {
-  constructor(message: string = 'The transaction has been refunded.') {
-    super(message);
+  constructor(options: ErrorOptions = {}) {
+    super({ message: 'The transaction has been refunded.', ...options });
     this.name = 'TransactionRefundedError';
   }
 }

@@ -1,10 +1,14 @@
-import { PendingReverseSwap, PendingSubmarineSwap, PendingSwaps } from './types';
+import { PendingReverseSwap, PendingSubmarineSwap } from './types';
 import * as fs from 'fs/promises';
 
 type KEY = 'reverseSwaps' | 'submarineSwaps';
 const KEY_REVERSE_SWAPS: KEY = 'reverseSwaps';
 const KEY_SUBMARINE_SWAPS: KEY = 'submarineSwaps';
 
+interface StoredSwaps {
+  reverseSwaps: PendingReverseSwap[];
+  submarineSwaps: PendingSubmarineSwap[];
+}
 interface StorageOptions {
   storagePath?: string;
 }
@@ -107,7 +111,7 @@ class Storage {
 
 export class StorageProvider {
   private storageInstance: Storage;
-  private storage: PendingSwaps;
+  private storage: StoredSwaps;
 
   private constructor(instance: Storage) {
     this.storageInstance = instance;

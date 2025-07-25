@@ -1,13 +1,5 @@
 import { fetch } from 'undici';
-import {
-  InvoiceExpiredError,
-  InvoiceFailedToPayError,
-  NetworkError,
-  SchemaError,
-  SwapExpiredError,
-  TransactionFailedError,
-  TransactionLockupFailedError,
-} from './errors';
+import { NetworkError, SchemaError, SwapError } from './errors';
 import { Network } from './types';
 import { WebSocket } from 'ws';
 
@@ -200,7 +192,7 @@ export class BoltzSwapProvider {
 
   async getLimits(): Promise<LimitsResponse> {
     const response = await this.request<GetPairsResponse>('/v2/swap/submarine', 'GET');
-    if (!isGetPairsResponse(response)) throw new SchemaError('error fetching limits');
+    if (!isGetPairsResponse(response)) throw new SchemaError({ message: 'error fetching limits' });
     return {
       min: response.ARK.BTC.limits.minimal,
       max: response.ARK.BTC.limits.maximal,
@@ -209,7 +201,7 @@ export class BoltzSwapProvider {
 
   async getSwapStatus(id: string): Promise<GetSwapStatusResponse> {
     const response = await this.request<GetSwapStatusResponse>(`/swap/${id}`, 'GET');
-    if (!isGetSwapStatusResponse(response)) throw new SchemaError(`error fetching swap status for id: ${id}`);
+    if (!isGetSwapStatusResponse(response)) throw new SchemaError({ message: `error fetching status for swap: ${id}` });
     return response;
   }
 
@@ -223,7 +215,7 @@ export class BoltzSwapProvider {
       invoice,
       refundPublicKey,
     });
-    if (!isCreateSubmarineSwapResponse(response)) throw new SchemaError('Error creating submarine swap');
+    if (!isCreateSubmarineSwapResponse(response)) throw new SchemaError({ message: 'Error creating submarine swap' });
     return response;
   }
 
@@ -239,7 +231,7 @@ export class BoltzSwapProvider {
       claimPublicKey,
       preimageHash,
     });
-    if (!isCreateReverseSwapResponse(response)) throw new SchemaError('Error creating reverse swap');
+    if (!isCreateReverseSwapResponse(response)) throw new SchemaError({ message: 'Error creating reverse swap' });
     return response;
   }
 
@@ -251,11 +243,6 @@ export class BoltzSwapProvider {
         webSocket.close();
         reject(new NetworkError('WebSocket connection timeout'));
       }, 30000); // 30 second timeout
-
-      const closeAndReject = (error: Error) => {
-        webSocket.close();
-        reject(error);
-      };
 
       webSocket.onerror = (error) => {
         clearTimeout(connectionTimeout);
@@ -285,7 +272,8 @@ export class BoltzSwapProvider {
         if (msg.event !== 'update' || msg.args[0].id !== swapId) return;
 
         if (msg.args[0].error) {
-          closeAndReject(new NetworkError(`WebSocket error: ${msg.args[0].error}`));
+          webSocket.close();
+          reject(new SwapError({ message: msg.args[0].error }));
         }
 
         const status = msg.args[0].status as BoltzSwapStatus;
@@ -294,22 +282,13 @@ export class BoltzSwapProvider {
           case 'invoice.settled':
           case 'transaction.claimed':
           case 'transaction.refunded':
-            webSocket.close();
-            break;
           case 'invoice.expired':
-            closeAndReject(new InvoiceExpiredError());
-            break;
           case 'invoice.failedToPay':
-            closeAndReject(new InvoiceFailedToPayError());
-            break;
           case 'transaction.failed':
-            closeAndReject(new TransactionFailedError());
-            break;
           case 'transaction.lockupFailed':
-            closeAndReject(new TransactionLockupFailedError());
-            break;
           case 'swap.expired':
-            closeAndReject(new SwapExpiredError());
+            webSocket.close();
+            update(status);
             break;
           case 'invoice.paid':
           case 'invoice.pending':
