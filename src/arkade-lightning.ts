@@ -190,6 +190,9 @@ export class ArkadeLightning {
 
   // create reverse submarine swap
   async createReverseSwap(args: CreateLightningInvoiceRequest): Promise<PendingReverseSwap> {
+    // validate amount
+    if (args.amount <= 0) throw new SwapError({ message: 'Amount must be greater than 0' });
+
     // create random preimage and its hash
     const preimage = randomBytes(32);
     const preimageHash = hex.encode(sha256(preimage));
@@ -244,6 +247,8 @@ export class ArkadeLightning {
       serverPubkey: aspInfo.signerPubkey,
       timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
     });
+
+    console.log('response', { vhtlcScript, vhtlcAddress });
 
     if (!vhtlcScript) throw new Error('Failed to create VHTLC script for reverse swap');
     if (vhtlcAddress !== pendingSwap.response.lockupAddress) throw new Error('Boltz is trying to scam us');
@@ -571,7 +576,7 @@ export class ArkadeLightning {
    * @param param0 - The parameters for creating the VHTLC script.
    * @returns The created VHTLC script.
    */
-  private createVHTLCScript({
+  createVHTLCScript({
     network,
     preimageHash,
     receiverPubkey,
