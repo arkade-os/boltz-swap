@@ -51,7 +51,8 @@ export const isGetSwapStatusResponse = (data: any): data is GetSwapStatusRespons
       (data.transaction &&
         typeof data.transaction === 'object' &&
         typeof data.transaction.id === 'string' &&
-        typeof data.transaction.hex === 'string'))
+        typeof data.transaction.hex === 'string' &&
+        (data.transaction.preimage === undefined || typeof data.transaction.preimage === 'string')))
   );
 };
 

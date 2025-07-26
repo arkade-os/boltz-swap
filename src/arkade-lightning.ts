@@ -333,8 +333,6 @@ export class ArkadeLightning {
 
     // remove the pending swap from storage if available
     this.storageProvider?.deletePendingReverseSwap(pendingSwap.response.id);
-
-    return { amount: vtxo.value, txid: arkTxid, preimage: preimage };
   }
 
   async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
@@ -342,7 +340,7 @@ export class ArkadeLightning {
     const aspInfo = await this.arkProvider.getInfo();
     const amount = pendingSwap.response.expectedAmount;
     const address = await this.wallet.getAddress();
-    if (!address) throw 'Failed to get ark address from service worker wallet';
+    if (!address) throw new Error('Failed to get ark address from service worker wallet');
 
     // validate we are using a x-only receiver public key
     let receiverXOnlyPublicKey = hex.decode(await this.wallet.getPublicKey());
@@ -453,7 +451,7 @@ export class ArkadeLightning {
         switch (status) {
           case 'transaction.mempool':
           case 'transaction.confirmed':
-            this.claimVHTLC(pendingSwap);
+            this.claimVHTLC(pendingSwap).catch(reject);
             break;
           case 'invoice.settled': {
             const status = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
