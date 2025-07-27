@@ -2,7 +2,7 @@
 
 > Integrate Lightning Network with Arkade using Submarine Swaps
 
-Arkade provides seamless integration with the Lightning Network through Boltz submarine swaps, allowing users to move funds between Arkade and Lightning channels. This integration leverages Hash Time-Locked Contracts (HTLCs) to ensure trustless and secure cross-chain atomic swaps.
+Arkade provides seamless integration with the Lightning Network through Boltz submarine swaps, allowing users to move funds between Arkade and Lightning channels.
 
 ## Overview
 
@@ -35,8 +35,8 @@ const wallet = await Wallet.create({
 
 // Initialize the Lightning swap provider
 const swapProvider = new BoltzSwapProvider({
-  apiUrl: 'https://api.boltz.exchange',
-  network: 'bitcoin',
+  apiUrl: 'https://api.boltz.mutinynet.arkade.sh',
+  network: 'mutinynet',
 });
 
 // Optionaly: initialize a storage provider
@@ -130,53 +130,6 @@ console.log('Preimage:', paymentResult.preimage);
 console.log('Transaction ID:', paymentResult.txid);
 ```
 
-### Handling Refunds
-
-In case a Lightning payment fails after the swap has been initiated, the library provides a refund mechanism:
-
-```typescript
-// Or handle refunds manually
-const pendingSubmarineSwaps = await arkadeLightning.getPendingSubmarineSwaps();
-for (const pendingSwap of pendingSubmarineSwaps) {
-  if (pendingSwap.status === 'invoice.set') {
-    const refundResult = await arkadeLightning.claimVHTLC(pendingSwap);
-    console.log('Refund claimed:', refundResult.txid);
-  }
-}
-```
-
-## Advanced Configuration
-
-The library supports advanced configuration options for more specific use cases:
-
-```typescript
-const arkadeLightning = new ArkadeLightning({
-  wallet,
-  swapProvider,
-  indexerProvider,
-  storageProvider,
-
-  // Configure timeouts
-  timeoutConfig: {
-    swapExpiryBlocks: 144, // Number of blocks until swap expires
-    invoiceExpirySeconds: 3600, // Invoice expiry in seconds
-    claimDelayBlocks: 10, // Blocks to wait before claiming
-  },
-
-  // Configure fee limits
-  feeConfig: {
-    maxMinerFeeSats: 5000, // Maximum miner fee in sats
-    maxSwapFeeSats: 1000, // Maximum swap fee in sats
-  },
-
-  // Configure retry logic
-  retryConfig: {
-    maxAttempts: 3,
-    delayMs: 1000,
-  },
-});
-```
-
 ## Error Handling
 
 The library provides detailed error types to help you handle different failure scenarios:
@@ -191,7 +144,7 @@ import {
   InvoiceFailedToPayError,
   InsufficientFundsError,
   TransactionFailedError,
-} from '@arkade-os/lightning-swap';
+} from '@arkade-os/boltz-swap';
 
 try {
   await arkadeLightning.sendLightningPayment({
@@ -225,17 +178,3 @@ try {
   }
 }
 ```
-
-## Security Considerations
-
-When working with Lightning swaps, keep these security considerations in mind:
-
-1. **Timeouts**: Always ensure that your HTLCs have appropriate timeouts to prevent funds from being locked indefinitely.
-
-2. **Fee Management**: Set reasonable fee limits to prevent excessive fees during network congestion.
-
-3. **Refund Monitoring**: Implement proper monitoring for failed swaps to ensure refunds are claimed promptly.
-
-4. **Invoice Validation**: Always validate Lightning invoices before initiating payments.
-
-5. **Backup Management**: Keep proper backups of swap data to be able to claim refunds if needed.
