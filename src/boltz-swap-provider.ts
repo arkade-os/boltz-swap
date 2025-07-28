@@ -1,4 +1,6 @@
 import { NetworkError, SchemaError, SwapError } from './errors';
+import { secp256k1 as secp } from '@noble/curves/secp256k1';
+import { hex } from '@scure/base';
 import { Network } from './types';
 
 export interface SwapProviderConfig {
@@ -209,8 +211,8 @@ export class BoltzSwapProvider {
     invoice,
     refundPublicKey,
   }: CreateSubmarineSwapRequest): Promise<CreateSubmarineSwapResponse> {
-    // if refundPublicKey is a xOnlyPublicKey, we need to prepend '02'
-    if (refundPublicKey.length == 64) refundPublicKey = '02' + refundPublicKey;
+    // if refundPublicKey is a xOnlyPublicKey, we need the compressed version
+    if (refundPublicKey.length == 64) refundPublicKey = this.xOnlyToCompressedPublicKey(refundPublicKey);
     // make submarine swap request
     const response = await this.request<CreateSubmarineSwapResponse>('/v2/swap/submarine', 'POST', {
       from: 'ARK',
@@ -227,8 +229,8 @@ export class BoltzSwapProvider {
     claimPublicKey,
     preimageHash,
   }: CreateReverseSwapRequest): Promise<CreateReverseSwapResponse> {
-    // if claimPublicKey is a xOnlyPublicKey, we need to prepend '02'
-    if (claimPublicKey.length == 64) claimPublicKey = '02' + claimPublicKey;
+    // if claimPublicKey is a xOnlyPublicKey, we need the compressed version
+    if (claimPublicKey.length == 64) claimPublicKey = this.xOnlyToCompressedPublicKey(claimPublicKey);
     // make reverse swap request
     const response = await this.request<CreateReverseSwapResponse>('/v2/swap/reverse', 'POST', {
       from: 'BTC',
@@ -331,5 +333,22 @@ export class BoltzSwapProvider {
       if (error instanceof NetworkError) throw error;
       throw new NetworkError(`Request to ${url} failed: ${(error as Error).message}`);
     }
+  }
+
+  private xOnlyToCompressedPublicKey(xOnlyPublicKey: string): string {
+    // validate input
+    if (xOnlyPublicKey.length !== 64) {
+      throw new Error('X-only public key must be a 64-char hex string');
+    }
+
+    // Convert X-only key to a full point on the secp256k1 curve
+    // This reconstructs the possible Y coordinates for the given X
+    const point = secp.Point.fromHex(xOnlyPublicKey);
+
+    // Get the compressed public key (33 bytes: 0x02 or 0x03 prefix + 32-byte X)
+    // The prefix is determined by the parity of the Y-coordinate
+    const compressedPubKey = point.toBytes(true); // true for compressed format
+
+    return hex.encode(compressedPubKey);
   }
 }
