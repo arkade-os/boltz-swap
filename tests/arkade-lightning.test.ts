@@ -13,7 +13,7 @@ import { StorageProvider } from '../src';
 import { VHTLC } from '@arkade-os/sdk';
 import { hex } from '@scure/base';
 import { randomBytes } from 'crypto';
-import { schnorr, secp256k1 as secp } from '@noble/curves/secp256k1';
+import { schnorr } from '@noble/curves/secp256k1';
 import { sha256 } from '@noble/hashes/sha2';
 import { ripemd160 } from '@noble/hashes/legacy';
 import { decodeInvoice } from '../src/utils/decoding';
