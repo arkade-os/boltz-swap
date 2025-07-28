@@ -1,4 +1,4 @@
-import { RestArkProvider, RestIndexerProvider, SignerSession } from '@arkade-os/sdk';
+import { Identity, IWallet, RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
 import { StorageProvider } from './storage-provider';
 import {
   CreateReverseSwapResponse,
@@ -8,7 +8,6 @@ import {
   CreateSubmarineSwapRequest,
   BoltzSwapStatus,
 } from './boltz-swap-provider';
-import { Transaction } from '@scure/btc-signer';
 
 // TODO: replace with better data structure
 export interface Vtxo {
@@ -23,17 +22,9 @@ export interface Vtxo {
   };
 }
 
-export interface Wallet {
-  getAddress(): Promise<string>;
-  getPublicKey(): Promise<string>;
-  getVtxos(): Promise<Vtxo[]>;
-  sendBitcoin(address: string, amount: number): Promise<string>;
-  sign(tx: Transaction, indexes?: number[]): Promise<Transaction>;
-  broadcastTx(tx: any): Promise<{ txid: string }>;
-  signerSession(): SignerSession; // Define SignerSession interface
-}
+export type Wallet = IWallet & Identity;
 
-export type Network = 'bitcoin' | 'testnet' | 'regtest';
+export type Network = 'bitcoin' | 'mutinynet' | 'regtest' | 'testnet';
 
 export interface CreateLightningInvoiceRequest {
   amount: number;

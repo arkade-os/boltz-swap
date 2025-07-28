@@ -113,7 +113,7 @@ export class StorageProvider {
   private storageInstance: Storage;
   private storage: StoredSwaps;
 
-  private constructor(instance: Storage) {
+  constructor(instance: Storage) {
     this.storageInstance = instance;
     this.storage = {
       reverseSwaps: [],

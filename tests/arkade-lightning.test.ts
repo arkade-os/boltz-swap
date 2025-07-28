@@ -16,6 +16,7 @@ import { randomBytes } from 'crypto';
 import { schnorr, secp256k1 as secp } from '@noble/curves/secp256k1';
 import { sha256 } from '@noble/hashes/sha2';
 import { ripemd160 } from '@noble/hashes/legacy';
+import { decodeInvoice } from '../src/utils/decoding';
 
 // Mock WebSocket - this needs to be at the top level
 vi.mock('ws', () => {
@@ -194,14 +195,18 @@ describe('ArkadeLightning', () => {
     // Basic mock wallet implementation
     mockWallet = {
       getAddress: vi.fn().mockResolvedValue(mock.address),
+      getBalance: vi.fn().mockResolvedValue(mock.invoice.amount),
+      getBoardingAddress: vi.fn().mockResolvedValue(mock.address),
+      getBoardingUtxos: vi.fn().mockResolvedValue([]),
+      getTransactionHistory: vi.fn().mockResolvedValue([]),
       sendBitcoin: vi.fn().mockResolvedValue(mock.txid),
+      settle: vi.fn().mockResolvedValue(undefined),
       signerSession: vi.fn().mockReturnValue({
         sign: vi.fn().mockResolvedValue({ txid: mock.txid, hex: mock.hex }),
       }),
-      getPublicKey: vi.fn().mockResolvedValue(hex.encode(mock.pubkeys.alice)),
+      xOnlyPublicKey: vi.fn().mockReturnValue(mock.pubkeys.alice),
       getVtxos: vi.fn().mockResolvedValue([]),
       sign: vi.fn(),
-      broadcastTx: vi.fn(),
     };
 
     // Basic mock swap provider
@@ -235,7 +240,6 @@ describe('ArkadeLightning', () => {
       expect(lightning.createLightningInvoice).toBeInstanceOf(Function);
       expect(lightning.createReverseSwap).toBeInstanceOf(Function);
       expect(lightning.createSubmarineSwap).toBeInstanceOf(Function);
-      expect(lightning.decodeInvoice).toBeInstanceOf(Function);
       expect(lightning.refundVHTLC).toBeInstanceOf(Function);
       expect(lightning.sendLightningPayment).toBeInstanceOf(Function);
       expect(lightning.waitAndClaim).toBeInstanceOf(Function);
@@ -347,7 +351,7 @@ describe('ArkadeLightning', () => {
   describe('Decoding lightning invoices', () => {
     it('should decode a lightning invoice', async () => {
       // act
-      const decoded = lightning.decodeInvoice(mock.invoice.address);
+      const decoded = decodeInvoice(mock.invoice.address);
       // assert
       expect(decoded.expiry).toBe(mock.invoice.expiry);
       expect(decoded.amountSats).toBe(mock.invoice.amount);
@@ -359,7 +363,7 @@ describe('ArkadeLightning', () => {
       // act
       const invoice = 'lntb30m1invalid';
       // assert
-      expect(() => lightning.decodeInvoice(invoice)).toThrow();
+      expect(() => decodeInvoice(invoice)).toThrow();
     });
   });
 
@@ -384,7 +388,7 @@ describe('ArkadeLightning', () => {
       // act
       const result = await lightning.sendLightningPayment({ invoice: mock.invoice.address });
       // assert
-      expect(mockWallet.sendBitcoin).toHaveBeenCalledWith(mock.address, mock.invoice.amount);
+      expect(mockWallet.sendBitcoin).toHaveBeenCalledWith({ address: mock.address, amount: mock.invoice.amount });
       expect(result.amount).toBe(mock.invoice.amount);
       expect(result.preimage).toBe(mock.preimage);
       expect(result.txid).toBe(mock.txid);

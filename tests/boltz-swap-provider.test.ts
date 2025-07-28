@@ -1,19 +1,24 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { BoltzSwapProvider } from '../src/boltz-swap-provider';
 import { SchemaError } from '../src/errors';
 
 // Scaffolding test file for BoltzSwapProvider
 // This file will be updated when implementing features from README.md
 
-// Mock fetch
-const mockFetch = vi.fn();
-vi.mock('undici', () => ({
-  fetch: (...args) => mockFetch(...args),
-}));
-
-const headers = {
-  get: (arg: string) => 'mock-header-value',
-};
+function createFetchResponse(mockData) {
+  return Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve(mockData),
+    status: 200,
+    statusText: 'OK',
+    clone: function () {
+      return { ...this };
+    },
+    headers: {
+      get: (arg: string) => 'mock-header-value',
+    },
+  });
+}
 
 describe('BoltzSwapProvider', () => {
   let provider: BoltzSwapProvider;
@@ -32,6 +37,10 @@ describe('BoltzSwapProvider', () => {
       network: 'regtest',
       apiUrl: 'http://localhost:9090',
     });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('should be instantiated with network config', () => {
@@ -59,15 +68,16 @@ describe('BoltzSwapProvider', () => {
           },
         },
       };
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        headers,
-        json: () => Promise.resolve(mockResponse),
-      });
+      // mock fetch response
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => createFetchResponse(mockResponse))
+      );
+
       // act
       const limits = await provider.getLimits();
       // assert
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/submarine', {
+      expect(fetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/submarine', {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -76,11 +86,10 @@ describe('BoltzSwapProvider', () => {
 
     it('should throw on invalid limits response', async () => {
       // arrange
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        headers,
-        json: () => Promise.resolve({ invalid: 'response' }),
-      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => createFetchResponse({ invalid: 'response' }))
+      );
       // act & assert
       await expect(provider.getLimits()).rejects.toThrow(SchemaError);
     });
@@ -98,15 +107,14 @@ describe('BoltzSwapProvider', () => {
           preimage: 'mock-preimage',
         },
       };
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        headers,
-        json: () => Promise.resolve(mockResponse),
-      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => createFetchResponse(mockResponse))
+      );
       // act
       const status = await provider.getSwapStatus('mock-id');
       // assert
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:9090/swap/mock-id', {
+      expect(fetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/mock-id', {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -115,11 +123,10 @@ describe('BoltzSwapProvider', () => {
 
     it('should throw on invalid swap status response', async () => {
       // arrange
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        headers,
-        json: () => Promise.resolve({ invalid: 'response' }),
-      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => createFetchResponse({ invalid: 'response' }))
+      );
       // act & assert
       await expect(provider.getSwapStatus('mock-id')).rejects.toThrow(SchemaError);
     });
@@ -141,15 +148,14 @@ describe('BoltzSwapProvider', () => {
           unilateralRefundWithoutReceiver: 63,
         },
       };
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        headers,
-        json: () => Promise.resolve(mockResponse),
-      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => createFetchResponse(mockResponse))
+      );
       // act
       const response = await provider.createSubmarineSwap({ invoice, refundPublicKey: 'mock-refundPublicKey' });
       // assert
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/submarine', {
+      expect(fetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/submarine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -164,11 +170,10 @@ describe('BoltzSwapProvider', () => {
 
     it('should throw on invalid swap response', async () => {
       // arrange
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        headers,
-        json: () => Promise.resolve({ invalid: 'response' }),
-      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => createFetchResponse({ invalid: 'response' }))
+      );
       // act & assert
       await expect(provider.createSubmarineSwap({ invoice, refundPublicKey: 'mock-refundPublicKey' })).rejects.toThrow(
         SchemaError
@@ -192,11 +197,10 @@ describe('BoltzSwapProvider', () => {
           unilateralRefundWithoutReceiver: 63,
         },
       };
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        headers,
-        json: () => Promise.resolve(mockResponse),
-      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => createFetchResponse(mockResponse))
+      );
       // act
       const response = await provider.createReverseSwap({
         invoiceAmount: 21000,
@@ -204,7 +208,7 @@ describe('BoltzSwapProvider', () => {
         preimageHash: 'mock-preimage-hash',
       });
       // assert
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/reverse', {
+      expect(fetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/reverse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -220,11 +224,10 @@ describe('BoltzSwapProvider', () => {
 
     it('should throw on invalid reverse swap response', async () => {
       // arrange
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        headers,
-        json: () => Promise.resolve({ invalid: 'response' }),
-      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => createFetchResponse({ invalid: 'response' }))
+      );
       // act & assert
       await expect(
         provider.createReverseSwap({

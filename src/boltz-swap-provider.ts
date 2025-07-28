@@ -1,7 +1,5 @@
-import { fetch } from 'undici';
 import { NetworkError, SchemaError, SwapError } from './errors';
 import { Network } from './types';
-import { WebSocket } from 'ws';
 
 export interface SwapProviderConfig {
   apiUrl?: string;
@@ -171,8 +169,9 @@ export const isCreateReverseSwapResponse = (data: any): data is CreateReverseSwa
 };
 
 const BASE_URLS: Record<Network, string> = {
-  bitcoin: 'https://api.boltz.exchange',
-  testnet: 'https://api.testnet.boltz.exchange',
+  bitcoin: 'https://boltz.arkade.sh',
+  mutinynet: 'https://boltz.mutinynet.arkade.sh',
+  testnet: 'https://boltz.testnet.arkade.sh',
   regtest: 'http://localhost:9090',
 };
 
@@ -184,7 +183,7 @@ export class BoltzSwapProvider {
   constructor(config: SwapProviderConfig) {
     this.network = config.network;
     this.apiUrl = config.apiUrl || BASE_URLS[config.network];
-    this.wsUrl = this.apiUrl.replace(/^http(s)?:\/\//, 'ws$1://');
+    this.wsUrl = this.apiUrl.replace(/^http(s)?:\/\//, 'ws$1://') + '/v2/ws';
   }
 
   public getNetwork(): Network {
@@ -201,7 +200,7 @@ export class BoltzSwapProvider {
   }
 
   async getSwapStatus(id: string): Promise<GetSwapStatusResponse> {
-    const response = await this.request<GetSwapStatusResponse>(`/swap/${id}`, 'GET');
+    const response = await this.request<GetSwapStatusResponse>(`/v2/swap/${id}`, 'GET');
     if (!isGetSwapStatusResponse(response)) throw new SchemaError({ message: `error fetching status for swap: ${id}` });
     return response;
   }
@@ -210,6 +209,9 @@ export class BoltzSwapProvider {
     invoice,
     refundPublicKey,
   }: CreateSubmarineSwapRequest): Promise<CreateSubmarineSwapResponse> {
+    // if refundPublicKey is a xOnlyPublicKey, we need to prepend '02'
+    if (refundPublicKey.length == 64) refundPublicKey = '02' + refundPublicKey;
+    // make submarine swap request
     const response = await this.request<CreateSubmarineSwapResponse>('/v2/swap/submarine', 'POST', {
       from: 'ARK',
       to: 'BTC',
@@ -225,6 +227,9 @@ export class BoltzSwapProvider {
     claimPublicKey,
     preimageHash,
   }: CreateReverseSwapRequest): Promise<CreateReverseSwapResponse> {
+    // if claimPublicKey is a xOnlyPublicKey, we need to prepend '02'
+    if (claimPublicKey.length == 64) claimPublicKey = '02' + claimPublicKey;
+    // make reverse swap request
     const response = await this.request<CreateReverseSwapResponse>('/v2/swap/reverse', 'POST', {
       from: 'BTC',
       to: 'ARK',
@@ -238,7 +243,7 @@ export class BoltzSwapProvider {
 
   async monitorSwap(swapId: string, update: (type: BoltzSwapStatus, data?: any) => void): Promise<void> {
     return new Promise((resolve, reject) => {
-      const webSocket = new WebSocket(this.wsUrl);
+      const webSocket = new globalThis.WebSocket(this.wsUrl);
 
       const connectionTimeout = setTimeout(() => {
         webSocket.close();
@@ -307,7 +312,7 @@ export class BoltzSwapProvider {
   private async request<T>(path: string, method: 'GET' | 'POST', body?: unknown): Promise<T> {
     const url = `${this.apiUrl}${path}`;
     try {
-      const response = await fetch(url, {
+      const response = await globalThis.fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: body ? JSON.stringify(body) : undefined,

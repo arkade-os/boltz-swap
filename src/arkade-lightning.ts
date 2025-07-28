@@ -24,13 +24,12 @@ import { base64, hex } from '@scure/base';
 import type {
   ArkadeLightningConfig,
   CreateLightningInvoiceResponse,
-  DecodedInvoice,
   SendLightningPaymentRequest,
   SendLightningPaymentResponse,
   PendingReverseSwap,
   PendingSubmarineSwap,
-  Wallet,
   CreateLightningInvoiceRequest,
+  Wallet,
 } from './types';
 import { randomBytes } from '@noble/hashes/utils';
 import {
@@ -40,11 +39,11 @@ import {
   CreateReverseSwapRequest,
   BoltzSwapStatus,
 } from './boltz-swap-provider';
-import bolt11 from 'light-bolt11-decoder';
 import { StorageProvider } from './storage-provider';
 import { Transaction } from '@scure/btc-signer';
 import { TransactionInput } from '@scure/btc-signer/psbt';
 import { ripemd160 } from '@noble/hashes/legacy';
+import { decodeInvoice, getInvoicePaymentHash } from './utils/decoding';
 
 const DEFAULT_TIMEOUT_CONFIG = {
   swapExpiryBlocks: 144,
@@ -102,7 +101,7 @@ export class ArkadeLightning {
         .then((pendingSwap) => {
           // save pending swap to storage if available
           this.storageProvider?.savePendingReverseSwap(pendingSwap);
-          const decodedInvoice = this.decodeInvoice(pendingSwap.response.invoice);
+          const decodedInvoice = decodeInvoice(pendingSwap.response.invoice);
           //
           resolve({
             amount: pendingSwap.response.onchainAmount,
@@ -131,7 +130,7 @@ export class ArkadeLightning {
       this.createSubmarineSwap(args).then((pendingSwap) => {
         // validate max fee if provided
         if (args.maxFeeSats) {
-          const invoiceAmount = this.decodeInvoice(args.invoice).amountSats;
+          const invoiceAmount = decodeInvoice(args.invoice).amountSats;
           const fees = pendingSwap.response.expectedAmount - invoiceAmount;
           if (fees > args.maxFeeSats) {
             reject(new SwapError({ message: `Swap fees ${fees} exceed max allowed ${args.maxFeeSats}` }));
@@ -141,7 +140,7 @@ export class ArkadeLightning {
         this.storageProvider?.savePendingSubmarineSwap(pendingSwap);
         // send funds to the swap address
         this.wallet
-          .sendBitcoin(pendingSwap.response.address, pendingSwap.response.expectedAmount)
+          .sendBitcoin({ address: pendingSwap.response.address, amount: pendingSwap.response.expectedAmount })
           .then((txid) => {
             this.waitForSwapSettlement(pendingSwap)
               .then(async () => {
@@ -170,13 +169,16 @@ export class ArkadeLightning {
 
   // create reverse submarine swap
   async createSubmarineSwap(args: SendLightningPaymentRequest): Promise<PendingSubmarineSwap> {
-    const refundPublicKey = await this.wallet.getPublicKey();
+    const refundPublicKey = hex.encode(this.wallet.xOnlyPublicKey());
     if (!refundPublicKey) throw new SwapError({ message: 'Failed to get refund public key from wallet' });
 
     const invoice = args.invoice;
     if (!invoice) throw new SwapError({ message: 'Invoice is required' });
 
-    const swapRequest: CreateSubmarineSwapRequest = { invoice, refundPublicKey };
+    const swapRequest: CreateSubmarineSwapRequest = {
+      invoice,
+      refundPublicKey,
+    };
 
     // make reverse swap request
     const swapResponse = await this.swapProvider.createSubmarineSwap(swapRequest);
@@ -193,6 +195,9 @@ export class ArkadeLightning {
     // validate amount
     if (args.amount <= 0) throw new SwapError({ message: 'Amount must be greater than 0' });
 
+    const claimPublicKey = hex.encode(this.wallet.xOnlyPublicKey());
+    if (!claimPublicKey) throw new SwapError({ message: 'Failed to get claim public key from wallet' });
+
     // create random preimage and its hash
     const preimage = randomBytes(32);
     const preimageHash = hex.encode(sha256(preimage));
@@ -201,7 +206,7 @@ export class ArkadeLightning {
     // build request object for reverse swap
     const swapRequest: CreateReverseSwapRequest = {
       invoiceAmount: args.amount,
-      claimPublicKey: await this.wallet.getPublicKey(),
+      claimPublicKey,
       preimageHash,
     };
 
@@ -223,7 +228,7 @@ export class ArkadeLightning {
     const address = await this.wallet.getAddress();
 
     // validate we are using a x-only receiver public key
-    let receiverXOnlyPublicKey = hex.decode(await this.wallet.getPublicKey());
+    let receiverXOnlyPublicKey = this.wallet.xOnlyPublicKey();
     if (receiverXOnlyPublicKey.length == 33) {
       receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
     } else if (receiverXOnlyPublicKey.length !== 32) {
@@ -242,9 +247,9 @@ export class ArkadeLightning {
     const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
       network: aspInfo.network,
       preimageHash: sha256(preimage),
-      receiverPubkey: await this.wallet.getPublicKey(),
+      receiverPubkey: hex.encode(receiverXOnlyPublicKey),
       senderPubkey: pendingSwap.response.refundPublicKey,
-      serverPubkey: aspInfo.signerPubkey,
+      serverPubkey: hex.encode(serverXOnlyPublicKey),
       timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
     });
 
@@ -280,7 +285,7 @@ export class ArkadeLightning {
 
     // create the server unroll script for checkpoint transactions
     const serverUnrollScript = CSVMultisigTapscript.encode({
-      pubkeys: [hex.decode(aspInfo.signerPubkey)],
+      pubkeys: [serverXOnlyPublicKey],
       timelock: {
         type: aspInfo.unilateralExitDelay < 512 ? 'blocks' : 'seconds',
         value: aspInfo.unilateralExitDelay,
@@ -343,7 +348,7 @@ export class ArkadeLightning {
     if (!address) throw new Error('Failed to get ark address from service worker wallet');
 
     // validate we are using a x-only receiver public key
-    let receiverXOnlyPublicKey = hex.decode(await this.wallet.getPublicKey());
+    let receiverXOnlyPublicKey = this.wallet.xOnlyPublicKey();
     if (receiverXOnlyPublicKey.length == 33) {
       receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
     } else if (receiverXOnlyPublicKey.length !== 32) {
@@ -359,9 +364,9 @@ export class ArkadeLightning {
 
     const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
       network: aspInfo.network,
-      preimageHash: hex.decode(this.getInvoicePaymentHash(pendingSwap.request.invoice)),
+      preimageHash: hex.decode(getInvoicePaymentHash(pendingSwap.request.invoice)),
       receiverPubkey: pendingSwap.response.claimPublicKey,
-      senderPubkey: await this.wallet.getPublicKey(),
+      senderPubkey: hex.encode(this.wallet.xOnlyPublicKey()),
       serverPubkey: aspInfo.signerPubkey,
       timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
     });
@@ -645,32 +650,6 @@ export class ArkadeLightning {
     const vhtlcAddress = vhtlcScript.address(hrp, serverXOnlyPublicKey).encode();
 
     return { vhtlcScript, vhtlcAddress };
-  }
-
-  // utils
-
-  /**
-   * Decodes a Lightning invoice.
-   * @param invoice - The Lightning invoice to decode.
-   * @returns The decoded invoice.
-   */
-  decodeInvoice(invoice: string): DecodedInvoice {
-    const decoded = bolt11.decode(invoice);
-    const millisats = Number(decoded.sections.find((s) => s.name === 'amount')?.value ?? '0');
-    return {
-      expiry: decoded.expiry ?? 3600,
-      amountSats: Math.floor(millisats / 1000),
-      description: decoded.sections.find((s) => s.name === 'description')?.value ?? '',
-      paymentHash: decoded.sections.find((s) => s.name === 'payment_hash')?.value ?? '',
-    };
-  }
-
-  getInvoiceSatoshis(invoice: string): number {
-    return this.decodeInvoice(invoice).amountSats;
-  }
-
-  getInvoicePaymentHash(invoice: string): string {
-    return this.decodeInvoice(invoice).paymentHash;
   }
 
   /**
