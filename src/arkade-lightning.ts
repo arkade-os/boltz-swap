@@ -253,8 +253,6 @@ export class ArkadeLightning {
       timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
     });
 
-    console.log('response', { vhtlcScript, vhtlcAddress });
-
     if (!vhtlcScript) throw new Error('Failed to create VHTLC script for reverse swap');
     if (vhtlcAddress !== pendingSwap.response.lockupAddress) throw new Error('Boltz is trying to scam us');
 
