@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { BoltzSwapProvider } from '../src/boltz-swap-provider';
+import { schnorr, secp256k1 as secp } from '@noble/curves/secp256k1';
 import { SchemaError } from '../src/errors';
+import { hex } from '@scure/base';
 
 // Scaffolding test file for BoltzSwapProvider
 // This file will be updated when implementing features from README.md
