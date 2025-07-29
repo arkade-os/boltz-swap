@@ -279,9 +279,9 @@ describe('ArkadeLightning', () => {
         response: createReverseSwapResponse,
         status: 'swap.created',
       };
-      vi.spyOn(lightning, 'createVHTLCScript').mockResolvedValueOnce(mockVHTLC);
+      vi.spyOn(lightning, 'createVHTLCScript').mockReturnValueOnce(mockVHTLC);
       vi.spyOn(indexerProvider, 'getVtxos').mockResolvedValueOnce({ vtxos: [] });
-      await expect(lightning.claimVHTLC(pendingSwap)).rejects.toThrow('Failed to create VHTLC script for reverse swap');
+      expect(lightning.claimVHTLC(pendingSwap)).rejects.toThrow('Boltz is trying to scam us');
     });
   });
 
