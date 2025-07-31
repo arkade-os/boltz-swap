@@ -2,7 +2,7 @@
 
 > Integrate Lightning Network with Arkade using Submarine Swaps
 
-Arkade provides seamless integration with the Lightning Network through Boltz submarine swaps, allowing users to move funds between Arkade and Lightning channels. This integration leverages Hash Time-Locked Contracts (HTLCs) to ensure trustless and secure cross-chain atomic swaps.
+Arkade provides seamless integration with the Lightning Network through Boltz submarine swaps, allowing users to move funds between Arkade and Lightning channels.
 
 ## Overview
 
@@ -35,15 +35,39 @@ const wallet = await Wallet.create({
 
 // Initialize the Lightning swap provider
 const swapProvider = new BoltzSwapProvider({
-  apiUrl: 'https://api.boltz.exchange',
-  network: 'mainnet'
+  apiUrl: 'https://api.boltz.mutinynet.arkade.sh',
+  network: 'mutinynet',
 });
+
+// Optionaly: initialize a storage provider
+const storageProvider = StorageProvider.create();
 
 // Create the ArkadeLightning instance
 const arkadeLightning = new ArkadeLightning({
   wallet,
-  swapProvider
+  swapProvider,
+  storageProvider, // optional
 });
+```
+
+## Storage
+
+By default this library doesn't store pending swaps.
+
+If you need it you must initialize a storageProvider:
+
+```typescript
+const storageProvider = StorageProvider.create({ storagePath: './storage.json' });
+
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+  storageProvider,
+});
+
+// you now are able to use the following methods
+const pendingPaymentsToLightning = arkadeLightning.getPendingSubmarineSwaps();
+const pendingPaymentsFromLightning = arkadeLightning.getPendingReverseSwaps();
 ```
 
 ## Receiving Lightning Payments
@@ -53,13 +77,16 @@ To receive a Lightning payment into your Arkade wallet:
 ```typescript
 // Create a Lightning invoice that will deposit funds to your Arkade wallet
 const result = await arkadeLightning.createLightningInvoice({
-  amountSats: 50000, // 50,000 sats
-  description: 'Payment to my Arkade wallet'
+  amount: 50000, // 50,000 sats
+  description: 'Payment to my Arkade wallet',
 });
 
+console.log('Receive amount:', result.amount);
+console.log('Expiry (seconds):', result.expiry);
 console.log('Lightning Invoice:', result.invoice);
 console.log('Payment Hash:', result.paymentHash);
-console.log('Expiry (seconds):', result.expirySeconds);
+console.log('Pending swap', result.pendingSwap);
+console.log('Preimage', result.preimage);
 
 // The invoice can now be shared with the payer
 // When paid, funds will appear in your Arkade wallet
@@ -67,31 +94,14 @@ console.log('Expiry (seconds):', result.expirySeconds);
 
 ### Monitoring Incoming Lightning Payments
 
-You can monitor the status of incoming Lightning payments:
+You must monitor the status of incoming Lightning payments.
+It will automatically claim the payment when it's available.
 
 ```typescript
-// Monitor the payment by payment hash
-const subscription = arkadeLightning.monitorIncomingPayment(result.paymentHash);
-
-subscription.on('pending', () => {
-  console.log('Payment detected but not yet confirmed');
-});
-
-subscription.on('confirmed', (txDetails) => {
-  console.log('Payment confirmed!');
-  console.log('Transaction ID:', txDetails.txid);
-  console.log('Amount received:', txDetails.amountSats, 'sats');
-  
-  // Update your UI or notify the user
-  updateBalanceDisplay();
-});
-
-subscription.on('failed', (error) => {
-  console.error('Payment failed:', error.message);
-});
-
-// Don't forget to clean up when done
-subscription.unsubscribe();
+// Monitor the payment, it will resolve when the payment is received
+const receivalResult = await arkadeLightning.waitAndClaim(result.pendingSwap);
+console.log('Receival successful!');
+console.log('Transaction ID:', receivalResult.txid);
 ```
 
 ## Sending Lightning Payments
@@ -101,7 +111,7 @@ To send a payment from your Arkade wallet to a Lightning invoice:
 ```typescript
 // Parse a Lightning invoice
 const invoiceDetails = await arkadeLightning.decodeInvoice(
-  'lnbc500u1pj...'  // Lightning invoice string
+  'lnbc500u1pj...' // Lightning invoice string
 );
 
 console.log('Invoice amount:', invoiceDetails.amountSats, 'sats');
@@ -109,85 +119,15 @@ console.log('Description:', invoiceDetails.description);
 console.log('Destination:', invoiceDetails.destination);
 
 // Pay the Lightning invoice from your Arkade wallet
-try {
-  const paymentResult = await arkadeLightning.sendLightningPayment({
-    invoice: 'lnbc500u1pj...',  // Lightning invoice string
-    // Optional: Specify which VTXOs to use
-    sourceVtxos: await wallet.getVtxos(),
-    // Optional: Maximum fee you're willing to pay (in sats)
-    maxFeeSats: 1000
-  });
-  
-  console.log('Payment successful!');
-  console.log('Preimage:', paymentResult.preimage);
-  console.log('Transaction ID:', paymentResult.txid);
-} catch (error) {
-  console.error('Payment failed:', error.message);
-}
-```
-
-## Handling Refunds
-
-In case a Lightning payment fails after the swap has been initiated, the library provides a refund mechanism:
-
-```typescript
-// Set up a refund handler when initializing
-const arkadeLightning = new ArkadeLightning({
-  wallet,
-  swapProvider,
-  refundHandler: {
-    onRefundNeeded: async (swapData) => {
-      console.log('Initiating refund for swap:', swapData.id);
-      
-      // You can implement custom logic here, such as:
-      // - Notifying the user
-      // - Automatically claiming the refund
-      // - Logging the event
-      
-      // Claim the refund automatically
-      return await arkadeLightning.claimRefund(swapData);
-    }
-  }
+const paymentResult = await arkadeLightning.sendLightningPayment({
+  invoice: 'lnbc500u1pj...', // Lightning invoice string
+  maxFeeSats: 1000, // Optional: Maximum fee you're willing to pay (in sats)
 });
 
-// Or handle refunds manually
-const pendingSwaps = await arkadeLightning.getPendingSwaps();
-for (const swap of pendingSwaps) {
-  if (swap.status === 'refundable') {
-    const refundResult = await arkadeLightning.claimRefund(swap);
-    console.log('Refund claimed:', refundResult.txid);
-  }
-}
-```
-
-## Advanced Configuration
-
-The library supports advanced configuration options for more specific use cases:
-
-```typescript
-const arkadeLightning = new ArkadeLightning({
-  wallet,
-  swapProvider,
-  
-  // Configure timeouts
-  timeoutConfig: {
-    swapExpiryBlocks: 144, // Number of blocks until swap expires
-    invoiceExpirySeconds: 3600, // Invoice expiry in seconds
-    claimDelayBlocks: 10 // Blocks to wait before claiming
-  },
-  
-  // Configure fee limits
-  feeConfig: {
-    maxMinerFeeSats: 5000, // Maximum miner fee in sats
-    maxSwapFeeSats: 1000, // Maximum swap fee in sats
-  },
-  
-  // Configure retry logic
-  retryConfig: {
-    maxAttempts: 3,
-    delayMs: 1000
-  }
-});
+console.log('Payment successful!');
+console.log('Amount:', paymentResult.amount);
+console.log('Preimage:', paymentResult.preimage);
+console.log('Transaction ID:', paymentResult.txid);
 ```
 
 ## Error Handling
@@ -195,48 +135,46 @@ const arkadeLightning = new ArkadeLightning({
 The library provides detailed error types to help you handle different failure scenarios:
 
 ```typescript
-import { 
-  SwapError, 
+import {
+  SwapError,
+  SchemaError,
+  NetworkError,
+  SwapExpiredError,
   InvoiceExpiredError,
+  InvoiceFailedToPayError,
   InsufficientFundsError,
-  NetworkError 
-} from '@arkade-os/lightning-swap';
+  TransactionFailedError,
+} from '@arkade-os/boltz-swap';
 
 try {
   await arkadeLightning.sendLightningPayment({
-    invoice: 'lnbc500u1pj...'
+    invoice: 'lnbc500u1pj...',
   });
 } catch (error) {
   if (error instanceof InvoiceExpiredError) {
     console.error('The invoice has expired. Please request a new one.');
+  } else if (error instanceof InvoiceFailedToPayError) {
+    console.error('The provider failed to pay the invoice. Please request a new one.');
   } else if (error instanceof InsufficientFundsError) {
     console.error('Not enough funds available:', error.message);
   } else if (error instanceof NetworkError) {
     console.error('Network issue. Please try again later:', error.message);
+  } else if (error instanceof SchemaError) {
+    console.error('Invalid response from API. Please try again later.');
+  } else if (error instanceof SwapExpiredError) {
+    console.error('The swap has expired. Please request a new invoice.');
   } else if (error instanceof SwapError) {
     console.error('Swap failed:', error.message);
-    
-    // You might be able to claim a refund
-    if (error.isRefundable) {
-      const refundResult = await arkadeLightning.claimRefund(error.swapData);
-      console.log('Refund claimed:', refundResult.txid);
-    }
+  } else if (error instanceof TransactionFailedError) {
+    console.error('Transaction failed. Please try again later');
   } else {
     console.error('Unknown error:', error);
   }
+
+  // You might be able to claim a refund
+  if (error.isRefundable && error.pendingSwap) {
+    const refundResult = await arkadeLightning.refundVHTLC(error.pendingSwap);
+    console.log('Refund claimed:', refundResult.txid);
+  }
 }
 ```
-
-## Security Considerations
-
-When working with Lightning swaps, keep these security considerations in mind:
-
-1. **Timeouts**: Always ensure that your HTLCs have appropriate timeouts to prevent funds from being locked indefinitely.
-
-2. **Fee Management**: Set reasonable fee limits to prevent excessive fees during network congestion.
-
-3. **Refund Monitoring**: Implement proper monitoring for failed swaps to ensure refunds are claimed promptly.
-
-4. **Invoice Validation**: Always validate Lightning invoices before initiating payments.
-
-5. **Backup Management**: Keep proper backups of swap data to be able to claim refunds if needed.

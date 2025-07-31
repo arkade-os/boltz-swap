@@ -1,6 +1,15 @@
-import { BoltzSwapProvider } from './boltz-swap-provider';
+import { Identity, IWallet, RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
+import { StorageProvider } from './storage-provider';
+import {
+  CreateReverseSwapResponse,
+  CreateSubmarineSwapResponse,
+  BoltzSwapProvider,
+  CreateReverseSwapRequest,
+  CreateSubmarineSwapRequest,
+  BoltzSwapStatus,
+} from './boltz-swap-provider';
 
-// TODO: replace with better data strcuture 
+// TODO: replace with better data structure
 export interface Vtxo {
   txid: string;
   vout: number;
@@ -13,86 +22,58 @@ export interface Vtxo {
   };
 }
 
-export interface Wallet {
-  getPublicKey(): Promise<string>;
-  getVtxos(): Promise<Vtxo[]>;
-  signTx(tx: any): Promise<any>;
-  broadcastTx(tx: any): Promise<{ txid: string }>;
+export type Wallet = IWallet & Identity;
+
+export type Network = 'bitcoin' | 'mutinynet' | 'regtest' | 'testnet';
+
+export interface CreateLightningInvoiceRequest {
+  amount: number;
+  description?: string;
 }
-
-export type Network = 'mainnet' | 'testnet' | 'regtest';
-
-export interface BoltzSwapProviderConfig {
-  apiUrl?: string;
-  network: Network;
-}
-
-export interface CreateInvoiceResult {
+export interface CreateLightningInvoiceResponse {
+  expiry: number;
   invoice: string;
   paymentHash: string;
-  expirySeconds: number;
+  pendingSwap: PendingReverseSwap;
+  preimage: string;
+}
+export interface SendLightningPaymentRequest {
+  invoice: string;
+  maxFeeSats?: number;
 }
 
-export interface DecodedInvoice {
-  amountSats: number;
-  description: string;
-  destination: string;
-  paymentHash: string;
-  expiry: number;
-}
-
-export interface PaymentResult {
+export interface SendLightningPaymentResponse {
+  amount: number;
   preimage: string;
   txid: string;
 }
 
-export interface IncomingPaymentSubscription {
-  on(event: 'pending', listener: () => void): this;
-  on(event: 'confirmed', listener: (details: { txid: string; amountSats: number }) => void): this;
-  on(event: 'failed', listener: (error: Error) => void): this;
-  unsubscribe(): void;
+export interface PendingReverseSwap {
+  preimage: string;
+  status: BoltzSwapStatus;
+  request: CreateReverseSwapRequest;
+  response: CreateReverseSwapResponse;
 }
 
-export interface SendPaymentArgs {
-  invoice: string;
-  sourceVtxos?: Vtxo[];
-  maxFeeSats?: number;
+export interface PendingSubmarineSwap {
+  status: BoltzSwapStatus;
+  request: CreateSubmarineSwapRequest;
+  response: CreateSubmarineSwapResponse;
 }
-
-export type SwapStatus = 'pending' | 'confirmed' | 'failed' | 'refundable' | 'transaction.claimed' | 'invoice.settled' | 'swap.successful';
-
-export interface CreateSwapResponse {
-  id: string;
-  address: string;
-  refundPublicKey: string;
-  expectedAmount: number;
-  bip21: string;
-  redeemScript: string;
-  timeoutBlockHeight: number;
-}
-
-export interface BoltzSwapStatusResponse {
-  status: SwapStatus;
-  failureReason?: string;
-  transaction?: {
-    hex: string;
-    id: string;
-    preimage?: string;
-  };
-}
-
-export interface SwapData extends CreateSwapResponse, BoltzSwapStatusResponse {}
 
 export interface RefundHandler {
-  onRefundNeeded: (swapData: SwapData) => Promise<void>;
+  onRefundNeeded: (swapData: PendingSubmarineSwap) => Promise<void>;
 }
 
 export interface ArkadeLightningConfig {
   wallet: Wallet;
+  arkProvider: RestArkProvider;
   swapProvider: BoltzSwapProvider;
-  refundHandler?: RefundHandler;
-  timeoutConfig?: Partial<TimeoutConfig>;
+  indexerProvider: RestIndexerProvider;
   feeConfig?: Partial<FeeConfig>;
+  refundHandler?: RefundHandler;
+  storageProvider?: StorageProvider | null;
+  timeoutConfig?: Partial<TimeoutConfig>;
   retryConfig?: Partial<RetryConfig>;
 }
 
@@ -110,4 +91,19 @@ export interface FeeConfig {
 export interface RetryConfig {
   maxAttempts: number;
   delayMs: number;
+}
+
+export interface DecodedInvoice {
+  expiry: number;
+  amountSats: number;
+  description: string;
+  paymentHash: string;
+}
+
+export interface IncomingPaymentSubscription {
+  on(event: 'pending', listener: () => void): this;
+  on(event: 'created', listener: () => void): this;
+  on(event: 'settled', listener: () => void): this;
+  on(event: 'failed', listener: (error: Error) => void): this;
+  unsubscribe(): void;
 }

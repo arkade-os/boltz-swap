@@ -1,25 +1,22 @@
 export { ArkadeLightning } from './arkade-lightning';
 export { BoltzSwapProvider } from './boltz-swap-provider';
-export {
-  SwapError,
-  InvoiceExpiredError,
-  InsufficientFundsError,
-  NetworkError,
-} from './errors';
+export { StorageProvider } from './storage-provider';
+export { SwapError, InvoiceExpiredError, InsufficientFundsError, NetworkError } from './errors';
+export { decodeInvoice, getInvoicePaymentHash, getInvoiceSatoshis } from './utils/decoding';
 export type {
-  ArkadeLightningConfig,
-  BoltzSwapProviderConfig,
-  CreateInvoiceResult,
-  DecodedInvoice,
+  CreateLightningInvoiceResponse,
+  SendLightningPaymentResponse,
+  SendLightningPaymentRequest,
   IncomingPaymentSubscription,
-  PaymentResult,
+  ArkadeLightningConfig,
+  PendingSubmarineSwap,
+  PendingReverseSwap,
+  DecodedInvoice,
   RefundHandler,
-  SendPaymentArgs,
-  SwapData,
-  Network,
   TimeoutConfig,
-  FeeConfig,
   RetryConfig,
-  Vtxo,
+  FeeConfig,
+  Network,
   Wallet,
+  Vtxo,
 } from './types';
