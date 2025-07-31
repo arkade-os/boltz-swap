@@ -1,6 +1,6 @@
 {
   "name": "@arkade-os/boltz-swap",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "type": "module",
   "description": "A production-ready TypeScript package that brings Boltz submarine-swaps to Arkade.",
   "main": "./dist/index.js",
@@ -24,7 +24,10 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "test": "vitest run",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "release": "bash scripts/release.sh",
+    "release:dry-run": "bash scripts/release.sh --dry-run",
+    "release:cleanup": "bash scripts/release.sh --cleanup"
   },
   "keywords": [
     "arkade",
