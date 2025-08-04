@@ -5,10 +5,11 @@ type KEY = 'reverseSwaps' | 'submarineSwaps';
 const KEY_REVERSE_SWAPS: KEY = 'reverseSwaps';
 const KEY_SUBMARINE_SWAPS: KEY = 'submarineSwaps';
 
-interface StoredSwaps {
+export type StoredSwaps = {
   reverseSwaps: PendingReverseSwap[];
   submarineSwaps: PendingSubmarineSwap[];
-}
+};
+
 interface StorageOptions {
   storagePath?: string;
 }
@@ -150,6 +151,14 @@ export class StorageProvider {
 
   async deletePendingSubmarineSwap(id: string): Promise<void> {
     return this.deletePendingSwap(KEY_SUBMARINE_SWAPS, id);
+  }
+
+  getSwapHistory() {
+    const reverseSwaps = this.storage[KEY_REVERSE_SWAPS] as PendingReverseSwap[];
+    const submarineSwaps = this.storage[KEY_SUBMARINE_SWAPS] as PendingSubmarineSwap[];
+    return [...reverseSwaps, ...submarineSwaps].sort((a, b) => {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
   }
 
   private async savePendingSwap(kind: KEY, swap: PendingReverseSwap | PendingSubmarineSwap): Promise<void> {

@@ -49,6 +49,7 @@ export interface SendLightningPaymentResponse {
 }
 
 export interface PendingReverseSwap {
+  createdAt: number;
   preimage: string;
   status: BoltzSwapStatus;
   request: CreateReverseSwapRequest;
@@ -56,6 +57,7 @@ export interface PendingReverseSwap {
 }
 
 export interface PendingSubmarineSwap {
+  createdAt: number;
   status: BoltzSwapStatus;
   request: CreateSubmarineSwapRequest;
   response: CreateSubmarineSwapResponse;

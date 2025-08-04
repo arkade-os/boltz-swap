@@ -28,9 +28,10 @@ describe('Storage provider', async () => {
     it('should store a pending submarine swap', async () => {
       // save swap
       await storageProvider.savePendingSubmarineSwap({
+        createdAt: Date.now(),
         request: mockRequest,
         response: mockResponse,
-        status: 'pending',
+        status: 'swap.created',
       });
       // get swaps
       const swaps = await storageProvider.getPendingSubmarineSwaps();
@@ -42,7 +43,23 @@ describe('Storage provider', async () => {
       expect(found?.request.invoice).toBe('mock-invoice');
       expect(found?.request.refundPublicKey).toBe(mockRequest.refundPublicKey);
       expect(found?.response.id).toBe(mockResponse.id);
-      expect(found?.status).toBe('pending');
+      expect(found?.status).toBe('swap.created');
+    });
+
+    it('should update a pending submarine swap', async () => {
+      // get pending swaps
+      const swaps = storageProvider.getPendingSubmarineSwaps();
+      expect(swaps.length).toBeGreaterThan(0);
+      // find swap to delete
+      const swapToUpdate = swaps.find((s) => s.response.id === mockResponse.id);
+      expect(swapToUpdate).toBeDefined();
+      // update swap
+      await storageProvider.savePendingSubmarineSwap({ ...swapToUpdate!, status: 'transaction.claimed' });
+      // verify swap is updated
+      const updateSwaps = storageProvider.getPendingSubmarineSwaps();
+      expect(updateSwaps.length).toBe(swaps.length);
+      const updatedSwap = updateSwaps.find((s) => s.response.id === swapToUpdate!.response.id);
+      expect(updatedSwap?.status).toBe('transaction.claimed');
     });
 
     it('should remove a pending submarine swap', async () => {
@@ -86,10 +103,11 @@ describe('Storage provider', async () => {
     it('should store a reverse swap', async () => {
       // save swap
       await storageProvider.savePendingReverseSwap({
+        createdAt: Date.now(),
         preimage: 'mock-preimage',
         request: mockRequest,
         response: mockResponse,
-        status: 'pending',
+        status: 'swap.created',
       });
       // get swaps
       const swaps = storageProvider.getPendingReverseSwaps();
@@ -102,7 +120,23 @@ describe('Storage provider', async () => {
       expect(found?.request.preimageHash).toBe(mockRequest.preimageHash);
       expect(found?.request.claimPublicKey).toBe(mockRequest.claimPublicKey);
       expect(found?.response.id).toBe(mockResponse.id);
-      expect(found?.status).toBe('pending');
+      expect(found?.status).toBe('swap.created');
+    });
+
+    it('should update a pending reverse swap', async () => {
+      // get pending swaps
+      const swaps = storageProvider.getPendingReverseSwaps();
+      expect(swaps.length).toBeGreaterThan(0);
+      // find swap to delete
+      const swapToUpdate = swaps.find((s) => s.response.id === mockResponse.id);
+      expect(swapToUpdate).toBeDefined();
+      // update swap
+      await storageProvider.savePendingReverseSwap({ ...swapToUpdate!, status: 'invoice.settled' });
+      // verify swap is updated
+      const updateSwaps = storageProvider.getPendingReverseSwaps();
+      expect(updateSwaps.length).toBe(swaps.length);
+      const updatedSwap = updateSwaps.find((s) => s.response.id === swapToUpdate!.response.id);
+      expect(updatedSwap?.status).toBe('invoice.settled');
     });
 
     it('should remove a pending reverse swap', async () => {

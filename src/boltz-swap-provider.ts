@@ -30,7 +30,7 @@ export type BoltzSwapStatus =
   | 'transaction.refunded';
 
 export type GetSwapStatusResponse = {
-  status: string;
+  status: BoltzSwapStatus;
   zeroConfRejected?: boolean;
   transaction?: {
     id: string;

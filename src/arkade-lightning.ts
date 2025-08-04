@@ -144,8 +144,8 @@ export class ArkadeLightning {
           .then((txid) => {
             this.waitForSwapSettlement(pendingSwap)
               .then(async () => {
-                this.storageProvider?.deletePendingSubmarineSwap(pendingSwap.response.id);
                 const finalStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
+                this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status: finalStatus.status });
                 const preimage = finalStatus.transaction?.preimage ?? '';
                 resolve({ amount: pendingSwap.response.expectedAmount, preimage, txid });
               })
@@ -154,8 +154,11 @@ export class ArkadeLightning {
                   this.refundVHTLC(pendingSwap)
                     .then(reject)
                     .catch(reject)
-                    .finally(() => {
-                      this.storageProvider?.deletePendingSubmarineSwap(pendingSwap.response.id);
+                    .finally(async () => {
+                      if (this.storageProvider) {
+                        const finalStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
+                        this.storageProvider.savePendingSubmarineSwap({ ...pendingSwap, status: finalStatus.status });
+                      }
                     });
                 } else {
                   reject(new TransactionFailedError());
@@ -184,6 +187,7 @@ export class ArkadeLightning {
     const swapResponse = await this.swapProvider.createSubmarineSwap(swapRequest);
 
     return {
+      createdAt: Math.floor(Date.now() / 1000),
       request: swapRequest,
       response: swapResponse,
       status: 'invoice.set',
@@ -214,6 +218,7 @@ export class ArkadeLightning {
     const swapResponse = await this.swapProvider.createReverseSwap(swapRequest);
 
     return {
+      createdAt: Math.floor(Date.now() / 1000),
       preimage: hex.encode(preimage),
       request: swapRequest,
       response: swapResponse,
@@ -315,6 +320,8 @@ export class ArkadeLightning {
       checkpoints.map((c) => base64.encode(c.toPSBT()))
     );
 
+    console.log('arkTxid', arkTxid);
+
     // verify the server signed the transaction with correct key
     if (!this.validFinalArkTx(finalArkTx, serverXOnlyPublicKey, vhtlcScript.leaves)) {
       throw new Error('Invalid final Ark transaction');
@@ -334,8 +341,11 @@ export class ArkadeLightning {
     // submit the final transaction to the Ark provider
     await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
 
-    // remove the pending swap from storage if available
-    this.storageProvider?.deletePendingReverseSwap(pendingSwap.response.id);
+    // update the pending swap on storage if available
+    if (this.storageProvider) {
+      const finalStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
+      this.storageProvider.savePendingReverseSwap({ ...pendingSwap, status: finalStatus.status });
+    }
   }
 
   async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
@@ -676,5 +686,17 @@ export class ArkadeLightning {
     const swaps = this.storageProvider.getPendingReverseSwaps();
     if (!swaps) return [];
     return swaps.filter((swap) => swap.status === 'swap.created');
+  }
+
+  /**
+   * Retrieves swap history from the storage provider.
+   * @returns PendingReverseSwap[] or null if no storage provider is set.
+   * If no swaps are found, it returns an empty array.
+   */
+  getSwapHistory(): (PendingReverseSwap | PendingSubmarineSwap)[] | null {
+    if (!this.storageProvider) return null;
+    const swaps = this.storageProvider.getSwapHistory();
+    if (!swaps) return [];
+    return swaps.sort((a, b) => b.createdAt - a.createdAt);
   }
 }

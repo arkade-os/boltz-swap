@@ -274,14 +274,18 @@ describe('ArkadeLightning', () => {
     it('should claim a VHTLC', async () => {
       // arrange
       const pendingSwap: PendingReverseSwap = {
+        createdAt: Date.now(),
         preimage: hex.encode(preimage),
         request: createReverseSwapRequest,
         response: createReverseSwapResponse,
         status: 'swap.created',
       };
+      vi.spyOn(arkProvider, 'getInfo').mockResolvedValueOnce({ signerPubkey: hex.encode(mock.pubkeys.server) } as any);
       vi.spyOn(lightning, 'createVHTLCScript').mockReturnValueOnce(mockVHTLC);
       vi.spyOn(indexerProvider, 'getVtxos').mockResolvedValueOnce({ vtxos: [] });
-      expect(lightning.claimVHTLC(pendingSwap)).rejects.toThrow('Boltz is trying to scam us');
+      vi.spyOn(arkProvider, 'submitTx').mockResolvedValueOnce({ arkTxid: '', finalArkTx: '', signedCheckpointTxs: [] });
+      vi.spyOn(arkProvider, 'finalizeTx').mockResolvedValueOnce();
+      await expect(lightning.claimVHTLC(pendingSwap)).rejects.toThrow('Boltz is trying to scam us');
     });
   });
 
@@ -295,6 +299,7 @@ describe('ArkadeLightning', () => {
     it('should create a Lightning invoice', async () => {
       // arrange
       const pendingSwap: PendingReverseSwap = {
+        createdAt: Date.now(),
         preimage: mock.preimage,
         request: createReverseSwapRequest,
         response: createReverseSwapResponse,
@@ -371,6 +376,7 @@ describe('ArkadeLightning', () => {
     it('should send a Lightning payment', async () => {
       // arrange
       const pendingSwap: PendingSubmarineSwap = {
+        createdAt: Date.now(),
         request: createSubmarineSwapRequest,
         response: createSubmarineSwapResponse,
         status: 'swap.created',
