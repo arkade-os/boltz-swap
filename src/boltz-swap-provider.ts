@@ -186,7 +186,15 @@ export class BoltzSwapProvider {
     this.wsUrl = this.apiUrl.replace(/^http(s)?:\/\//, 'ws$1://').replace('9069', '9004') + '/v2/ws';
   }
 
-  public getNetwork(): Network {
+  getApiUrl(): string {
+    return this.apiUrl;
+  }
+
+  getWsUrl(): string {
+    return this.wsUrl;
+  }
+
+  getNetwork(): Network {
     return this.network;
   }
 
