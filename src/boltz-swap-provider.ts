@@ -1,15 +1,10 @@
 import { NetworkError, SchemaError, SwapError } from './errors';
-import { Network } from './types';
+import { LimitsResponse, Network } from './types';
 
 export interface SwapProviderConfig {
   apiUrl?: string;
   network: Network;
 }
-
-export type LimitsResponse = {
-  min: number;
-  max: number;
-};
 
 // Boltz swap status types
 export type BoltzSwapStatus =
