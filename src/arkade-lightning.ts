@@ -1,4 +1,3 @@
-import { poll } from './utils/polling';
 import {
   InvoiceExpiredError,
   InvoiceFailedToPayError,
@@ -30,10 +29,10 @@ import type {
   PendingSubmarineSwap,
   CreateLightningInvoiceRequest,
   Wallet,
+  LimitsResponse,
 } from './types';
 import { randomBytes } from '@noble/hashes/utils';
 import {
-  GetSwapStatusResponse,
   BoltzSwapProvider,
   CreateSubmarineSwapRequest,
   CreateReverseSwapRequest,
@@ -45,29 +44,12 @@ import { TransactionInput } from '@scure/btc-signer/psbt';
 import { ripemd160 } from '@noble/hashes/legacy';
 import { decodeInvoice, getInvoicePaymentHash } from './utils/decoding';
 
-const DEFAULT_TIMEOUT_CONFIG = {
-  swapExpiryBlocks: 144,
-  invoiceExpirySeconds: 3600,
-  claimDelayBlocks: 10,
-};
-
-const DEFAULT_FEE_CONFIG = {
-  maxMinerFeeSats: 5000,
-  maxSwapFeeSats: 1000,
-};
-
-const DEFAULT_RETRY_CONFIG = {
-  maxAttempts: 5,
-  delayMs: 2000,
-};
-
 export class ArkadeLightning {
   private readonly wallet: Wallet;
   private readonly arkProvider: RestArkProvider;
   private readonly swapProvider: BoltzSwapProvider;
   private readonly storageProvider: StorageProvider | null;
   private readonly indexerProvider: RestIndexerProvider;
-  private readonly config: Required<ArkadeLightningConfig>;
 
   constructor(config: ArkadeLightningConfig) {
     if (!config.wallet) throw new Error('Wallet is required.');
@@ -79,13 +61,6 @@ export class ArkadeLightning {
     this.swapProvider = config.swapProvider;
     this.storageProvider = config.storageProvider ?? null;
     this.indexerProvider = config.indexerProvider;
-    this.config = {
-      ...config,
-      refundHandler: config.refundHandler ?? { onRefundNeeded: async () => {} },
-      timeoutConfig: { ...DEFAULT_TIMEOUT_CONFIG, ...config.timeoutConfig },
-      feeConfig: { ...DEFAULT_FEE_CONFIG, ...config.feeConfig },
-      retryConfig: { ...DEFAULT_RETRY_CONFIG, ...config.retryConfig },
-    } as Required<ArkadeLightningConfig>;
   }
 
   // receive from lightning = reverse submarine swap
@@ -99,8 +74,6 @@ export class ArkadeLightning {
     return new Promise((resolve, reject) => {
       this.createReverseSwap(args)
         .then((pendingSwap) => {
-          // save pending swap to storage if available
-          this.storageProvider?.savePendingReverseSwap(pendingSwap);
           const decodedInvoice = decodeInvoice(pendingSwap.response.invoice);
           //
           resolve({
@@ -145,7 +118,6 @@ export class ArkadeLightning {
             this.waitForSwapSettlement(pendingSwap)
               .then(async () => {
                 const finalStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
-                this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status: finalStatus.status });
                 const preimage = finalStatus.transaction?.preimage ?? '';
                 resolve({ amount: pendingSwap.response.expectedAmount, preimage, txid });
               })
@@ -186,12 +158,18 @@ export class ArkadeLightning {
     // make reverse swap request
     const swapResponse = await this.swapProvider.createSubmarineSwap(swapRequest);
 
-    return {
+    // create pending swap object
+    const pendingSwap: PendingSubmarineSwap = {
       createdAt: Math.floor(Date.now() / 1000),
       request: swapRequest,
       response: swapResponse,
       status: 'invoice.set',
-    } as PendingSubmarineSwap;
+    };
+
+    // save pending swap to storage if available
+    this.storageProvider?.savePendingSubmarineSwap(pendingSwap);
+
+    return pendingSwap;
   }
 
   // create reverse submarine swap
@@ -217,13 +195,18 @@ export class ArkadeLightning {
     // make reverse swap request
     const swapResponse = await this.swapProvider.createReverseSwap(swapRequest);
 
-    return {
+    const pendingSwap: PendingReverseSwap = {
       createdAt: Math.floor(Date.now() / 1000),
       preimage: hex.encode(preimage),
       request: swapRequest,
       response: swapResponse,
       status: 'swap.created',
-    } as PendingReverseSwap;
+    };
+
+    // save pending swap to storage if available
+    this.storageProvider?.savePendingReverseSwap(pendingSwap);
+
+    return pendingSwap;
   }
 
   // claim the VHTLC by creating a virtual transaction that spends the VHTLC output
@@ -320,8 +303,6 @@ export class ArkadeLightning {
       checkpoints.map((c) => base64.encode(c.toPSBT()))
     );
 
-    console.log('arkTxid', arkTxid);
-
     // verify the server signed the transaction with correct key
     if (!this.validFinalArkTx(finalArkTx, serverXOnlyPublicKey, vhtlcScript.leaves)) {
       throw new Error('Invalid final Ark transaction');
@@ -361,6 +342,7 @@ export class ArkadeLightning {
     } else if (receiverXOnlyPublicKey.length !== 32) {
       throw new Error(`Invalid receiver public key length: ${receiverXOnlyPublicKey.length}`);
     }
+
     // validate we are using a x-only server public key
     let serverXOnlyPublicKey = hex.decode(aspInfo.signerPubkey);
     if (serverXOnlyPublicKey.length == 33) {
@@ -453,7 +435,11 @@ export class ArkadeLightning {
     );
     await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
 
-    console.log('Successfully claimed VHTLC! Transaction ID:', arkTxid);
+    // update the pending swap on storage if available
+    if (this.storageProvider) {
+      const finalStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
+      this.storageProvider.savePendingSubmarineSwap({ ...pendingSwap, status: finalStatus.status });
+    }
   }
 
   async waitAndClaim(pendingSwap: PendingReverseSwap): Promise<{ txid: string }> {
@@ -463,26 +449,33 @@ export class ArkadeLightning {
         switch (status) {
           case 'transaction.mempool':
           case 'transaction.confirmed':
+            this.storageProvider?.savePendingReverseSwap({ ...pendingSwap, status });
             this.claimVHTLC(pendingSwap).catch(reject);
             break;
           case 'invoice.settled': {
-            const status = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
-            resolve({ txid: status.transaction?.id ?? '' });
+            this.storageProvider?.savePendingReverseSwap({ ...pendingSwap, status });
+            const swapStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
+            resolve({ txid: swapStatus.transaction?.id ?? '' });
             break;
           }
           case 'invoice.expired':
+            this.storageProvider?.savePendingReverseSwap({ ...pendingSwap, status });
             reject(new InvoiceExpiredError({ isRefundable: true, pendingSwap }));
             break;
           case 'swap.expired':
+            this.storageProvider?.savePendingReverseSwap({ ...pendingSwap, status });
             reject(new SwapExpiredError({ isRefundable: true, pendingSwap }));
             break;
           case 'transaction.failed':
+            this.storageProvider?.savePendingReverseSwap({ ...pendingSwap, status });
             reject(new TransactionFailedError());
             break;
           case 'transaction.refunded':
+            this.storageProvider?.savePendingReverseSwap({ ...pendingSwap, status });
             reject(new TransactionRefundedError());
             break;
           default:
+            this.storageProvider?.savePendingReverseSwap({ ...pendingSwap, status });
             break;
         }
       };
@@ -502,51 +495,29 @@ export class ArkadeLightning {
       const onStatusUpdate = async (status: BoltzSwapStatus) => {
         switch (status) {
           case 'swap.expired':
+            this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             reject(new SwapExpiredError({ isRefundable: true, pendingSwap }));
             break;
           case 'invoice.failedToPay':
+            this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             reject(new InvoiceFailedToPayError({ isRefundable: true, pendingSwap }));
             break;
           case 'transaction.lockupFailed':
+            this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             reject(new TransactionLockupFailedError({ isRefundable: true, pendingSwap }));
             break;
           case 'transaction.claimed':
+            this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             resolve();
             break;
           default:
+            this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             break;
         }
       };
 
       this.swapProvider.monitorSwap(pendingSwap.response.id, onStatusUpdate);
     });
-  }
-
-  /**
-   * Waits for the swap settlement.
-   * @param swapData - The swap data to wait for.
-   * @returns The status of the swap settlement.
-   */
-  async waitForSwapSettlementold(swapData: PendingSubmarineSwap): Promise<GetSwapStatusResponse> {
-    const status = await poll(
-      () => this.swapProvider.getSwapStatus(swapData.response.id),
-      (status) => status.status === 'transaction.claimed',
-      this.config.retryConfig.delayMs ?? 2000,
-      this.config.retryConfig.maxAttempts ?? 5
-    ).catch((err) => {
-      this.config.refundHandler.onRefundNeeded(swapData);
-      throw new SwapError({
-        message: `Swap settlement failed: ${err.message}`,
-        isRefundable: true,
-        pendingSwap: { ...swapData },
-      });
-    });
-
-    if (status.status === 'transaction.claimed' && this.storageProvider) {
-      await this.storageProvider.deletePendingSubmarineSwap(swapData.response.id);
-    }
-
-    return status;
   }
 
   // validators
@@ -657,6 +628,16 @@ export class ArkadeLightning {
     const vhtlcAddress = vhtlcScript.address(hrp, serverXOnlyPublicKey).encode();
 
     return { vhtlcScript, vhtlcAddress };
+  }
+
+  /**
+   * Retrieves max and min limits for swaps (in sats).
+   * It is useful for checking the status of all pending submarine swaps in the system.
+   * @returns LimitsResponse or null if no storage provider is set.
+   */
+  async getLimits(): Promise<LimitsResponse | null> {
+    if (!this.swapProvider) return null;
+    return this.swapProvider.getLimits();
   }
 
   /**
