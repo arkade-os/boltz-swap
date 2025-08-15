@@ -351,7 +351,6 @@ export class ArkadeLightning {
   async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
     // prepare variables for claiming the VHTLC
     const aspInfo = await this.arkProvider.getInfo();
-    const amount = pendingSwap.response.expectedAmount;
     const address = await this.wallet.getAddress();
     if (!address) throw new Error('Failed to get ark address from service worker wallet');
 
@@ -424,7 +423,7 @@ export class ArkadeLightning {
       ],
       [
         {
-          amount: BigInt(amount),
+          amount: BigInt(spendableVtxos.vtxos[0].value),
           script: ArkAddress.decode(address).pkScript,
         },
       ],

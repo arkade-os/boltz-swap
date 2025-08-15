@@ -12,6 +12,7 @@ export type {
   PendingSubmarineSwap,
   PendingReverseSwap,
   DecodedInvoice,
+  LimitsResponse,
   RefundHandler,
   TimeoutConfig,
   RetryConfig,

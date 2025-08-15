@@ -1,15 +1,10 @@
 import { NetworkError, SchemaError, SwapError } from './errors';
-import { Network } from './types';
+import { LimitsResponse, Network } from './types';
 
 export interface SwapProviderConfig {
   apiUrl?: string;
   network: Network;
 }
-
-export type LimitsResponse = {
-  min: number;
-  max: number;
-};
 
 // Boltz swap status types
 export type BoltzSwapStatus =
@@ -183,6 +178,7 @@ export class BoltzSwapProvider {
   constructor(config: SwapProviderConfig) {
     this.network = config.network;
     this.apiUrl = config.apiUrl || BASE_URLS[config.network];
+    if (!this.apiUrl) throw new Error(`API URL is required for network: ${config.network}`);
     this.wsUrl = this.apiUrl.replace(/^http(s)?:\/\//, 'ws$1://').replace('9069', '9004') + '/v2/ws';
   }
 

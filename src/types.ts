@@ -109,3 +109,8 @@ export interface IncomingPaymentSubscription {
   on(event: 'failed', listener: (error: Error) => void): this;
   unsubscribe(): void;
 }
+
+export interface LimitsResponse {
+  min: number;
+  max: number;
+}
