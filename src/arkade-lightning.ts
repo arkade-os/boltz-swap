@@ -158,6 +158,7 @@ export class ArkadeLightning {
 
     // create pending swap object
     const pendingSwap: PendingSubmarineSwap = {
+      type: 'submarine',
       createdAt: Math.floor(Date.now() / 1000),
       request: swapRequest,
       response: swapResponse,
@@ -194,6 +195,7 @@ export class ArkadeLightning {
     const swapResponse = await this.swapProvider.createReverseSwap(swapRequest);
 
     const pendingSwap: PendingReverseSwap = {
+      type: 'reverse',
       createdAt: Math.floor(Date.now() / 1000),
       preimage: hex.encode(preimage),
       request: swapRequest,
