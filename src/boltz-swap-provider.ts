@@ -125,6 +125,14 @@ export const isCreateSubmarineSwapResponse = (data: any): data is CreateSubmarin
   );
 };
 
+export type GetSwapPreimageResponse = {
+  preimage: string;
+};
+
+export const isGetSwapPreimageResponse = (data: any): data is GetSwapPreimageResponse => {
+  return data && typeof data === 'object' && typeof data.preimage === 'string';
+};
+
 export type CreateReverseSwapRequest = {
   claimPublicKey: string;
   invoiceAmount: number;
@@ -207,6 +215,12 @@ export class BoltzSwapProvider {
     const response = await this.request<GetSwapStatusResponse>(`/v2/swap/${id}`, 'GET');
     if (!isGetSwapStatusResponse(response)) throw new SchemaError({ message: `error fetching status for swap: ${id}` });
     return response;
+  }
+
+  async getSwapPreimage(id: string): Promise<GetSwapPreimageResponse> {
+    const res = await this.request<GetSwapPreimageResponse>(`/v2/swap/submarine/${id}/preimage`, 'GET');
+    if (!isGetSwapPreimageResponse(res)) throw new SchemaError({ message: `error fetching preimage for swap: ${id}` });
+    return res;
   }
 
   async createSubmarineSwap({
