@@ -274,6 +274,7 @@ describe('ArkadeLightning', () => {
     it('should claim a VHTLC', async () => {
       // arrange
       const pendingSwap: PendingReverseSwap = {
+        type: 'reverse',
         createdAt: Date.now(),
         preimage: hex.encode(preimage),
         request: createReverseSwapRequest,
@@ -299,6 +300,7 @@ describe('ArkadeLightning', () => {
     it('should create a Lightning invoice', async () => {
       // arrange
       const pendingSwap: PendingReverseSwap = {
+        type: 'reverse',
         createdAt: Date.now(),
         preimage: mock.preimage,
         request: createReverseSwapRequest,
@@ -376,21 +378,14 @@ describe('ArkadeLightning', () => {
     it('should send a Lightning payment', async () => {
       // arrange
       const pendingSwap: PendingSubmarineSwap = {
+        type: 'submarine',
         createdAt: Date.now(),
         request: createSubmarineSwapRequest,
         response: createSubmarineSwapResponse,
         status: 'swap.created',
       };
       vi.spyOn(lightning, 'createSubmarineSwap').mockResolvedValueOnce(pendingSwap);
-      vi.spyOn(lightning, 'waitForSwapSettlement').mockResolvedValueOnce();
-      vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValueOnce({
-        status: 'transaction.claimed',
-        transaction: {
-          id: mock.txid,
-          hex: mock.hex,
-          preimage: mock.preimage,
-        },
-      });
+      vi.spyOn(lightning, 'waitForSwapSettlement').mockResolvedValueOnce({ preimage: mock.preimage });
       // act
       const result = await lightning.sendLightningPayment({ invoice: mock.invoice.address });
       // assert

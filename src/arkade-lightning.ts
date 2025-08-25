@@ -116,9 +116,7 @@ export class ArkadeLightning {
           .sendBitcoin({ address: pendingSwap.response.address, amount: pendingSwap.response.expectedAmount })
           .then((txid) => {
             this.waitForSwapSettlement(pendingSwap)
-              .then(async () => {
-                const finalStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
-                const preimage = finalStatus.transaction?.preimage ?? '';
+              .then(async ({ preimage }) => {
                 resolve({ amount: pendingSwap.response.expectedAmount, preimage, txid });
               })
               .catch(({ isRefundable }) => {
@@ -142,7 +140,7 @@ export class ArkadeLightning {
     });
   }
 
-  // create reverse submarine swap
+  // create submarine swap
   async createSubmarineSwap(args: SendLightningPaymentRequest): Promise<PendingSubmarineSwap> {
     const refundPublicKey = hex.encode(this.wallet.xOnlyPublicKey());
     if (!refundPublicKey) throw new SwapError({ message: 'Failed to get refund public key from wallet' });
@@ -155,11 +153,12 @@ export class ArkadeLightning {
       refundPublicKey,
     };
 
-    // make reverse swap request
+    // make submarine swap request
     const swapResponse = await this.swapProvider.createSubmarineSwap(swapRequest);
 
     // create pending swap object
     const pendingSwap: PendingSubmarineSwap = {
+      type: 'submarine',
       createdAt: Math.floor(Date.now() / 1000),
       request: swapRequest,
       response: swapResponse,
@@ -196,6 +195,7 @@ export class ArkadeLightning {
     const swapResponse = await this.swapProvider.createReverseSwap(swapRequest);
 
     const pendingSwap: PendingReverseSwap = {
+      type: 'reverse',
       createdAt: Math.floor(Date.now() / 1000),
       preimage: hex.encode(preimage),
       request: swapRequest,
@@ -489,8 +489,8 @@ export class ArkadeLightning {
    * @param pendingSwap - The pending swap.
    * @returns The status of the swap settlement.
    */
-  async waitForSwapSettlement(pendingSwap: PendingSubmarineSwap): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+  async waitForSwapSettlement(pendingSwap: PendingSubmarineSwap): Promise<{ preimage: string }> {
+    return new Promise<{ preimage: string }>((resolve, reject) => {
       // https://api.docs.boltz.exchange/lifecycle.html#swap-states
       const onStatusUpdate = async (status: BoltzSwapStatus) => {
         switch (status) {
@@ -506,10 +506,12 @@ export class ArkadeLightning {
             this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             reject(new TransactionLockupFailedError({ isRefundable: true, pendingSwap }));
             break;
-          case 'transaction.claimed':
-            this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
-            resolve();
+          case 'transaction.claimed': {
+            const { preimage } = await this.swapProvider.getSwapPreimage(pendingSwap.response.id);
+            this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, preimage, status });
+            resolve({ preimage });
             break;
+          }
           default:
             this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             break;

@@ -165,7 +165,7 @@ export class StorageProvider {
     const swaps = this.storage[kind] as PendingReverseSwap[] | PendingSubmarineSwap[];
     const found = swaps.findIndex((s) => s.response.id === swap.response.id);
     if (found !== -1) {
-      swaps[found].status = swap.status; // Update status
+      swaps[found] = swap; // Update swap
     } else {
       if (kind === KEY_REVERSE_SWAPS) {
         (swaps as PendingReverseSwap[]).push(swap as PendingReverseSwap);
