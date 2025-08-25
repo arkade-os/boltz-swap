@@ -142,7 +142,7 @@ export class ArkadeLightning {
     });
   }
 
-  // create reverse submarine swap
+  // create submarine swap
   async createSubmarineSwap(args: SendLightningPaymentRequest): Promise<PendingSubmarineSwap> {
     const refundPublicKey = hex.encode(this.wallet.xOnlyPublicKey());
     if (!refundPublicKey) throw new SwapError({ message: 'Failed to get refund public key from wallet' });
@@ -155,7 +155,7 @@ export class ArkadeLightning {
       refundPublicKey,
     };
 
-    // make reverse swap request
+    // make submarine swap request
     const swapResponse = await this.swapProvider.createSubmarineSwap(swapRequest);
 
     // create pending swap object
