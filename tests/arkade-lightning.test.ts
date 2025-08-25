@@ -382,15 +382,7 @@ describe('ArkadeLightning', () => {
         status: 'swap.created',
       };
       vi.spyOn(lightning, 'createSubmarineSwap').mockResolvedValueOnce(pendingSwap);
-      vi.spyOn(lightning, 'waitForSwapSettlement').mockResolvedValueOnce();
-      vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValueOnce({
-        status: 'transaction.claimed',
-        transaction: {
-          id: mock.txid,
-          hex: mock.hex,
-          preimage: mock.preimage,
-        },
-      });
+      vi.spyOn(lightning, 'waitForSwapSettlement').mockResolvedValueOnce({ preimage: mock.preimage });
       // act
       const result = await lightning.sendLightningPayment({ invoice: mock.invoice.address });
       // assert

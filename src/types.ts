@@ -58,6 +58,7 @@ export interface PendingReverseSwap {
 
 export interface PendingSubmarineSwap {
   createdAt: number;
+  preimage?: string;
   status: BoltzSwapStatus;
   request: CreateSubmarineSwapRequest;
   response: CreateSubmarineSwapResponse;
