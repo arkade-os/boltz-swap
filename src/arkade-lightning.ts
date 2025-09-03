@@ -82,12 +82,12 @@ export class ArkadeLightning {
     // Prioritize wallet providers, fallback to config providers for backward compatibility
     // Handle both cases: wallet.arkProvider doesn't exist OR wallet.arkProvider is undefined
     const walletArkProvider = config.wallet.arkProvider;
-    const arkProvider = (walletArkProvider && walletArkProvider) || config.arkProvider;
+    const arkProvider = walletArkProvider || config.arkProvider;
     if (!arkProvider) throw new Error('Ark provider is required either in wallet or config.');
     this.arkProvider = arkProvider;
     
     const walletIndexerProvider = config.wallet.indexerProvider;
-    const indexerProvider = (walletIndexerProvider && walletIndexerProvider) || config.indexerProvider;
+    const indexerProvider = walletIndexerProvider || config.indexerProvider;
     if (!indexerProvider) throw new Error('Indexer provider is required either in wallet or config.');
     this.indexerProvider = indexerProvider;
     
