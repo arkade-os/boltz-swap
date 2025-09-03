@@ -50,6 +50,46 @@ const arkadeLightning = new ArkadeLightning({
 });
 ```
 
+## Wallet class Compatibility
+
+This library supports both wallet interface patterns:
+
+### Wallet (with nested identity)
+
+```typescript
+import { Wallet } from '@arkade-os/sdk';
+
+const wallet = await Wallet.create({
+  identity,
+  arkServerUrl: 'https://mutinynet.arkade.sh',
+});
+
+// Wallet has built-in providers
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+});
+```
+
+### ServiceWorkerWallet (legacy interface)
+
+```typescript
+// ServiceWorkerWallet has identity methods spread directly
+const serviceWorkerWallet = new ServiceWorkerWallet(serviceWorker);
+await serviceWorkerWallet.init({
+  privateKey: 'your_private_key_hex',
+  arkServerUrl: 'https://ark.example.com'
+});
+
+// Must provide external providers for ServiceWorkerWallet
+const arkadeLightning = new ArkadeLightning({
+  wallet: serviceWorkerWallet,
+  arkProvider: new ArkProvider('https://ark.example.com'),
+  indexerProvider: new IndexerProvider('https://indexer.example.com'),
+  swapProvider,
+});
+```
+
 ## Storage
 
 By default this library doesn't store pending swaps.

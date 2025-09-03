@@ -22,11 +22,21 @@ export interface Vtxo {
   };
 }
 
-export type Wallet = IWallet & {
+// Support both wallet interfaces:
+// 1. Wallet with nested identity (new structure)
+// 2. ServiceWorkerWallet with identity methods spread directly (legacy)
+export type WalletWithNestedIdentity = IWallet & {
   arkProvider: ArkProvider;
   indexerProvider: IndexerProvider;
   identity: Identity;
 };
+
+export type ServiceWorkerWallet = IWallet & Identity & {
+  arkProvider?: ArkProvider;
+  indexerProvider?: IndexerProvider;
+};
+
+export type Wallet = WalletWithNestedIdentity | ServiceWorkerWallet;
 
 export type Network = 'bitcoin' | 'mutinynet' | 'regtest' | 'testnet';
 
