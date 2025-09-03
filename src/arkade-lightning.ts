@@ -101,7 +101,15 @@ export class ArkadeLightning {
     this.indexerProvider = indexerProvider;
     
     this.swapProvider = config.swapProvider;
-    this.storageProvider = config.storageProvider ?? null;
+    
+    // Support both legacy storageProvider and new storage patterns
+    if (config.storageProvider) {
+      this.storageProvider = config.storageProvider;
+    } else if (config.storage) {
+      this.storageProvider = new StorageProvider(config.storage);
+    } else {
+      this.storageProvider = null;
+    }
   }
 
   // receive from lightning = reverse submarine swap
@@ -704,9 +712,9 @@ export class ArkadeLightning {
    * @returns PendingSubmarineSwap[] or null if no storage provider is set.
    * If no swaps are found, it returns an empty array.
    */
-  getPendingSubmarineSwaps(): PendingSubmarineSwap[] | null {
+  async getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[] | null> {
     if (!this.storageProvider) return null;
-    const swaps = this.storageProvider.getPendingSubmarineSwaps();
+    const swaps = await this.storageProvider.getPendingSubmarineSwaps();
     if (!swaps) return [];
     return swaps.filter((swap) => swap.status === 'invoice.set');
   }
@@ -718,9 +726,9 @@ export class ArkadeLightning {
    * @returns PendingReverseSwap[] or null if no storage provider is set.
    * If no swaps are found, it returns an empty array.
    */
-  getPendingReverseSwaps(): PendingReverseSwap[] | null {
+  async getPendingReverseSwaps(): Promise<PendingReverseSwap[] | null> {
     if (!this.storageProvider) return null;
-    const swaps = this.storageProvider.getPendingReverseSwaps();
+    const swaps = await this.storageProvider.getPendingReverseSwaps();
     if (!swaps) return [];
     return swaps.filter((swap) => swap.status === 'swap.created');
   }
@@ -730,9 +738,9 @@ export class ArkadeLightning {
    * @returns PendingReverseSwap[] or null if no storage provider is set.
    * If no swaps are found, it returns an empty array.
    */
-  getSwapHistory(): (PendingReverseSwap | PendingSubmarineSwap)[] | null {
+  async getSwapHistory(): Promise<(PendingReverseSwap | PendingSubmarineSwap)[] | null> {
     if (!this.storageProvider) return null;
-    const swaps = this.storageProvider.getSwapHistory();
+    const swaps = await this.storageProvider.getSwapHistory();
     if (!swaps) return [];
     return swaps.sort((a, b) => b.createdAt - a.createdAt);
   }

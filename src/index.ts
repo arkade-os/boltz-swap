@@ -12,6 +12,12 @@ export {
   TransactionFailedError
 } from './errors';
 export { decodeInvoice, getInvoicePaymentHash, getInvoiceSatoshis } from './utils/decoding';
+export { 
+  Storage, 
+  FileSystemStorage, 
+  BrowserStorage, 
+  AsyncStorage
+} from './storage';
 export type {
   CreateLightningInvoiceResponse,
   SendLightningPaymentResponse,

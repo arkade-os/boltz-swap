@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CreateSubmarineSwapRequest, CreateSubmarineSwapResponse } from '../src/boltz-swap-provider';
 import { StorageProvider } from '../src/storage-provider';
+import { FileSystemStorage } from '../src/storage';
 
-describe('Storage provider', async () => {
-  const storageProvider = await StorageProvider.create({ storagePath: './test-storage.json' });
+describe('Storage provider', () => {
+  const storage = new FileSystemStorage('./test-storage.json');
+  const storageProvider = new StorageProvider(storage);
 
   describe('submarine swaps', () => {
     // mock request and response
@@ -28,6 +30,7 @@ describe('Storage provider', async () => {
     it('should store a pending submarine swap', async () => {
       // save swap
       await storageProvider.savePendingSubmarineSwap({
+        type: 'submarine',
         createdAt: Date.now(),
         request: mockRequest,
         response: mockResponse,
@@ -48,7 +51,7 @@ describe('Storage provider', async () => {
 
     it('should update a pending submarine swap', async () => {
       // get pending swaps
-      const swaps = storageProvider.getPendingSubmarineSwaps();
+      const swaps = await storageProvider.getPendingSubmarineSwaps();
       expect(swaps.length).toBeGreaterThan(0);
       // find swap to delete
       const swapToUpdate = swaps.find((s) => s.response.id === mockResponse.id);
@@ -56,7 +59,7 @@ describe('Storage provider', async () => {
       // update swap
       await storageProvider.savePendingSubmarineSwap({ ...swapToUpdate!, status: 'transaction.claimed' });
       // verify swap is updated
-      const updateSwaps = storageProvider.getPendingSubmarineSwaps();
+      const updateSwaps = await storageProvider.getPendingSubmarineSwaps();
       expect(updateSwaps.length).toBe(swaps.length);
       const updatedSwap = updateSwaps.find((s) => s.response.id === swapToUpdate!.response.id);
       expect(updatedSwap?.status).toBe('transaction.claimed');
@@ -64,7 +67,7 @@ describe('Storage provider', async () => {
 
     it('should remove a pending submarine swap', async () => {
       // get pending swaps
-      const swaps = storageProvider.getPendingSubmarineSwaps();
+      const swaps = await storageProvider.getPendingSubmarineSwaps();
       expect(swaps.length).toBeGreaterThan(0);
       // find swap to delete
       const swapToDelete = swaps.find((s) => s.response.id === mockResponse.id);
@@ -72,7 +75,7 @@ describe('Storage provider', async () => {
       // delete swap
       await storageProvider.deletePendingSubmarineSwap(swapToDelete!.response.id);
       // verify swap is deleted
-      const updateSwaps = storageProvider.getPendingSubmarineSwaps();
+      const updateSwaps = await storageProvider.getPendingSubmarineSwaps();
       expect(updateSwaps.length).toBe(swaps.length - 1);
       const deletedSwap = updateSwaps.find((s) => s.response.id === swapToDelete!.response.id);
       expect(deletedSwap).toBeUndefined();
@@ -103,6 +106,7 @@ describe('Storage provider', async () => {
     it('should store a reverse swap', async () => {
       // save swap
       await storageProvider.savePendingReverseSwap({
+        type: 'reverse',
         createdAt: Date.now(),
         preimage: 'mock-preimage',
         request: mockRequest,
@@ -110,7 +114,7 @@ describe('Storage provider', async () => {
         status: 'swap.created',
       });
       // get swaps
-      const swaps = storageProvider.getPendingReverseSwaps();
+      const swaps = await storageProvider.getPendingReverseSwaps();
       expect(swaps.length).toBeGreaterThan(0);
       // find saved swap
       const found = swaps.find((s) => s.response.id === mockResponse.id);
@@ -125,7 +129,7 @@ describe('Storage provider', async () => {
 
     it('should update a pending reverse swap', async () => {
       // get pending swaps
-      const swaps = storageProvider.getPendingReverseSwaps();
+      const swaps = await storageProvider.getPendingReverseSwaps();
       expect(swaps.length).toBeGreaterThan(0);
       // find swap to delete
       const swapToUpdate = swaps.find((s) => s.response.id === mockResponse.id);
@@ -133,7 +137,7 @@ describe('Storage provider', async () => {
       // update swap
       await storageProvider.savePendingReverseSwap({ ...swapToUpdate!, status: 'invoice.settled' });
       // verify swap is updated
-      const updateSwaps = storageProvider.getPendingReverseSwaps();
+      const updateSwaps = await storageProvider.getPendingReverseSwaps();
       expect(updateSwaps.length).toBe(swaps.length);
       const updatedSwap = updateSwaps.find((s) => s.response.id === swapToUpdate!.response.id);
       expect(updatedSwap?.status).toBe('invoice.settled');
@@ -141,7 +145,7 @@ describe('Storage provider', async () => {
 
     it('should remove a pending reverse swap', async () => {
       // get pending swaps
-      const swaps = storageProvider.getPendingReverseSwaps();
+      const swaps = await storageProvider.getPendingReverseSwaps();
       expect(swaps.length).toBeGreaterThan(0);
       // find swap to delete
       const swapToDelete = swaps.find((s) => s.response.id === mockResponse.id);
@@ -149,7 +153,7 @@ describe('Storage provider', async () => {
       // delete swap
       await storageProvider.deletePendingReverseSwap(swapToDelete!.response.id);
       // verify swap is deleted
-      const updateSwaps = storageProvider.getPendingReverseSwaps();
+      const updateSwaps = await storageProvider.getPendingReverseSwaps();
       expect(updateSwaps.length).toBe(swaps.length - 1);
       // verify deleted swap
       const deletedSwap = updateSwaps.find((s) => s.response.id === swapToDelete!.response.id);

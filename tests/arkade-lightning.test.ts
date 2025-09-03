@@ -115,7 +115,6 @@ vi.mock('ws', () => {
 
 describe('ArkadeLightning', () => {
   let indexerProvider: RestIndexerProvider;
-  let storageProvider: StorageProvider;
   let swapProvider: BoltzSwapProvider;
   let arkProvider: RestArkProvider;
   let lightning: ArkadeLightning;
@@ -224,7 +223,6 @@ describe('ArkadeLightning', () => {
     arkProvider = new RestArkProvider('http://localhost:7070');
     swapProvider = new BoltzSwapProvider({ network: 'regtest' });
     indexerProvider = new RestIndexerProvider('http://localhost:7070');
-    storageProvider = await StorageProvider.create({ storagePath: './test-storage.json' });
     lightning = new ArkadeLightning({ wallet: mockWallet, arkProvider, swapProvider, indexerProvider });
   });
 
@@ -237,10 +235,9 @@ describe('ArkadeLightning', () => {
       expect(lightning).toBeInstanceOf(ArkadeLightning);
     });
 
-    it('should fail to instantiate without required config', async () => {
+    it('should fail to instantiate without required config', () => {
       const params: ArkadeLightningConfig = { wallet: mockWallet, swapProvider, arkProvider, indexerProvider };
       expect(() => new ArkadeLightning({ ...params })).not.toThrow();
-      expect(() => new ArkadeLightning({ ...params, storageProvider })).not.toThrow();
       expect(() => new ArkadeLightning({ ...params, arkProvider: null as any })).toThrow('Ark provider is required either in wallet or config.');
       expect(() => new ArkadeLightning({ ...params, swapProvider: null as any })).toThrow('Swap provider is required.');
       expect(() => new ArkadeLightning({ ...params, indexerProvider: null as any })).toThrow('Indexer provider is required either in wallet or config.');
@@ -258,7 +255,7 @@ describe('ArkadeLightning', () => {
     });
 
     it('should work with ServiceWorkerWallet (legacy interface)', () => {
-      // Create a mock ServiceWorkerWallet that has identity methods spread directly
+      // Create a mock ServiceWorkerWallet with identity methods spread directly
       const mockServiceWorkerWallet = {
         getAddress: vi.fn().mockResolvedValue(mock.address),
         getBalance: vi.fn().mockResolvedValue(mock.invoice.amount),
@@ -280,6 +277,50 @@ describe('ArkadeLightning', () => {
       // Should be able to create ArkadeLightning with external providers
       expect(() => new ArkadeLightning({ 
         wallet: mockServiceWorkerWallet, 
+        arkProvider, 
+        swapProvider, 
+        indexerProvider 
+      })).not.toThrow();
+    });
+
+    it('should throw when ServiceWorkerWallet lacks external providers', () => {
+      // Create a mock ServiceWorkerWallet without providers
+      const mockServiceWorkerWallet = {
+        getAddress: vi.fn().mockResolvedValue(mock.address),
+        getBalance: vi.fn().mockResolvedValue(mock.invoice.amount),
+        getBoardingAddress: vi.fn().mockResolvedValue(mock.address),
+        getBoardingUtxos: vi.fn().mockResolvedValue([]),
+        getTransactionHistory: vi.fn().mockResolvedValue([]),
+        sendBitcoin: vi.fn().mockResolvedValue(mock.txid),
+        settle: vi.fn().mockResolvedValue(undefined),
+        getVtxos: vi.fn().mockResolvedValue([]),
+        // Identity methods spread directly (ServiceWorkerWallet pattern)
+        xOnlyPublicKey: vi.fn().mockReturnValue(mock.pubkeys.alice),
+        signerSession: vi.fn().mockReturnValue({
+          sign: vi.fn().mockResolvedValue({ txid: mock.txid, hex: mock.hex }),
+        }),
+        sign: vi.fn(),
+        // ServiceWorkerWallet doesn't have provider properties
+      } as ServiceWorkerWallet;
+
+      // Should throw when missing both external providers
+      expect(() => new ArkadeLightning({ 
+        wallet: mockServiceWorkerWallet, 
+        swapProvider 
+      })).toThrow('Ark provider is required either in wallet or config.');
+
+      // Should throw when missing indexer provider
+      expect(() => new ArkadeLightning({ 
+        wallet: mockServiceWorkerWallet, 
+        arkProvider,
+        swapProvider 
+      })).toThrow('Indexer provider is required either in wallet or config.');
+    });
+
+    it('should work with Wallet (with optional nested identity)', () => {
+      // This is what mockWallet already is - with nested identity
+      expect(() => new ArkadeLightning({ 
+        wallet: mockWallet, 
         arkProvider, 
         swapProvider, 
         indexerProvider 
