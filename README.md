@@ -75,6 +75,8 @@ const arkadeLightning = new ArkadeLightning({
 ### ServiceWorkerWallet (legacy interface)
 
 ```typescript
+import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
+
 // ServiceWorkerWallet has identity methods spread directly (no nested identity)
 const serviceWorkerWallet = new ServiceWorkerWallet(serviceWorker);
 await serviceWorkerWallet.init({
@@ -85,8 +87,8 @@ await serviceWorkerWallet.init({
 // Must provide external providers for ServiceWorkerWallet (it doesn't have them)
 const arkadeLightning = new ArkadeLightning({
   wallet: serviceWorkerWallet,
-  arkProvider: new ArkProvider('https://ark.example.com'),
-  indexerProvider: new IndexerProvider('https://indexer.example.com'),
+  arkProvider: new RestArkProvider('https://ark.example.com'),
+  indexerProvider: new RestIndexerProvider('https://indexer.example.com'),
   swapProvider,
 });
 ```

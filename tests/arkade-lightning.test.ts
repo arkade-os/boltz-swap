@@ -279,6 +279,42 @@ describe('ArkadeLightning', () => {
       })).not.toThrow();
     });
 
+    it('should throw when ServiceWorkerWallet lacks external providers', () => {
+      // Create a mock ServiceWorkerWallet without providers
+      const mockServiceWorkerWallet = {
+        getAddress: vi.fn().mockResolvedValue(mock.address),
+        getBalance: vi.fn().mockResolvedValue(mock.invoice.amount),
+        getBoardingAddress: vi.fn().mockResolvedValue(mock.address),
+        getBoardingUtxos: vi.fn().mockResolvedValue([]),
+        getTransactionHistory: vi.fn().mockResolvedValue([]),
+        sendBitcoin: vi.fn().mockResolvedValue(mock.txid),
+        settle: vi.fn().mockResolvedValue(undefined),
+        getVtxos: vi.fn().mockResolvedValue([]),
+        // Identity methods spread directly (ServiceWorkerWallet pattern)
+        xOnlyPublicKey: vi.fn().mockReturnValue(mock.pubkeys.alice),
+        signerSession: vi.fn().mockReturnValue({
+          sign: vi.fn().mockResolvedValue({ txid: mock.txid, hex: mock.hex }),
+        }),
+        sign: vi.fn(),
+        // No providers (undefined)
+        arkProvider: undefined,
+        indexerProvider: undefined,
+      } as any;
+
+      // Should throw when missing both external providers
+      expect(() => new ArkadeLightning({ 
+        wallet: mockServiceWorkerWallet, 
+        swapProvider 
+      })).toThrow('Ark provider is required either in wallet or config.');
+
+      // Should throw when missing indexer provider
+      expect(() => new ArkadeLightning({ 
+        wallet: mockServiceWorkerWallet, 
+        arkProvider,
+        swapProvider 
+      })).toThrow('Indexer provider is required either in wallet or config.');
+    });
+
     it('should work with Wallet (with optional nested identity)', () => {
       // This is what mockWallet already is - with nested identity
       expect(() => new ArkadeLightning({ 

@@ -32,6 +32,9 @@ import type {
   Wallet,
   LimitsResponse,
 } from './types';
+import {
+  isWalletWithNestedIdentity,
+} from './types';
 import { randomBytes } from '@noble/hashes/utils';
 import {
   BoltzSwapProvider,
@@ -47,12 +50,12 @@ import { decodeInvoice, getInvoicePaymentHash } from './utils/decoding';
 
 // Utility functions to handle both wallet types
 function getIdentity(wallet: Wallet): Identity {
-  // Check if wallet has nested identity (new structure)
-  if (wallet.identity) {
+  // Use type guard to check if wallet has nested identity
+  if (isWalletWithNestedIdentity(wallet)) {
     return wallet.identity;
   }
-  // Otherwise assume it's a ServiceWorkerWallet with identity methods spread
-  return wallet as any;
+  // Otherwise it's a ServiceWorkerWallet with identity methods spread
+  return wallet as Identity;
 }
 
 function getXOnlyPublicKey(wallet: Wallet): Uint8Array {
@@ -60,10 +63,19 @@ function getXOnlyPublicKey(wallet: Wallet): Uint8Array {
 }
 
 function getSignerSession(wallet: Wallet): any {
-  return getIdentity(wallet).signerSession;
+  const identity = getIdentity(wallet);
+  const signerSession = identity?.signerSession;
+  
+  // If signerSession is a function (factory), call it to get the actual session
+  if (typeof signerSession === 'function') {
+    return signerSession();
+  }
+  
+  // Otherwise return it directly (could be the session object or undefined)
+  return signerSession;
 }
 
-async function signTransaction(wallet: Wallet, tx: any, inputIndexes?: number[]): Promise<any> {
+async function signTransaction(wallet: Wallet, tx: Transaction, inputIndexes?: number[]): Promise<Transaction> {
   return getIdentity(wallet).sign(tx, inputIndexes);
 }
 
@@ -80,14 +92,11 @@ export class ArkadeLightning {
     
     this.wallet = config.wallet;
     // Prioritize wallet providers, fallback to config providers for backward compatibility
-    // Handle both cases: wallet.arkProvider doesn't exist OR wallet.arkProvider is undefined
-    const walletArkProvider = config.wallet.arkProvider;
-    const arkProvider = walletArkProvider || config.arkProvider;
+    const arkProvider = (config.wallet as any).arkProvider ?? config.arkProvider;
     if (!arkProvider) throw new Error('Ark provider is required either in wallet or config.');
     this.arkProvider = arkProvider;
     
-    const walletIndexerProvider = config.wallet.indexerProvider;
-    const indexerProvider = walletIndexerProvider || config.indexerProvider;
+    const indexerProvider = (config.wallet as any).indexerProvider ?? config.indexerProvider;
     if (!indexerProvider) throw new Error('Indexer provider is required either in wallet or config.');
     this.indexerProvider = indexerProvider;
     
@@ -134,10 +143,10 @@ export class ArkadeLightning {
     return new Promise<SendLightningPaymentResponse>((resolve, reject) => {
       this.createSubmarineSwap(args).then((pendingSwap) => {
         // validate max fee if provided
-        if (args.maxFeeSats) {
-          const invoiceAmount = decodeInvoice(args.invoice).amountSats;
+        if (args.maxFeeSats != null) {
+          const invoiceAmount = decodeInvoice(args.invoice).amountSats ?? 0;
           const fees = pendingSwap.response.expectedAmount - invoiceAmount;
-          if (fees > args.maxFeeSats) {
+          if (invoiceAmount > 0 && fees > args.maxFeeSats) {
             reject(new SwapError({ message: `Swap fees ${fees} exceed max allowed ${args.maxFeeSats}` }));
           }
         }
@@ -523,22 +532,30 @@ export class ArkadeLightning {
    */
   async waitForSwapSettlement(pendingSwap: PendingSubmarineSwap): Promise<{ preimage: string }> {
     return new Promise<{ preimage: string }>((resolve, reject) => {
+      let isResolved = false;
+      
       // https://api.docs.boltz.exchange/lifecycle.html#swap-states
       const onStatusUpdate = async (status: BoltzSwapStatus) => {
+        if (isResolved) return; // Prevent multiple resolutions
+        
         switch (status) {
           case 'swap.expired':
+            isResolved = true;
             this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             reject(new SwapExpiredError({ isRefundable: true, pendingSwap }));
             break;
           case 'invoice.failedToPay':
+            isResolved = true;
             this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             reject(new InvoiceFailedToPayError({ isRefundable: true, pendingSwap }));
             break;
           case 'transaction.lockupFailed':
+            isResolved = true;
             this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             reject(new TransactionLockupFailedError({ isRefundable: true, pendingSwap }));
             break;
           case 'transaction.claimed': {
+            isResolved = true;
             const { preimage } = await this.swapProvider.getSwapPreimage(pendingSwap.response.id);
             this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, preimage, status });
             resolve({ preimage });
@@ -550,7 +567,13 @@ export class ArkadeLightning {
         }
       };
 
-      this.swapProvider.monitorSwap(pendingSwap.response.id, onStatusUpdate);
+      // Start monitoring - the WebSocket will auto-close on terminal states
+      this.swapProvider.monitorSwap(pendingSwap.response.id, onStatusUpdate).catch((error) => {
+        if (!isResolved) {
+          isResolved = true;
+          reject(error);
+        }
+      });
     });
   }
 
