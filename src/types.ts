@@ -31,6 +31,7 @@ export interface CreateLightningInvoiceRequest {
   description?: string;
 }
 export interface CreateLightningInvoiceResponse {
+  amount: number;
   expiry: number;
   invoice: string;
   paymentHash: string;

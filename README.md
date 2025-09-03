@@ -25,7 +25,7 @@ npm install @arkade-os/sdk @arkade-os/boltz-swap
 
 ```typescript
 import { Wallet } from '@arkade-os/sdk';
-import { ArkadeLightning, BoltzSwapProvider } from '@arkade-os/boltz-swap';
+import { ArkadeLightning, BoltzSwapProvider, StorageProvider } from '@arkade-os/boltz-swap';
 
 // Initialize your Arkade wallet
 const wallet = await Wallet.create({
@@ -39,8 +39,8 @@ const swapProvider = new BoltzSwapProvider({
   network: 'mutinynet',
 });
 
-// Optionaly: initialize a storage provider
-const storageProvider = StorageProvider.create();
+// Optionally: initialize a storage provider
+const storageProvider = await StorageProvider.create();
 
 // Create the ArkadeLightning instance
 const arkadeLightning = new ArkadeLightning({
@@ -57,7 +57,7 @@ By default this library doesn't store pending swaps.
 If you need it you must initialize a storageProvider:
 
 ```typescript
-const storageProvider = StorageProvider.create({ storagePath: './storage.json' });
+const storageProvider = await StorageProvider.create({ storagePath: './storage.json' });
 
 const arkadeLightning = new ArkadeLightning({
   wallet,
@@ -109,14 +109,16 @@ console.log('Transaction ID:', receivalResult.txid);
 To send a payment from your Arkade wallet to a Lightning invoice:
 
 ```typescript
+import { decodeInvoice } from '@arkade-os/boltz-swap';
+
 // Parse a Lightning invoice
-const invoiceDetails = await arkadeLightning.decodeInvoice(
+const invoiceDetails = decodeInvoice(
   'lnbc500u1pj...' // Lightning invoice string
 );
 
 console.log('Invoice amount:', invoiceDetails.amountSats, 'sats');
 console.log('Description:', invoiceDetails.description);
-console.log('Destination:', invoiceDetails.destination);
+console.log('Payment Hash:', invoiceDetails.paymentHash);
 
 // Pay the Lightning invoice from your Arkade wallet
 const paymentResult = await arkadeLightning.sendLightningPayment({
