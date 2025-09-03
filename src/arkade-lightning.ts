@@ -17,6 +17,7 @@ import {
   setArkPsbtField,
   TapLeafScript,
   VHTLC,
+  Identity,
 } from '@arkade-os/sdk';
 import { sha256 } from '@noble/hashes/sha2';
 import { base64, hex } from '@scure/base';
@@ -31,6 +32,9 @@ import type {
   Wallet,
   LimitsResponse,
 } from './types';
+import {
+  isWalletWithNestedIdentity,
+} from './types';
 import { randomBytes } from '@noble/hashes/utils';
 import {
   BoltzSwapProvider,
@@ -43,6 +47,37 @@ import { Transaction } from '@scure/btc-signer';
 import { TransactionInput } from '@scure/btc-signer/psbt';
 import { ripemd160 } from '@noble/hashes/legacy';
 import { decodeInvoice, getInvoicePaymentHash } from './utils/decoding';
+
+// Utility functions to handle both wallet types
+function getIdentity(wallet: Wallet): Identity {
+  // Use type guard to check if wallet has nested identity
+  if (isWalletWithNestedIdentity(wallet)) {
+    return wallet.identity;
+  }
+  // Otherwise it's a ServiceWorkerWallet with identity methods spread
+  return wallet as Identity;
+}
+
+function getXOnlyPublicKey(wallet: Wallet): Uint8Array {
+  return getIdentity(wallet).xOnlyPublicKey();
+}
+
+function getSignerSession(wallet: Wallet): any {
+  const identity = getIdentity(wallet);
+  const signerSession = identity?.signerSession;
+  
+  // If signerSession is a function (factory), call it to get the actual session
+  if (typeof signerSession === 'function') {
+    return signerSession();
+  }
+  
+  // Otherwise return it directly (could be the session object or undefined)
+  return signerSession;
+}
+
+async function signTransaction(wallet: Wallet, tx: Transaction, inputIndexes?: number[]): Promise<Transaction> {
+  return getIdentity(wallet).sign(tx, inputIndexes);
+}
 
 export class ArkadeLightning {
   private readonly wallet: Wallet;
@@ -57,11 +92,13 @@ export class ArkadeLightning {
     
     this.wallet = config.wallet;
     // Prioritize wallet providers, fallback to config providers for backward compatibility
-    this.arkProvider = config.wallet.arkProvider || config.arkProvider;
-    if (!this.arkProvider) throw new Error('Ark provider is required either in wallet or config.');
+    const arkProvider = (config.wallet as any).arkProvider ?? config.arkProvider;
+    if (!arkProvider) throw new Error('Ark provider is required either in wallet or config.');
+    this.arkProvider = arkProvider;
     
-    this.indexerProvider = config.wallet.indexerProvider || config.indexerProvider;
-    if (!this.indexerProvider) throw new Error('Indexer provider is required either in wallet or config.');
+    const indexerProvider = (config.wallet as any).indexerProvider ?? config.indexerProvider;
+    if (!indexerProvider) throw new Error('Indexer provider is required either in wallet or config.');
+    this.indexerProvider = indexerProvider;
     
     this.swapProvider = config.swapProvider;
     this.storageProvider = config.storageProvider ?? null;
@@ -106,10 +143,10 @@ export class ArkadeLightning {
     return new Promise<SendLightningPaymentResponse>((resolve, reject) => {
       this.createSubmarineSwap(args).then((pendingSwap) => {
         // validate max fee if provided
-        if (args.maxFeeSats) {
-          const invoiceAmount = decodeInvoice(args.invoice).amountSats;
+        if (args.maxFeeSats != null) {
+          const invoiceAmount = decodeInvoice(args.invoice).amountSats ?? 0;
           const fees = pendingSwap.response.expectedAmount - invoiceAmount;
-          if (fees > args.maxFeeSats) {
+          if (invoiceAmount > 0 && fees > args.maxFeeSats) {
             reject(new SwapError({ message: `Swap fees ${fees} exceed max allowed ${args.maxFeeSats}` }));
           }
         }
@@ -146,7 +183,7 @@ export class ArkadeLightning {
 
   // create submarine swap
   async createSubmarineSwap(args: SendLightningPaymentRequest): Promise<PendingSubmarineSwap> {
-    const refundPublicKey = hex.encode(this.wallet.identity.xOnlyPublicKey());
+    const refundPublicKey = hex.encode(getXOnlyPublicKey(this.wallet));
     if (!refundPublicKey) throw new SwapError({ message: 'Failed to get refund public key from wallet' });
 
     const invoice = args.invoice;
@@ -180,7 +217,7 @@ export class ArkadeLightning {
     // validate amount
     if (args.amount <= 0) throw new SwapError({ message: 'Amount must be greater than 0' });
 
-    const claimPublicKey = hex.encode(this.wallet.identity.xOnlyPublicKey());
+    const claimPublicKey = hex.encode(getXOnlyPublicKey(this.wallet));
     if (!claimPublicKey) throw new SwapError({ message: 'Failed to get claim public key from wallet' });
 
     // create random preimage and its hash
@@ -220,7 +257,7 @@ export class ArkadeLightning {
     const address = await this.wallet.getAddress();
 
     // validate we are using a x-only receiver public key
-    let receiverXOnlyPublicKey = this.wallet.identity.xOnlyPublicKey();
+    let receiverXOnlyPublicKey = getXOnlyPublicKey(this.wallet);
     if (receiverXOnlyPublicKey.length == 33) {
       receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
     } else if (receiverXOnlyPublicKey.length !== 32) {
@@ -264,13 +301,13 @@ export class ArkadeLightning {
     const vhtlcIdentity = {
       sign: async (tx: any, inputIndexes?: number[]) => {
         const cpy = tx.clone();
-        let signedTx = await this.wallet.identity.sign(cpy, inputIndexes);
+        let signedTx = await signTransaction(this.wallet, cpy, inputIndexes);
         signedTx = Transaction.fromPSBT(signedTx.toPSBT(), { allowUnknown: true });
         setArkPsbtField(signedTx, 0, ConditionWitness, [preimage]);
         return signedTx;
       },
       xOnlyPublicKey: receiverXOnlyPublicKey,
-      signerSession: this.wallet.identity.signerSession,
+      signerSession: getSignerSession(this.wallet),
     };
 
     // create the server unroll script for checkpoint transactions
@@ -340,7 +377,7 @@ export class ArkadeLightning {
     if (!address) throw new Error('Failed to get ark address from service worker wallet');
 
     // validate we are using a x-only receiver public key
-    let receiverXOnlyPublicKey = this.wallet.identity.xOnlyPublicKey();
+    let receiverXOnlyPublicKey = getXOnlyPublicKey(this.wallet);
     if (receiverXOnlyPublicKey.length == 33) {
       receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
     } else if (receiverXOnlyPublicKey.length !== 32) {
@@ -359,7 +396,7 @@ export class ArkadeLightning {
       network: aspInfo.network,
       preimageHash: hex.decode(getInvoicePaymentHash(pendingSwap.request.invoice)),
       receiverPubkey: pendingSwap.response.claimPublicKey,
-      senderPubkey: hex.encode(this.wallet.identity.xOnlyPublicKey()),
+      senderPubkey: hex.encode(getXOnlyPublicKey(this.wallet)),
       serverPubkey: aspInfo.signerPubkey,
       timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
     });
@@ -382,11 +419,11 @@ export class ArkadeLightning {
     const vhtlcIdentity = {
       sign: async (tx: any, inputIndexes?: number[]) => {
         const cpy = tx.clone();
-        let signedTx = await this.wallet.identity.sign(cpy, inputIndexes);
+        let signedTx = await signTransaction(this.wallet, cpy, inputIndexes);
         return Transaction.fromPSBT(signedTx.toPSBT(), { allowUnknown: true });
       },
       xOnlyPublicKey: receiverXOnlyPublicKey,
-      signerSession: this.wallet.identity.signerSession,
+      signerSession: getSignerSession(this.wallet),
     };
 
     // Create the server unroll script for checkpoint transactions
@@ -495,22 +532,30 @@ export class ArkadeLightning {
    */
   async waitForSwapSettlement(pendingSwap: PendingSubmarineSwap): Promise<{ preimage: string }> {
     return new Promise<{ preimage: string }>((resolve, reject) => {
+      let isResolved = false;
+      
       // https://api.docs.boltz.exchange/lifecycle.html#swap-states
       const onStatusUpdate = async (status: BoltzSwapStatus) => {
+        if (isResolved) return; // Prevent multiple resolutions
+        
         switch (status) {
           case 'swap.expired':
+            isResolved = true;
             this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             reject(new SwapExpiredError({ isRefundable: true, pendingSwap }));
             break;
           case 'invoice.failedToPay':
+            isResolved = true;
             this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             reject(new InvoiceFailedToPayError({ isRefundable: true, pendingSwap }));
             break;
           case 'transaction.lockupFailed':
+            isResolved = true;
             this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, status });
             reject(new TransactionLockupFailedError({ isRefundable: true, pendingSwap }));
             break;
           case 'transaction.claimed': {
+            isResolved = true;
             const { preimage } = await this.swapProvider.getSwapPreimage(pendingSwap.response.id);
             this.storageProvider?.savePendingSubmarineSwap({ ...pendingSwap, preimage, status });
             resolve({ preimage });
@@ -522,7 +567,13 @@ export class ArkadeLightning {
         }
       };
 
-      this.swapProvider.monitorSwap(pendingSwap.response.id, onStatusUpdate);
+      // Start monitoring - the WebSocket will auto-close on terminal states
+      this.swapProvider.monitorSwap(pendingSwap.response.id, onStatusUpdate).catch((error) => {
+        if (!isResolved) {
+          isResolved = true;
+          reject(error);
+        }
+      });
     });
   }
 
