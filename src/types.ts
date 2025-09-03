@@ -22,7 +22,10 @@ export interface Vtxo {
   };
 }
 
-export type Wallet = IWallet & Identity;
+export type Wallet = IWallet & Identity & {
+  arkProvider: RestArkProvider;
+  indexerProvider: RestIndexerProvider;
+};
 
 export type Network = 'bitcoin' | 'mutinynet' | 'regtest' | 'testnet';
 
@@ -73,9 +76,9 @@ export interface RefundHandler {
 
 export interface ArkadeLightningConfig {
   wallet: Wallet;
-  arkProvider: RestArkProvider;
+  arkProvider?: RestArkProvider;
   swapProvider: BoltzSwapProvider;
-  indexerProvider: RestIndexerProvider;
+  indexerProvider?: RestIndexerProvider;
   feeConfig?: Partial<FeeConfig>;
   refundHandler?: RefundHandler;
   storageProvider?: StorageProvider | null;

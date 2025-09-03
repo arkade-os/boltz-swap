@@ -53,14 +53,18 @@ export class ArkadeLightning {
 
   constructor(config: ArkadeLightningConfig) {
     if (!config.wallet) throw new Error('Wallet is required.');
-    if (!config.arkProvider) throw new Error('Ark provider is required.');
     if (!config.swapProvider) throw new Error('Swap provider is required.');
-    if (!config.indexerProvider) throw new Error('Indexer provider is required.');
+    
     this.wallet = config.wallet;
-    this.arkProvider = config.arkProvider;
+    // Prioritize wallet providers, fallback to config providers for backward compatibility
+    this.arkProvider = config.wallet.arkProvider || config.arkProvider;
+    if (!this.arkProvider) throw new Error('Ark provider is required either in wallet or config.');
+    
+    this.indexerProvider = config.wallet.indexerProvider || config.indexerProvider;
+    if (!this.indexerProvider) throw new Error('Indexer provider is required either in wallet or config.');
+    
     this.swapProvider = config.swapProvider;
     this.storageProvider = config.storageProvider ?? null;
-    this.indexerProvider = config.indexerProvider;
   }
 
   // receive from lightning = reverse submarine swap

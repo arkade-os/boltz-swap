@@ -230,9 +230,9 @@ describe('ArkadeLightning', () => {
       const params = { wallet: mockWallet, swapProvider, arkProvider, indexerProvider } as any;
       expect(() => new ArkadeLightning({ ...params })).not.toThrow();
       expect(() => new ArkadeLightning({ ...params, storageProvider })).not.toThrow();
-      expect(() => new ArkadeLightning({ ...params, arkProvider: null })).toThrow('Ark provider is required.');
+      expect(() => new ArkadeLightning({ ...params, arkProvider: null })).toThrow('Ark provider is required either in wallet or config.');
       expect(() => new ArkadeLightning({ ...params, swapProvider: null })).toThrow('Swap provider is required.');
-      expect(() => new ArkadeLightning({ ...params, indexerProvider: null })).toThrow('Indexer provider is required.');
+      expect(() => new ArkadeLightning({ ...params, indexerProvider: null })).toThrow('Indexer provider is required either in wallet or config.');
     });
 
     it('should have expected interface methods', () => {
