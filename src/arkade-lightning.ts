@@ -48,7 +48,7 @@ import { decodeInvoice, getInvoicePaymentHash } from './utils/decoding';
 // Utility functions to handle both wallet types
 function getIdentity(wallet: Wallet): Identity {
   // Check if wallet has nested identity (new structure)
-  if ('identity' in wallet && wallet.identity) {
+  if (wallet.identity) {
     return wallet.identity;
   }
   // Otherwise assume it's a ServiceWorkerWallet with identity methods spread

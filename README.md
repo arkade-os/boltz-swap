@@ -54,7 +54,7 @@ const arkadeLightning = new ArkadeLightning({
 
 This library supports both wallet interface patterns:
 
-### Wallet (with nested identity)
+### Wallet (with optional nested identity and providers)
 
 ```typescript
 import { Wallet } from '@arkade-os/sdk';
@@ -64,24 +64,25 @@ const wallet = await Wallet.create({
   arkServerUrl: 'https://mutinynet.arkade.sh',
 });
 
-// Wallet has built-in providers
+// Wallet may have built-in providers
 const arkadeLightning = new ArkadeLightning({
   wallet,
   swapProvider,
+  // arkProvider and indexerProvider can be provided here if wallet doesn't have them
 });
 ```
 
 ### ServiceWorkerWallet (legacy interface)
 
 ```typescript
-// ServiceWorkerWallet has identity methods spread directly
+// ServiceWorkerWallet has identity methods spread directly (no nested identity)
 const serviceWorkerWallet = new ServiceWorkerWallet(serviceWorker);
 await serviceWorkerWallet.init({
   privateKey: 'your_private_key_hex',
   arkServerUrl: 'https://ark.example.com'
 });
 
-// Must provide external providers for ServiceWorkerWallet
+// Must provide external providers for ServiceWorkerWallet (it doesn't have them)
 const arkadeLightning = new ArkadeLightning({
   wallet: serviceWorkerWallet,
   arkProvider: new ArkProvider('https://ark.example.com'),

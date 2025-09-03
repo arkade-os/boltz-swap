@@ -267,9 +267,7 @@ describe('ArkadeLightning', () => {
           sign: vi.fn().mockResolvedValue({ txid: mock.txid, hex: mock.hex }),
         }),
         sign: vi.fn(),
-        // No arkProvider or indexerProvider (undefined)
-        arkProvider: undefined,
-        indexerProvider: undefined,
+        // ServiceWorkerWallet doesn't have providers
       } as any;
 
       // Should be able to create ArkadeLightning with external providers
@@ -281,7 +279,7 @@ describe('ArkadeLightning', () => {
       })).not.toThrow();
     });
 
-    it('should work with WalletWithNestedIdentity (new interface)', () => {
+    it('should work with Wallet (with optional nested identity)', () => {
       // This is what mockWallet already is - with nested identity
       expect(() => new ArkadeLightning({ 
         wallet: mockWallet, 
