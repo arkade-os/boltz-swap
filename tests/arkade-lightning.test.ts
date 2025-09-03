@@ -201,14 +201,16 @@ describe('ArkadeLightning', () => {
       getTransactionHistory: vi.fn().mockResolvedValue([]),
       sendBitcoin: vi.fn().mockResolvedValue(mock.txid),
       settle: vi.fn().mockResolvedValue(undefined),
-      signerSession: vi.fn().mockReturnValue({
-        sign: vi.fn().mockResolvedValue({ txid: mock.txid, hex: mock.hex }),
-      }),
-      xOnlyPublicKey: vi.fn().mockReturnValue(mock.pubkeys.alice),
       getVtxos: vi.fn().mockResolvedValue([]),
-      sign: vi.fn(),
       arkProvider: undefined as unknown as RestArkProvider,
       indexerProvider: undefined as unknown as RestIndexerProvider,
+      identity: {
+        xOnlyPublicKey: vi.fn().mockReturnValue(mock.pubkeys.alice),
+        signerSession: vi.fn().mockReturnValue({
+          sign: vi.fn().mockResolvedValue({ txid: mock.txid, hex: mock.hex }),
+        }),
+        sign: vi.fn(),
+      } as any,
     };
 
     // Basic mock swap provider

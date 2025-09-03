@@ -1,4 +1,4 @@
-import { Identity, IWallet, RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
+import { Identity, IWallet, ArkProvider, IndexerProvider } from '@arkade-os/sdk';
 import { StorageProvider } from './storage-provider';
 import {
   CreateReverseSwapResponse,
@@ -22,9 +22,10 @@ export interface Vtxo {
   };
 }
 
-export type Wallet = IWallet & Identity & {
-  arkProvider: RestArkProvider;
-  indexerProvider: RestIndexerProvider;
+export type Wallet = IWallet & {
+  arkProvider: ArkProvider;
+  indexerProvider: IndexerProvider;
+  identity: Identity;
 };
 
 export type Network = 'bitcoin' | 'mutinynet' | 'regtest' | 'testnet';
@@ -76,9 +77,9 @@ export interface RefundHandler {
 
 export interface ArkadeLightningConfig {
   wallet: Wallet;
-  arkProvider?: RestArkProvider;
+  arkProvider?: ArkProvider;
   swapProvider: BoltzSwapProvider;
-  indexerProvider?: RestIndexerProvider;
+  indexerProvider?: IndexerProvider;
   feeConfig?: Partial<FeeConfig>;
   refundHandler?: RefundHandler;
   storageProvider?: StorageProvider | null;

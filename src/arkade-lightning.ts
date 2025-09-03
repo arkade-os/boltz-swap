@@ -9,11 +9,11 @@ import {
 } from './errors';
 import {
   ArkAddress,
+  ArkProvider,
+  IndexerProvider,
   buildOffchainTx,
   ConditionWitness,
   CSVMultisigTapscript,
-  RestArkProvider,
-  RestIndexerProvider,
   setArkPsbtField,
   TapLeafScript,
   VHTLC,
@@ -46,10 +46,10 @@ import { decodeInvoice, getInvoicePaymentHash } from './utils/decoding';
 
 export class ArkadeLightning {
   private readonly wallet: Wallet;
-  private readonly arkProvider: RestArkProvider;
+  private readonly arkProvider: ArkProvider;
   private readonly swapProvider: BoltzSwapProvider;
   private readonly storageProvider: StorageProvider | null;
-  private readonly indexerProvider: RestIndexerProvider;
+  private readonly indexerProvider: IndexerProvider;
 
   constructor(config: ArkadeLightningConfig) {
     if (!config.wallet) throw new Error('Wallet is required.');
@@ -146,7 +146,7 @@ export class ArkadeLightning {
 
   // create submarine swap
   async createSubmarineSwap(args: SendLightningPaymentRequest): Promise<PendingSubmarineSwap> {
-    const refundPublicKey = hex.encode(this.wallet.xOnlyPublicKey());
+    const refundPublicKey = hex.encode(this.wallet.identity.xOnlyPublicKey());
     if (!refundPublicKey) throw new SwapError({ message: 'Failed to get refund public key from wallet' });
 
     const invoice = args.invoice;
@@ -180,7 +180,7 @@ export class ArkadeLightning {
     // validate amount
     if (args.amount <= 0) throw new SwapError({ message: 'Amount must be greater than 0' });
 
-    const claimPublicKey = hex.encode(this.wallet.xOnlyPublicKey());
+    const claimPublicKey = hex.encode(this.wallet.identity.xOnlyPublicKey());
     if (!claimPublicKey) throw new SwapError({ message: 'Failed to get claim public key from wallet' });
 
     // create random preimage and its hash
@@ -220,7 +220,7 @@ export class ArkadeLightning {
     const address = await this.wallet.getAddress();
 
     // validate we are using a x-only receiver public key
-    let receiverXOnlyPublicKey = this.wallet.xOnlyPublicKey();
+    let receiverXOnlyPublicKey = this.wallet.identity.xOnlyPublicKey();
     if (receiverXOnlyPublicKey.length == 33) {
       receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
     } else if (receiverXOnlyPublicKey.length !== 32) {
@@ -264,13 +264,13 @@ export class ArkadeLightning {
     const vhtlcIdentity = {
       sign: async (tx: any, inputIndexes?: number[]) => {
         const cpy = tx.clone();
-        let signedTx = await this.wallet.sign(cpy, inputIndexes);
+        let signedTx = await this.wallet.identity.sign(cpy, inputIndexes);
         signedTx = Transaction.fromPSBT(signedTx.toPSBT(), { allowUnknown: true });
         setArkPsbtField(signedTx, 0, ConditionWitness, [preimage]);
         return signedTx;
       },
       xOnlyPublicKey: receiverXOnlyPublicKey,
-      signerSession: this.wallet.signerSession,
+      signerSession: this.wallet.identity.signerSession,
     };
 
     // create the server unroll script for checkpoint transactions
@@ -340,7 +340,7 @@ export class ArkadeLightning {
     if (!address) throw new Error('Failed to get ark address from service worker wallet');
 
     // validate we are using a x-only receiver public key
-    let receiverXOnlyPublicKey = this.wallet.xOnlyPublicKey();
+    let receiverXOnlyPublicKey = this.wallet.identity.xOnlyPublicKey();
     if (receiverXOnlyPublicKey.length == 33) {
       receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
     } else if (receiverXOnlyPublicKey.length !== 32) {
@@ -359,7 +359,7 @@ export class ArkadeLightning {
       network: aspInfo.network,
       preimageHash: hex.decode(getInvoicePaymentHash(pendingSwap.request.invoice)),
       receiverPubkey: pendingSwap.response.claimPublicKey,
-      senderPubkey: hex.encode(this.wallet.xOnlyPublicKey()),
+      senderPubkey: hex.encode(this.wallet.identity.xOnlyPublicKey()),
       serverPubkey: aspInfo.signerPubkey,
       timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
     });
@@ -382,11 +382,11 @@ export class ArkadeLightning {
     const vhtlcIdentity = {
       sign: async (tx: any, inputIndexes?: number[]) => {
         const cpy = tx.clone();
-        let signedTx = await this.wallet.sign(cpy, inputIndexes);
+        let signedTx = await this.wallet.identity.sign(cpy, inputIndexes);
         return Transaction.fromPSBT(signedTx.toPSBT(), { allowUnknown: true });
       },
       xOnlyPublicKey: receiverXOnlyPublicKey,
-      signerSession: this.wallet.signerSession,
+      signerSession: this.wallet.identity.signerSession,
     };
 
     // Create the server unroll script for checkpoint transactions
