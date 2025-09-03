@@ -207,6 +207,8 @@ describe('ArkadeLightning', () => {
       xOnlyPublicKey: vi.fn().mockReturnValue(mock.pubkeys.alice),
       getVtxos: vi.fn().mockResolvedValue([]),
       sign: vi.fn(),
+      arkProvider: undefined as unknown as RestArkProvider,
+      indexerProvider: undefined as unknown as RestIndexerProvider,
     };
 
     // Basic mock swap provider
