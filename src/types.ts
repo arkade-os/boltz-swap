@@ -1,6 +1,5 @@
 import { Identity, IWallet, ArkProvider, IndexerProvider } from '@arkade-os/sdk';
 import { StorageProvider } from './storage-provider';
-import { Storage } from './storage';
 import {
   CreateReverseSwapResponse,
   CreateSubmarineSwapResponse,
@@ -97,8 +96,7 @@ export interface ArkadeLightningConfig {
   indexerProvider?: IndexerProvider;
   feeConfig?: Partial<FeeConfig>;
   refundHandler?: RefundHandler;
-  storage?: Storage;
-  storageProvider?: StorageProvider | null;
+  storageProvider?: StorageProvider;
   timeoutConfig?: Partial<TimeoutConfig>;
   retryConfig?: Partial<RetryConfig>;
 }

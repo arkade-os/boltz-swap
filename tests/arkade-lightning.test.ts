@@ -243,6 +243,19 @@ describe('ArkadeLightning', () => {
       expect(() => new ArkadeLightning({ ...params, indexerProvider: null as any })).toThrow('Indexer provider is required either in wallet or config.');
     });
 
+    it('should use MemoryStorage by default when no storageProvider is provided', () => {
+      const params: ArkadeLightningConfig = { wallet: mockWallet, swapProvider, arkProvider, indexerProvider };
+      
+      // Should not throw when storageProvider is not provided
+      expect(() => new ArkadeLightning(params)).not.toThrow();
+      
+      const instance = new ArkadeLightning(params);
+      expect(instance).toBeInstanceOf(ArkadeLightning);
+      
+      // Storage should be available and functional (MemoryStorage)
+      expect(instance['storageProvider']).toBeDefined();
+    });
+
     it('should have expected interface methods', () => {
       expect(lightning.claimVHTLC).toBeInstanceOf(Function);
       expect(lightning.createLightningInvoice).toBeInstanceOf(Function);

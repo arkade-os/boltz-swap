@@ -43,6 +43,7 @@ import {
   BoltzSwapStatus,
 } from './boltz-swap-provider';
 import { StorageProvider } from './storage-provider';
+import { MemoryStorage } from './storage';
 import { Transaction } from '@scure/btc-signer';
 import { TransactionInput } from '@scure/btc-signer/psbt';
 import { ripemd160 } from '@noble/hashes/legacy';
@@ -83,7 +84,7 @@ export class ArkadeLightning {
   private readonly wallet: Wallet;
   private readonly arkProvider: ArkProvider;
   private readonly swapProvider: BoltzSwapProvider;
-  private readonly storageProvider: StorageProvider | null;
+  private readonly storageProvider: StorageProvider;
   private readonly indexerProvider: IndexerProvider;
 
   constructor(config: ArkadeLightningConfig) {
@@ -102,14 +103,8 @@ export class ArkadeLightning {
     
     this.swapProvider = config.swapProvider;
     
-    // Support both legacy storageProvider and new storage patterns
-    if (config.storageProvider) {
-      this.storageProvider = config.storageProvider;
-    } else if (config.storage) {
-      this.storageProvider = new StorageProvider(config.storage);
-    } else {
-      this.storageProvider = null;
-    }
+    // Use provided storageProvider or create one with MemoryStorage as default
+    this.storageProvider = config.storageProvider || new StorageProvider(new MemoryStorage());
   }
 
   // receive from lightning = reverse submarine swap

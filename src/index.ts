@@ -16,7 +16,8 @@ export {
   Storage, 
   FileSystemStorage, 
   BrowserStorage, 
-  AsyncStorage
+  AsyncStorage,
+  MemoryStorage
 } from './storage';
 export type {
   CreateLightningInvoiceResponse,
