@@ -69,8 +69,6 @@ const arkadeLightning = new ArkadeLightning({
 });
 ```
 
-```
-
 ## Receiving Lightning Payments
 
 To receive a Lightning payment into your Arkade wallet:
@@ -133,7 +131,12 @@ console.log('Preimage:', paymentResult.preimage);
 console.log('Transaction ID:', paymentResult.txid);
 ```
 
-## Error Handling
+---
+
+## Advanced Configuration
+
+<details>
+<summary><strong>Error Handling</strong></summary>
 
 The library provides detailed error types to help you handle different failure scenarios:
 
@@ -183,9 +186,7 @@ try {
 }
 ```
 
----
-
-## Advanced Configuration
+</details>
 
 <details>
 <summary><strong>Storage Configuration</strong></summary>
