@@ -53,12 +53,19 @@ const arkadeLightning = new ArkadeLightning({
 For production applications, configure storage to persist swap state across restarts:
 
 ```typescript
-import { ArkadeLightning, BoltzSwapProvider, FileSystemStorage, StorageProvider } from '@arkade-os/boltz-swap';
+import {
+  ArkadeLightning,
+  BoltzSwapProvider,
+  FileSystemStorage,
+  BrowserStorage,
+  AsyncStorage,
+  StorageProvider,
+} from '@arkade-os/boltz-swap';
 
 // Choose storage based on your environment:
 const storage = new FileSystemStorage('./swaps.json');           // Node.js
 // const storage = new BrowserStorage();                         // Web browsers  
-// const storage = new AsyncStorage(AsyncStorageLib);            // React Native
+// const storage = new AsyncStorage(RNAsyncStorage);            // React Native
 
 const storageProvider = new StorageProvider(storage);
 
@@ -99,7 +106,7 @@ It will automatically claim the payment when it's available.
 ```typescript
 // Monitor the payment, it will resolve when the payment is received
 const receivalResult = await arkadeLightning.waitAndClaim(result.pendingSwap);
-console.log('Receival successful!');
+console.log('Payment received!');
 console.log('Transaction ID:', receivalResult.txid);
 ```
 
@@ -149,8 +156,9 @@ import {
   InvoiceFailedToPayError,
   InsufficientFundsError,
   TransactionFailedError,
-  decodeInvoice,
 } from '@arkade-os/boltz-swap';
+
+import { decodeInvoice } from '@arkade-os/boltz-swap';
 
 try {
   await arkadeLightning.sendLightningPayment({
@@ -219,15 +227,15 @@ For web applications, use `BrowserStorage` to persist swaps in localStorage:
 ```typescript
 import { ArkadeLightning, BrowserStorage, StorageProvider } from '@arkade-os/boltz-swap';
 
-// Create browser storage (uses localStorage)
-const storage = new BrowserStorage();
-const storageProvider = new StorageProvider(storage);
+// In SSR, instantiate only on the client
+const storage = typeof window !== 'undefined' ? new BrowserStorage() : undefined;
+const storageProvider = storage ? new StorageProvider(storage) : undefined;
 
 // Create ArkadeLightning instance with storage
 const arkadeLightning = new ArkadeLightning({
   wallet,
   swapProvider,
-  storageProvider,
+  storageProvider, // Pass storageProvider only when storage is available
 });
 ```
 
@@ -240,11 +248,11 @@ npm install @react-native-async-storage/async-storage
 ```
 
 ```typescript
-import AsyncStorageLib from '@react-native-async-storage/async-storage';
-import { ArkadeLightning, AsyncStorage, StorageProvider } from '@arkade-os/boltz-swap';
+import RNAsyncStorage from '@react-native-async-storage/async-storage';
+import { ArkadeLightning, AsyncStorage as RNAsyncStorageAdapter, StorageProvider } from '@arkade-os/boltz-swap';
 
 // Create AsyncStorage instance
-const storage = new AsyncStorage(AsyncStorageLib);
+const storage = new RNAsyncStorageAdapter(RNAsyncStorage);
 const storageProvider = new StorageProvider(storage);
 
 // Create ArkadeLightning instance with storage
@@ -339,7 +347,7 @@ const arkadeLightning = new ArkadeLightning({
 ### ServiceWorkerWallet (legacy interface)
 
 ```typescript
-import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
+import { RestArkProvider, RestIndexerProvider, ServiceWorkerWallet } from '@arkade-os/sdk';
 
 // ServiceWorkerWallet has identity methods spread directly (no nested identity)
 const serviceWorkerWallet = new ServiceWorkerWallet(serviceWorker);
