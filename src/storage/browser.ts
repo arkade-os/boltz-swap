@@ -19,8 +19,7 @@ export class BrowserStorage implements Storage {
     try {
       return this.localStorage.getItem(key);
     } catch (error) {
-      console.error('Error getting item from localStorage:', error);
-      return null;
+      throw new Error(`Failed to get item from localStorage: ${error}`);
     }
   }
 
@@ -36,7 +35,7 @@ export class BrowserStorage implements Storage {
     try {
       this.localStorage.removeItem(key);
     } catch (error) {
-      console.error('Error removing item from localStorage:', error);
+      throw new Error(`Failed to remove item from localStorage: ${error}`);
     }
   }
 
@@ -44,7 +43,7 @@ export class BrowserStorage implements Storage {
     try {
       this.localStorage.clear();
     } catch (error) {
-      console.error('Error clearing localStorage:', error);
+      throw new Error(`Failed to clear localStorage: ${error}`);
     }
   }
 }

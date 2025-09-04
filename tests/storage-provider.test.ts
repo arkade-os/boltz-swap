@@ -1,11 +1,25 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { CreateSubmarineSwapRequest, CreateSubmarineSwapResponse } from '../src/boltz-swap-provider';
 import { StorageProvider } from '../src/storage-provider';
 import { FileSystemStorage } from '../src/storage';
 
 describe('Storage provider', () => {
-  const storage = new FileSystemStorage('./test-storage.json');
-  const storageProvider = new StorageProvider(storage);
+  let tempDir: string;
+  let storage: FileSystemStorage;
+  let storageProvider: StorageProvider;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'storage-test-'));
+    storage = new FileSystemStorage(join(tempDir, 'test-storage.json'));
+    storageProvider = new StorageProvider(storage);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
 
   describe('submarine swaps', () => {
     // mock request and response
@@ -50,10 +64,19 @@ describe('Storage provider', () => {
     });
 
     it('should update a pending submarine swap', async () => {
+      // first save a swap to update
+      await storageProvider.savePendingSubmarineSwap({
+        type: 'submarine',
+        createdAt: Date.now(),
+        request: mockRequest,
+        response: mockResponse,
+        status: 'swap.created',
+      });
+      
       // get pending swaps
       const swaps = await storageProvider.getPendingSubmarineSwaps();
       expect(swaps.length).toBeGreaterThan(0);
-      // find swap to delete
+      // find swap to update
       const swapToUpdate = swaps.find((s) => s.response.id === mockResponse.id);
       expect(swapToUpdate).toBeDefined();
       // update swap
@@ -66,6 +89,15 @@ describe('Storage provider', () => {
     });
 
     it('should remove a pending submarine swap', async () => {
+      // first save a swap to delete
+      await storageProvider.savePendingSubmarineSwap({
+        type: 'submarine',
+        createdAt: Date.now(),
+        request: mockRequest,
+        response: mockResponse,
+        status: 'swap.created',
+      });
+      
       // get pending swaps
       const swaps = await storageProvider.getPendingSubmarineSwaps();
       expect(swaps.length).toBeGreaterThan(0);
@@ -128,6 +160,16 @@ describe('Storage provider', () => {
     });
 
     it('should update a pending reverse swap', async () => {
+      // first save a reverse swap to update
+      await storageProvider.savePendingReverseSwap({
+        type: 'reverse',
+        createdAt: Date.now(),
+        request: mockRequest,
+        response: mockResponse,
+        status: 'swap.created',
+        preimage: 'mock-preimage',
+      });
+      
       // get pending swaps
       const swaps = await storageProvider.getPendingReverseSwaps();
       expect(swaps.length).toBeGreaterThan(0);
@@ -144,6 +186,16 @@ describe('Storage provider', () => {
     });
 
     it('should remove a pending reverse swap', async () => {
+      // first save a reverse swap to delete
+      await storageProvider.savePendingReverseSwap({
+        type: 'reverse',
+        createdAt: Date.now(),
+        request: mockRequest,
+        response: mockResponse,
+        status: 'swap.created',
+        preimage: 'mock-preimage',
+      });
+      
       // get pending swaps
       const swaps = await storageProvider.getPendingReverseSwaps();
       expect(swaps.length).toBeGreaterThan(0);

@@ -18,8 +18,7 @@ export class AsyncStorage implements Storage {
     try {
       return await this.asyncStorage.getItem(key);
     } catch (error) {
-      console.error('Error getting item from AsyncStorage:', error);
-      return null;
+      throw new Error(`Failed to get item from AsyncStorage: ${error}`);
     }
   }
 
@@ -35,7 +34,7 @@ export class AsyncStorage implements Storage {
     try {
       await this.asyncStorage.removeItem(key);
     } catch (error) {
-      console.error('Error removing item from AsyncStorage:', error);
+      throw new Error(`Failed to remove item from AsyncStorage: ${error}`);
     }
   }
 
@@ -43,7 +42,7 @@ export class AsyncStorage implements Storage {
     try {
       await this.asyncStorage.clear();
     } catch (error) {
-      console.error('Error clearing AsyncStorage:', error);
+      throw new Error(`Failed to clear AsyncStorage: ${error}`);
     }
   }
 }

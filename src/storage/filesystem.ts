@@ -1,5 +1,6 @@
 import { Storage } from './interface';
 import * as fs from 'fs/promises';
+import * as path from 'path';
 
 /**
  * File system storage implementation for Node.js environments
@@ -53,6 +54,10 @@ export class FileSystemStorage implements Storage {
 
   private async save(): Promise<void> {
     try {
+      // Ensure parent directories exist
+      const dir = path.dirname(this.storagePath);
+      await fs.mkdir(dir, { recursive: true });
+      
       await fs.writeFile(this.storagePath, JSON.stringify(this.storage, null, 2));
     } catch (error) {
       throw new Error(`Failed to save storage: ${error}`);
