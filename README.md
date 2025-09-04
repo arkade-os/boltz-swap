@@ -19,20 +19,15 @@ This integration is built on top of the Boltz submarine swap protocol, providing
 npm install @arkade-os/sdk @arkade-os/boltz-swap
 ```
 
-## Basic Usage
+## Quick Start
 
-### Initializing the Lightning Swap Provider
+### Simple Setup (No Persistence)
+
+For testing and development, you can get started quickly without configuring storage. Swap data will be kept in memory only:
 
 ```typescript
 import { Wallet } from '@arkade-os/sdk';
-import { 
-  ArkadeLightning, 
-  BoltzSwapProvider, 
-  FileSystemStorage,
-  BrowserStorage,
-  AsyncStorage,
-  StorageProvider // legacy support
-} from '@arkade-os/boltz-swap';
+import { ArkadeLightning, BoltzSwapProvider } from '@arkade-os/boltz-swap';
 
 // Initialize your Arkade wallet
 const wallet = await Wallet.create({
@@ -46,190 +41,34 @@ const swapProvider = new BoltzSwapProvider({
   network: 'mutinynet',
 });
 
-// Optionally: initialize storage for persisting swap data
-const storage = new FileSystemStorage('./swaps.json');
-
-// Create the ArkadeLightning instance
+// Create the ArkadeLightning instance (uses in-memory storage by default)
 const arkadeLightning = new ArkadeLightning({
   wallet,
   swapProvider,
-  storage, // optional - for persisting swaps
 });
 ```
 
-## Wallet class Compatibility
+### Production Setup (With Persistent Storage)
 
-This library supports both wallet interface patterns:
-
-### Wallet (with optional nested identity and providers)
+For production applications, configure storage to persist swap state across restarts:
 
 ```typescript
-import { Wallet } from '@arkade-os/sdk';
+import { ArkadeLightning, BoltzSwapProvider, FileSystemStorage, StorageProvider } from '@arkade-os/boltz-swap';
 
-const wallet = await Wallet.create({
-  identity,
-  arkServerUrl: 'https://mutinynet.arkade.sh',
-});
+// Choose storage based on your environment:
+const storage = new FileSystemStorage('./swaps.json');           // Node.js
+// const storage = new BrowserStorage();                         // Web browsers  
+// const storage = new AsyncStorage(AsyncStorageLib);            // React Native
 
-// Wallet may have built-in providers
+const storageProvider = new StorageProvider(storage);
+
 const arkadeLightning = new ArkadeLightning({
   wallet,
   swapProvider,
-  // arkProvider and indexerProvider can be provided here if wallet doesn't have them
-  // storage can be added for persistence
+  storageProvider, // Persist swaps across restarts
 });
 ```
 
-### ServiceWorkerWallet (legacy interface)
-
-```typescript
-import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
-
-// ServiceWorkerWallet has identity methods spread directly (no nested identity)
-const serviceWorkerWallet = new ServiceWorkerWallet(serviceWorker);
-await serviceWorkerWallet.init({
-  privateKey: 'your_private_key_hex',
-  arkServerUrl: 'https://ark.example.com'
-});
-
-// Must provide external providers for ServiceWorkerWallet (it doesn't have them)
-const arkadeLightning = new ArkadeLightning({
-  wallet: serviceWorkerWallet,
-  arkProvider: new RestArkProvider('https://ark.example.com'),
-  indexerProvider: new RestIndexerProvider('https://indexer.example.com'),
-  swapProvider,
-  // storage can be added for persistence
-});
-```
-
-## Storage
-
-By default, this library doesn't persist pending swaps. For production applications, you should configure storage to persist swap state across application restarts.
-
-### Storage Implementations
-
-The library provides three storage implementations for different environments:
-
-#### File System Storage (Node.js)
-
-For Node.js applications, use `FileSystemStorage` to persist swaps to a JSON file:
-
-```typescript
-import { ArkadeLightning, FileSystemStorage } from '@arkade-os/boltz-swap';
-
-// Create file system storage
-const storage = new FileSystemStorage('./my-swaps.json');
-
-// Create ArkadeLightning instance with storage
-const arkadeLightning = new ArkadeLightning({
-  wallet,
-  swapProvider,
-  storage,
-});
-```
-
-#### Browser Storage (Web Applications)
-
-For web applications, use `BrowserStorage` to persist swaps in localStorage:
-
-```typescript
-import { ArkadeLightning, BrowserStorage } from '@arkade-os/boltz-swap';
-
-// Create browser storage (uses localStorage)
-const storage = new BrowserStorage();
-
-// Create ArkadeLightning instance with storage
-const arkadeLightning = new ArkadeLightning({
-  wallet,
-  swapProvider,
-  storage,
-});
-```
-
-#### React Native / Expo Storage
-
-For React Native or Expo applications, use `AsyncStorage`. You'll need to install the AsyncStorage package:
-
-```bash
-npm install @react-native-async-storage/async-storage
-```
-
-```typescript
-import AsyncStorageLib from '@react-native-async-storage/async-storage';
-import { ArkadeLightning, AsyncStorage } from '@arkade-os/boltz-swap';
-
-// Create AsyncStorage instance
-const storage = new AsyncStorage(AsyncStorageLib);
-
-// Create ArkadeLightning instance with storage
-const arkadeLightning = new ArkadeLightning({
-  wallet,
-  swapProvider,
-  storage,
-});
-```
-
-### Custom Storage Implementation
-
-You can also create your own storage implementation by implementing the `Storage` interface:
-
-```typescript
-import { Storage } from '@arkade-os/boltz-swap';
-
-class MyCustomStorage implements Storage {
-  async getItem(key: string): Promise<string | null> {
-    // Your implementation
-  }
-  
-  async setItem(key: string, value: string): Promise<void> {
-    // Your implementation
-  }
-  
-  async removeItem(key: string): Promise<void> {
-    // Your implementation
-  }
-  
-  async clear(): Promise<void> {
-    // Your implementation
-  }
-}
-
-// Use your custom storage
-const storage = new MyCustomStorage();
-const arkadeLightning = new ArkadeLightning({
-  wallet,
-  swapProvider,
-  storage,
-});
-```
-
-### Accessing Stored Swaps
-
-When storage is configured, you can access pending and completed swaps. **Note:** These methods are async because they interact with storage:
-
-```typescript
-// Get pending submarine swaps (Arkade → Lightning payments)
-const pendingPaymentsToLightning = await arkadeLightning.getPendingSubmarineSwaps();
-
-// Get pending reverse swaps (Lightning → Arkade payments)  
-const pendingPaymentsFromLightning = await arkadeLightning.getPendingReverseSwaps();
-
-// Get complete swap history (sorted by creation date)
-const swapHistory = await arkadeLightning.getSwapHistory();
-
-console.log('Pending Lightning payments:', pendingPaymentsToLightning);
-console.log('Pending Arkade receipts:', pendingPaymentsFromLightning);
-console.log('All swap history:', swapHistory);
-```
-
-### Storage Operations Are Async
-
-**Important:** All operations that read from or write to storage are asynchronous. This includes:
-
-- **Reading operations:** `getPendingSubmarineSwaps()`, `getPendingReverseSwaps()`, `getSwapHistory()`
-- **Writing operations:** Happen automatically when creating swaps, but storage initialization is lazy
-
-The storage is initialized lazily on first use, so there's no async setup required when creating the `ArkadeLightning` instance. However, the first storage operation may take slightly longer as it initializes the storage backend.
 ```
 
 ## Receiving Lightning Payments
@@ -343,3 +182,186 @@ try {
   }
 }
 ```
+
+---
+
+## Advanced Configuration
+
+<details>
+<summary><strong>Storage Configuration</strong></summary>
+
+By default, this library uses in-memory storage (swaps are lost on restart). For production applications, you should configure persistent storage.
+
+### Storage Implementations
+
+The library provides three storage implementations for different environments:
+
+#### File System Storage (Node.js)
+
+For Node.js applications, use `FileSystemStorage` to persist swaps to a JSON file:
+
+```typescript
+import { ArkadeLightning, FileSystemStorage, StorageProvider } from '@arkade-os/boltz-swap';
+
+// Create file system storage
+const storage = new FileSystemStorage('./my-swaps.json');
+const storageProvider = new StorageProvider(storage);
+
+// Create ArkadeLightning instance with storage
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+  storageProvider,
+});
+```
+
+#### Browser Storage (Web Applications)
+
+For web applications, use `BrowserStorage` to persist swaps in localStorage:
+
+```typescript
+import { ArkadeLightning, BrowserStorage, StorageProvider } from '@arkade-os/boltz-swap';
+
+// Create browser storage (uses localStorage)
+const storage = new BrowserStorage();
+const storageProvider = new StorageProvider(storage);
+
+// Create ArkadeLightning instance with storage
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+  storageProvider,
+});
+```
+
+#### React Native / Expo Storage
+
+For React Native or Expo applications, use `AsyncStorage`. You'll need to install the AsyncStorage package:
+
+```bash
+npm install @react-native-async-storage/async-storage
+```
+
+```typescript
+import AsyncStorageLib from '@react-native-async-storage/async-storage';
+import { ArkadeLightning, AsyncStorage, StorageProvider } from '@arkade-os/boltz-swap';
+
+// Create AsyncStorage instance
+const storage = new AsyncStorage(AsyncStorageLib);
+const storageProvider = new StorageProvider(storage);
+
+// Create ArkadeLightning instance with storage
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+  storageProvider,
+});
+```
+
+### Custom Storage Implementation
+
+You can also create your own storage implementation by implementing the `Storage` interface:
+
+```typescript
+import { Storage } from '@arkade-os/boltz-swap';
+
+class MyCustomStorage implements Storage {
+  async getItem(key: string): Promise<string | null> {
+    // Your implementation
+  }
+  
+  async setItem(key: string, value: string): Promise<void> {
+    // Your implementation
+  }
+  
+  async removeItem(key: string): Promise<void> {
+    // Your implementation
+  }
+  
+  async clear(): Promise<void> {
+    // Your implementation
+  }
+}
+
+// Use your custom storage
+const storage = new MyCustomStorage();
+const storageProvider = new StorageProvider(storage);
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+  storageProvider,
+});
+```
+
+### Accessing Stored Swaps
+
+When storage is configured, you can access pending and completed swaps. **Note:** These methods are async because they interact with storage:
+
+```typescript
+// Get pending submarine swaps (Arkade → Lightning payments)
+const pendingPaymentsToLightning = await arkadeLightning.getPendingSubmarineSwaps();
+
+// Get pending reverse swaps (Lightning → Arkade payments)  
+const pendingPaymentsFromLightning = await arkadeLightning.getPendingReverseSwaps();
+
+// Get complete swap history (sorted by creation date)
+const swapHistory = await arkadeLightning.getSwapHistory();
+
+console.log('Pending Lightning payments:', pendingPaymentsToLightning);
+console.log('Pending Arkade receipts:', pendingPaymentsFromLightning);
+console.log('All swap history:', swapHistory);
+```
+
+### Storage Operations Are Async
+
+**Important:** All operations that read from or write to storage are asynchronous.
+
+</details>
+
+<details>
+<summary><strong>Wallet Compatibility</strong></summary>
+
+This library supports both wallet interface patterns:
+
+### Wallet (with optional nested identity and providers)
+
+```typescript
+import { Wallet } from '@arkade-os/sdk';
+
+const wallet = await Wallet.create({
+  identity,
+  arkServerUrl: 'https://mutinynet.arkade.sh',
+});
+
+// Wallet may have built-in providers
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+  // arkProvider and indexerProvider can be provided here if wallet doesn't have them
+  // storageProvider can be added for persistence
+});
+```
+
+### ServiceWorkerWallet (legacy interface)
+
+```typescript
+import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
+
+// ServiceWorkerWallet has identity methods spread directly (no nested identity)
+const serviceWorkerWallet = new ServiceWorkerWallet(serviceWorker);
+await serviceWorkerWallet.init({
+  privateKey: 'your_private_key_hex',
+  arkServerUrl: 'https://ark.example.com'
+});
+
+// Must provide external providers for ServiceWorkerWallet (it doesn't have them)
+const arkadeLightning = new ArkadeLightning({
+  wallet: serviceWorkerWallet,
+  arkProvider: new RestArkProvider('https://ark.example.com'),
+  indexerProvider: new RestIndexerProvider('https://indexer.example.com'),
+  swapProvider,
+  // storageProvider can be added for persistence
+});
+```
+
+</details>
