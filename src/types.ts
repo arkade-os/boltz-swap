@@ -96,7 +96,7 @@ export interface ArkadeLightningConfig {
   indexerProvider?: IndexerProvider;
   feeConfig?: Partial<FeeConfig>;
   refundHandler?: RefundHandler;
-  storageProvider?: StorageProvider | null;
+  storageProvider?: StorageProvider;
   timeoutConfig?: Partial<TimeoutConfig>;
   retryConfig?: Partial<RetryConfig>;
 }

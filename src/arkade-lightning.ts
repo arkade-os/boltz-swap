@@ -43,6 +43,7 @@ import {
   BoltzSwapStatus,
 } from './boltz-swap-provider';
 import { StorageProvider } from './storage-provider';
+import { MemoryStorage } from './storage';
 import { Transaction } from '@scure/btc-signer';
 import { TransactionInput } from '@scure/btc-signer/psbt';
 import { ripemd160 } from '@noble/hashes/legacy';
@@ -83,7 +84,7 @@ export class ArkadeLightning {
   private readonly wallet: Wallet;
   private readonly arkProvider: ArkProvider;
   private readonly swapProvider: BoltzSwapProvider;
-  private readonly storageProvider: StorageProvider | null;
+  private readonly storageProvider: StorageProvider;
   private readonly indexerProvider: IndexerProvider;
 
   constructor(config: ArkadeLightningConfig) {
@@ -101,7 +102,9 @@ export class ArkadeLightning {
     this.indexerProvider = indexerProvider;
     
     this.swapProvider = config.swapProvider;
-    this.storageProvider = config.storageProvider ?? null;
+    
+    // Use provided storageProvider or create one with MemoryStorage as default
+    this.storageProvider = config.storageProvider || new StorageProvider(new MemoryStorage());
   }
 
   // receive from lightning = reverse submarine swap
@@ -704,9 +707,9 @@ export class ArkadeLightning {
    * @returns PendingSubmarineSwap[] or null if no storage provider is set.
    * If no swaps are found, it returns an empty array.
    */
-  getPendingSubmarineSwaps(): PendingSubmarineSwap[] | null {
+  async getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[] | null> {
     if (!this.storageProvider) return null;
-    const swaps = this.storageProvider.getPendingSubmarineSwaps();
+    const swaps = await this.storageProvider.getPendingSubmarineSwaps();
     if (!swaps) return [];
     return swaps.filter((swap) => swap.status === 'invoice.set');
   }
@@ -718,9 +721,9 @@ export class ArkadeLightning {
    * @returns PendingReverseSwap[] or null if no storage provider is set.
    * If no swaps are found, it returns an empty array.
    */
-  getPendingReverseSwaps(): PendingReverseSwap[] | null {
+  async getPendingReverseSwaps(): Promise<PendingReverseSwap[] | null> {
     if (!this.storageProvider) return null;
-    const swaps = this.storageProvider.getPendingReverseSwaps();
+    const swaps = await this.storageProvider.getPendingReverseSwaps();
     if (!swaps) return [];
     return swaps.filter((swap) => swap.status === 'swap.created');
   }
@@ -730,9 +733,9 @@ export class ArkadeLightning {
    * @returns PendingReverseSwap[] or null if no storage provider is set.
    * If no swaps are found, it returns an empty array.
    */
-  getSwapHistory(): (PendingReverseSwap | PendingSubmarineSwap)[] | null {
+  async getSwapHistory(): Promise<(PendingReverseSwap | PendingSubmarineSwap)[] | null> {
     if (!this.storageProvider) return null;
-    const swaps = this.storageProvider.getSwapHistory();
+    const swaps = await this.storageProvider.getSwapHistory();
     if (!swaps) return [];
     return swaps.sort((a, b) => b.createdAt - a.createdAt);
   }

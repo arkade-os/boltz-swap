@@ -115,7 +115,6 @@ vi.mock('ws', () => {
 
 describe('ArkadeLightning', () => {
   let indexerProvider: RestIndexerProvider;
-  let storageProvider: StorageProvider;
   let swapProvider: BoltzSwapProvider;
   let arkProvider: RestArkProvider;
   let lightning: ArkadeLightning;
@@ -224,7 +223,6 @@ describe('ArkadeLightning', () => {
     arkProvider = new RestArkProvider('http://localhost:7070');
     swapProvider = new BoltzSwapProvider({ network: 'regtest' });
     indexerProvider = new RestIndexerProvider('http://localhost:7070');
-    storageProvider = await StorageProvider.create({ storagePath: './test-storage.json' });
     lightning = new ArkadeLightning({ wallet: mockWallet, arkProvider, swapProvider, indexerProvider });
   });
 
@@ -237,13 +235,25 @@ describe('ArkadeLightning', () => {
       expect(lightning).toBeInstanceOf(ArkadeLightning);
     });
 
-    it('should fail to instantiate without required config', async () => {
+    it('should fail to instantiate without required config', () => {
       const params: ArkadeLightningConfig = { wallet: mockWallet, swapProvider, arkProvider, indexerProvider };
       expect(() => new ArkadeLightning({ ...params })).not.toThrow();
-      expect(() => new ArkadeLightning({ ...params, storageProvider })).not.toThrow();
       expect(() => new ArkadeLightning({ ...params, arkProvider: null as any })).toThrow('Ark provider is required either in wallet or config.');
       expect(() => new ArkadeLightning({ ...params, swapProvider: null as any })).toThrow('Swap provider is required.');
       expect(() => new ArkadeLightning({ ...params, indexerProvider: null as any })).toThrow('Indexer provider is required either in wallet or config.');
+    });
+
+    it('should use MemoryStorage by default when no storageProvider is provided', () => {
+      const params: ArkadeLightningConfig = { wallet: mockWallet, swapProvider, arkProvider, indexerProvider };
+      
+      // Should not throw when storageProvider is not provided
+      expect(() => new ArkadeLightning(params)).not.toThrow();
+      
+      const instance = new ArkadeLightning(params);
+      expect(instance).toBeInstanceOf(ArkadeLightning);
+      
+      // Storage should be available and functional (MemoryStorage)
+      expect(instance['storageProvider']).toBeDefined();
     });
 
     it('should have expected interface methods', () => {
@@ -258,7 +268,7 @@ describe('ArkadeLightning', () => {
     });
 
     it('should work with ServiceWorkerWallet (legacy interface)', () => {
-      // Create a mock ServiceWorkerWallet that has identity methods spread directly
+      // Create a mock ServiceWorkerWallet with identity methods spread directly
       const mockServiceWorkerWallet = {
         getAddress: vi.fn().mockResolvedValue(mock.address),
         getBalance: vi.fn().mockResolvedValue(mock.invoice.amount),
