@@ -135,8 +135,7 @@ console.log('Transaction ID:', paymentResult.txid);
 
 ## Advanced Configuration
 
-<details>
-<summary><strong>Error Handling</strong></summary>
+## Error Handling
 
 The library provides detailed error types to help you handle different failure scenarios:
 
@@ -186,10 +185,7 @@ try {
 }
 ```
 
-</details>
-
-<details>
-<summary><strong>Storage Configuration</strong></summary>
+## Storage Configuration
 
 By default, this library uses in-memory storage (swaps are lost on restart). For production applications, you should configure persistent storage.
 
@@ -317,10 +313,7 @@ console.log('All swap history:', swapHistory);
 
 **Important:** All operations that read from or write to storage are asynchronous.
 
-</details>
-
-<details>
-<summary><strong>Wallet Compatibility</strong></summary>
+## Wallet Compatibility
 
 This library supports both wallet interface patterns:
 
@@ -364,5 +357,3 @@ const arkadeLightning = new ArkadeLightning({
   // storageProvider can be added for persistence
 });
 ```
-
-</details>
