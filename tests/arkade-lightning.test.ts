@@ -417,6 +417,32 @@ describe('ArkadeLightning', () => {
       expect(result.preimage).toBe(mock.preimage);
       expect(result.pendingSwap.request.claimPublicKey).toBe(hex.encode(mock.pubkeys.alice));
     });
+
+    it('should pass description to reverse swap when creating Lightning invoice', async () => {
+      // arrange
+      const testDescription = 'Test payment description';
+      const pendingSwap: PendingReverseSwap = {
+        type: 'reverse',
+        createdAt: Date.now(),
+        preimage: mock.preimage,
+        request: { ...createReverseSwapRequest, description: testDescription },
+        response: createReverseSwapResponse,
+        status: 'swap.created',
+      };
+      const createReverseSwapSpy = vi.spyOn(lightning, 'createReverseSwap').mockResolvedValueOnce(pendingSwap);
+
+      // act
+      await lightning.createLightningInvoice({ 
+        amount: mock.amount, 
+        description: testDescription 
+      });
+
+      // assert
+      expect(createReverseSwapSpy).toHaveBeenCalledWith({
+        amount: mock.amount,
+        description: testDescription
+      });
+    });
   });
 
   describe('Reverse Swaps', () => {
@@ -435,6 +461,26 @@ describe('ArkadeLightning', () => {
       expect(pendingSwap.response.onchainAmount).toBe(mock.invoice.amount);
       expect(pendingSwap.response.refundPublicKey).toBe(hex.encode(mock.pubkeys.boltz));
       expect(pendingSwap.status).toEqual('swap.created');
+    });
+
+    it('should pass description to swap provider when creating reverse swap', async () => {
+      // arrange
+      const testDescription = 'Test reverse swap description';
+      const createReverseSwapSpy = vi.spyOn(swapProvider, 'createReverseSwap').mockResolvedValueOnce(createReverseSwapResponse);
+
+      // act
+      await lightning.createReverseSwap({ 
+        amount: mock.invoice.amount, 
+        description: testDescription 
+      });
+
+      // assert
+      expect(createReverseSwapSpy).toHaveBeenCalledWith({
+        invoiceAmount: mock.invoice.amount,
+        claimPublicKey: expect.any(String),
+        preimageHash: expect.any(String),
+        description: testDescription
+      });
     });
   });
 
