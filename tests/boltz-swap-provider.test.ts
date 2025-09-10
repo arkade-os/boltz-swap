@@ -266,6 +266,48 @@ describe('BoltzSwapProvider', () => {
       expect(response).toEqual(mockResponse);
     });
 
+    it('should omit whitespace-only descriptions from reverse swap request', async () => {
+      // arrange
+      const mockResponse = {
+        id: 'mock-swap-id',
+        invoice: invoice,
+        onchainAmount: 21000,
+        lockupAddress: 'mock-lockup-address',
+        refundPublicKey: 'mock-refund-public-key',
+        timeoutBlockHeights: {
+          refund: 800000,
+          unilateralClaim: 800050,
+          unilateralRefund: 800100,
+          unilateralRefundWithoutReceiver: 800150,
+        },
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => createFetchResponse(mockResponse))
+      );
+      // act
+      const response = await provider.createReverseSwap({
+        invoiceAmount: 21000,
+        claimPublicKey: 'mock-claimPublicKey',
+        preimageHash: 'mock-preimage-hash',
+        description: '   ', // whitespace-only description
+      });
+      // assert
+      expect(fetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/reverse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'BTC',
+          to: 'ARK',
+          invoiceAmount: 21000,
+          claimPublicKey: 'mock-claimPublicKey',
+          preimageHash: 'mock-preimage-hash',
+          // description should be omitted when it's only whitespace
+        }),
+      });
+      expect(response).toEqual(mockResponse);
+    });
+
     it('should throw on invalid reverse swap response', async () => {
       // arrange
       vi.stubGlobal(

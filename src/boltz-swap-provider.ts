@@ -137,6 +137,7 @@ export type CreateReverseSwapRequest = {
   claimPublicKey: string;
   invoiceAmount: number;
   preimageHash: string;
+  /** Optional description forwarded to Boltz as the invoice description. May be omitted or subject to provider-side limits. */
   description?: string;
 };
 
@@ -250,18 +251,21 @@ export class BoltzSwapProvider {
     // if claimPublicKey is a xOnlyPublicKey, we need the compressed version
     if (claimPublicKey.length == 64) claimPublicKey = '02' + claimPublicKey;
     // make reverse swap request
-    const requestBody: any = {
+    const requestBody: {
+      from: 'BTC';
+      to: 'ARK';
+      invoiceAmount: number;
+      claimPublicKey: string;
+      preimageHash: string;
+      description?: string;
+    } = {
       from: 'BTC',
       to: 'ARK',
       invoiceAmount,
       claimPublicKey,
       preimageHash,
+      ...(description?.trim() ? { description: description.trim() } : {}),
     };
-    
-    // only include description if provided
-    if (description) {
-      requestBody.description = description;
-    }
     
     const response = await this.request<CreateReverseSwapResponse>('/v2/swap/reverse', 'POST', requestBody);
     if (!isCreateReverseSwapResponse(response)) throw new SchemaError({ message: 'Error creating reverse swap' });
