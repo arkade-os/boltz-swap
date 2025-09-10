@@ -107,6 +107,7 @@ describe('BoltzSwapProvider', () => {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
+      expect(fetch).toHaveBeenCalledTimes(2);
       expect(fees).toEqual({
         submarine: {
           percentage: 0.01,
