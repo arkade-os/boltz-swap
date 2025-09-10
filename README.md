@@ -93,6 +93,60 @@ const arkadeLightning = new ArkadeLightning({
 });
 ```
 
+## Checking Swap Limits
+
+Before creating Lightning invoices or sending payments, you can check the minimum and maximum swap amounts supported by the Boltz service. This is useful to validate that your invoice amount is within the acceptable range.
+
+```typescript
+// Get current swap limits (in satoshis)
+const limits = await arkadeLightning.getLimits();
+
+if (limits) {
+  console.log('Minimum swap amount:', limits.min, 'sats');
+  console.log('Maximum swap amount:', limits.max, 'sats');
+  
+  // Example: Validate invoice amount before creating
+  const invoiceAmount = 50000; // 50,000 sats
+  
+  if (invoiceAmount < limits.min) {
+    console.error(`Amount ${invoiceAmount} is below minimum ${limits.min} sats`);
+  } else if (invoiceAmount > limits.max) {
+    console.error(`Amount ${invoiceAmount} is above maximum ${limits.max} sats`);
+  } else {
+    console.log('Amount is within valid range');
+    // Safe to proceed with creating invoice or payment
+  }
+} else {
+  console.log('Unable to fetch limits - no swap provider configured');
+}
+```
+
+### Validating Lightning Invoice Amounts
+
+```typescript
+import { decodeInvoice } from '@arkade-os/boltz-swap';
+
+// Decode an incoming Lightning invoice to check its amount
+const invoice = 'lnbc500u1pj...'; // Lightning invoice string
+const decodedInvoice = decodeInvoice(invoice);
+
+console.log('Invoice amount:', decodedInvoice.amountSats, 'sats');
+
+// Check if the invoice amount is within swap limits
+const limits = await arkadeLightning.getLimits();
+
+if (limits && decodedInvoice.amountSats >= limits.min && decodedInvoice.amountSats <= limits.max) {
+  // Amount is valid for swaps
+  const paymentResult = await arkadeLightning.sendLightningPayment({
+    invoice: invoice,
+    maxFeeSats: 1000,
+  });
+  console.log('Payment successful!');
+} else {
+  console.error('Invoice amount is outside supported swap limits');
+}
+```
+
 ## Storage
 
 By default this library doesn't store pending swaps.
