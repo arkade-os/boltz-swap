@@ -688,19 +688,15 @@ export class ArkadeLightning {
 
   /**
    * Retrieves fees for swaps (in sats and percentage).
-   * @returns FeesResponse or null if no storage provider is set.
    */
-  async getFees(): Promise<FeesResponse | null> {
-    if (!this.swapProvider) return null;
+  async getFees(): Promise<FeesResponse> {
     return this.swapProvider.getFees();
   }
 
   /**
    * Retrieves max and min limits for swaps (in sats).
-   * @returns LimitsResponse or null if no storage provider is set.
    */
-  async getLimits(): Promise<LimitsResponse | null> {
-    if (!this.swapProvider) return null;
+  async getLimits(): Promise<LimitsResponse> {
     return this.swapProvider.getLimits();
   }
 
