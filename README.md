@@ -104,10 +104,10 @@ const limits = await arkadeLightning.getLimits();
 if (limits) {
   console.log('Minimum swap amount:', limits.min, 'sats');
   console.log('Maximum swap amount:', limits.max, 'sats');
-  
+
   // Example: Validate invoice amount before creating
   const invoiceAmount = 50000; // 50,000 sats
-  
+
   if (invoiceAmount < limits.min) {
     console.error(`Amount ${invoiceAmount} is below minimum ${limits.min} sats`);
   } else if (invoiceAmount > limits.max) {
@@ -165,16 +165,6 @@ const arkadeLightning = new ArkadeLightning({
 // you now are able to use the following methods
 const pendingPaymentsToLightning = arkadeLightning.getPendingSubmarineSwaps();
 const pendingPaymentsFromLightning = arkadeLightning.getPendingReverseSwaps();
-```
-
-## Limits
-
-Submarine swaps have a minimum and maximum number of sats:
-
-```typescript
-const limits: LimitsResponse | null = await arkadeLightning.getLimits();
-if (!limits) throw new Error('something went wrong');
-const { min, max } = limits;
 ```
 
 ## Fees
