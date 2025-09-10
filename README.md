@@ -147,6 +147,29 @@ if (limits && decodedInvoice.amountSats >= limits.min && decodedInvoice.amountSa
 }
 ```
 
+## Checking Swap Fees
+
+You can check the fee to pay for different swap amounts supported by the Boltz service.
+This is useful to validate the user is willing to pay the fees.
+
+```typescript
+// Get current swap fees
+const fees: FeeResponse | null = await arkadeLightning.getFees();
+if (!fees) throw new Error('something went wrong');
+
+const calcSubmarineSwapFee = (satoshis: number): number => {
+  if (!satoshis) return 0;
+  const { percentage, minerFees } = fees.submarine;
+  return Math.ceil((satoshis * percentage) / 100 + minerFees);
+};
+
+const calcReverseSwapFee = (satoshis: number): number => {
+  if (!satoshis) return 0;
+  const { percentage, minerFees } = fees.reverse;
+  return Math.ceil((satoshis * percentage) / 100 + minerFees.claim + minerFees.lockup);
+};
+```
+
 ## Storage
 
 By default this library doesn't store pending swaps.
@@ -165,16 +188,6 @@ const arkadeLightning = new ArkadeLightning({
 // you now are able to use the following methods
 const pendingPaymentsToLightning = arkadeLightning.getPendingSubmarineSwaps();
 const pendingPaymentsFromLightning = arkadeLightning.getPendingReverseSwaps();
-```
-
-## Fees
-
-Submarine swaps have a minimum and maximum number of sats:
-
-```typescript
-const fees: FeeResponse | null = await arkadeLightning.getFees();
-if (!fees) throw new Error('something went wrong');
-const { submarine, reverse } = fees;
 ```
 
 ## Receiving Lightning Payments
