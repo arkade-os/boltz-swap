@@ -81,7 +81,7 @@ import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
 const serviceWorkerWallet = new ServiceWorkerWallet(serviceWorker);
 await serviceWorkerWallet.init({
   privateKey: 'your_private_key_hex',
-  arkServerUrl: 'https://ark.example.com'
+  arkServerUrl: 'https://ark.example.com',
 });
 
 // Must provide external providers for ServiceWorkerWallet (it doesn't have them)
@@ -111,6 +111,26 @@ const arkadeLightning = new ArkadeLightning({
 // you now are able to use the following methods
 const pendingPaymentsToLightning = arkadeLightning.getPendingSubmarineSwaps();
 const pendingPaymentsFromLightning = arkadeLightning.getPendingReverseSwaps();
+```
+
+## Limits
+
+Submarine swaps have a minimum and maximum number of sats:
+
+```typescript
+const limits: LimitsResponse | null = await arkadeLightning.getLimits();
+if (!limits) throw new Error('something went wrong');
+const { min, max } = limits;
+```
+
+## Fees
+
+Submarine swaps have a minimum and maximum number of sats:
+
+```typescript
+const fees: FeeResponse | null = await arkadeLightning.getFees();
+if (!fees) throw new Error('something went wrong');
+const { submarine, reverse } = fees;
 ```
 
 ## Receiving Lightning Payments
