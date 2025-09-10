@@ -230,6 +230,7 @@ export class ArkadeLightning {
       invoiceAmount: args.amount,
       claimPublicKey,
       preimageHash,
+      description: args.description,
     };
 
     // make reverse swap request
