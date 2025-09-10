@@ -247,9 +247,11 @@ export class BoltzSwapProvider {
   }
 
   async getFees(): Promise<FeesResponse> {
-    const submarine = await this.request<GetSubmarinePairsResponse>('/v2/swap/submarine', 'GET');
+    const [submarine, reverse] = await Promise.all([
+      this.request<GetSubmarinePairsResponse>('/v2/swap/submarine', 'GET'),
+      this.request<GetReversePairsResponse>('/v2/swap/reverse', 'GET'),
+    ]);
     if (!isGetSubmarinePairsResponse(submarine)) throw new SchemaError({ message: 'error fetching submarine fees' });
-    const reverse = await this.request<GetReversePairsResponse>('/v2/swap/reverse', 'GET');
     if (!isGetReversePairsResponse(reverse)) throw new SchemaError({ message: 'error fetching reverse fees' });
     return {
       submarine: {
