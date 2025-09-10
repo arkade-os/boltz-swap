@@ -50,6 +50,89 @@ describe('BoltzSwapProvider', () => {
     expect(provider.getNetwork()).toBe('regtest');
   });
 
+  describe('getFees', () => {
+    it('should fetch fees from API', async () => {
+      // arrange
+      const mockSubmarineResponse = {
+        ARK: {
+          BTC: {
+            hash: 'mock-hash',
+            rate: 0.0001,
+            limits: {
+              maximal: 4294967,
+              minimal: 1000,
+              maximalZeroConf: 0,
+            },
+            fees: {
+              percentage: 0.01,
+              minerFees: 0,
+            },
+          },
+        },
+      };
+      const mockReverseResponse = {
+        BTC: {
+          ARK: {
+            hash: 'mock-hash',
+            rate: 1,
+            limits: {
+              maximal: 4294967,
+              minimal: 1000,
+            },
+            fees: {
+              percentage: 0.4,
+              minerFees: {
+                claim: 0,
+                lockup: 0,
+              },
+            },
+          },
+        },
+      };
+      // mock fetch response
+      const mockFetch = vi.fn();
+      vi.stubGlobal('fetch', mockFetch);
+      mockFetch
+        .mockReturnValueOnce(createFetchResponse(mockSubmarineResponse))
+        .mockReturnValueOnce(createFetchResponse(mockReverseResponse));
+
+      // act
+      const fees = await provider.getFees();
+      // assert
+      expect(fetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/submarine', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      expect(fetch).toHaveBeenCalledWith('http://localhost:9090/v2/swap/reverse', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      expect(fees).toEqual({
+        submarine: {
+          percentage: 0.01,
+          minerFees: 0,
+        },
+        reverse: {
+          percentage: 0.4,
+          minerFees: {
+            claim: 0,
+            lockup: 0,
+          },
+        },
+      });
+    });
+
+    it('should throw on invalid fees response', async () => {
+      // arrange
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => createFetchResponse({ invalid: 'response' }))
+      );
+      // act & assert
+      await expect(provider.getFees()).rejects.toThrow(SchemaError);
+    });
+  });
+
   describe('getLimits', () => {
     it('should fetch limits from API', async () => {
       // arrange

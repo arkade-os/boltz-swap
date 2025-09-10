@@ -136,3 +136,17 @@ export interface LimitsResponse {
   min: number;
   max: number;
 }
+
+export interface FeesResponse {
+  submarine: {
+    percentage: number;
+    minerFees: number;
+  };
+  reverse: {
+    percentage: number;
+    minerFees: {
+      lockup: number;
+      claim: number;
+    };
+  };
+}

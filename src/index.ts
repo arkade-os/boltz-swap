@@ -1,15 +1,15 @@
 export { ArkadeLightning } from './arkade-lightning';
 export { StorageProvider } from './storage-provider';
 export { BoltzSwapProvider, BoltzSwapStatus } from './boltz-swap-provider';
-export { 
-  SwapError, 
+export {
+  SwapError,
   SchemaError,
-  SwapExpiredError, 
-  InvoiceExpiredError, 
+  SwapExpiredError,
+  InvoiceExpiredError,
   InvoiceFailedToPayError,
-  InsufficientFundsError, 
+  InsufficientFundsError,
   NetworkError,
-  TransactionFailedError
+  TransactionFailedError,
 } from './errors';
 export { decodeInvoice, getInvoicePaymentHash, getInvoiceSatoshis } from './utils/decoding';
 export type {
@@ -24,6 +24,7 @@ export type {
   LimitsResponse,
   RefundHandler,
   TimeoutConfig,
+  FeesResponse,
   RetryConfig,
   FeeConfig,
   Network,

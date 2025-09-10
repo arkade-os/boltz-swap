@@ -31,10 +31,9 @@ import type {
   CreateLightningInvoiceRequest,
   Wallet,
   LimitsResponse,
+  FeesResponse,
 } from './types';
-import {
-  isWalletWithNestedIdentity,
-} from './types';
+import { isWalletWithNestedIdentity } from './types';
 import { randomBytes } from '@noble/hashes/utils';
 import {
   BoltzSwapProvider,
@@ -65,12 +64,12 @@ function getXOnlyPublicKey(wallet: Wallet): Uint8Array {
 function getSignerSession(wallet: Wallet): any {
   const identity = getIdentity(wallet);
   const signerSession = identity?.signerSession;
-  
+
   // If signerSession is a function (factory), call it to get the actual session
   if (typeof signerSession === 'function') {
     return signerSession();
   }
-  
+
   // Otherwise return it directly (could be the session object or undefined)
   return signerSession;
 }
@@ -89,17 +88,17 @@ export class ArkadeLightning {
   constructor(config: ArkadeLightningConfig) {
     if (!config.wallet) throw new Error('Wallet is required.');
     if (!config.swapProvider) throw new Error('Swap provider is required.');
-    
+
     this.wallet = config.wallet;
     // Prioritize wallet providers, fallback to config providers for backward compatibility
     const arkProvider = (config.wallet as any).arkProvider ?? config.arkProvider;
     if (!arkProvider) throw new Error('Ark provider is required either in wallet or config.');
     this.arkProvider = arkProvider;
-    
+
     const indexerProvider = (config.wallet as any).indexerProvider ?? config.indexerProvider;
     if (!indexerProvider) throw new Error('Indexer provider is required either in wallet or config.');
     this.indexerProvider = indexerProvider;
-    
+
     this.swapProvider = config.swapProvider;
     this.storageProvider = config.storageProvider ?? null;
   }
@@ -533,11 +532,11 @@ export class ArkadeLightning {
   async waitForSwapSettlement(pendingSwap: PendingSubmarineSwap): Promise<{ preimage: string }> {
     return new Promise<{ preimage: string }>((resolve, reject) => {
       let isResolved = false;
-      
+
       // https://api.docs.boltz.exchange/lifecycle.html#swap-states
       const onStatusUpdate = async (status: BoltzSwapStatus) => {
         if (isResolved) return; // Prevent multiple resolutions
-        
+
         switch (status) {
           case 'swap.expired':
             isResolved = true;
@@ -688,8 +687,16 @@ export class ArkadeLightning {
   }
 
   /**
+   * Retrieves fees for swaps (in sats and percentage).
+   * @returns FeesResponse or null if no storage provider is set.
+   */
+  async getFees(): Promise<FeesResponse | null> {
+    if (!this.swapProvider) return null;
+    return this.swapProvider.getFees();
+  }
+
+  /**
    * Retrieves max and min limits for swaps (in sats).
-   * It is useful for checking the status of all pending submarine swaps in the system.
    * @returns LimitsResponse or null if no storage provider is set.
    */
   async getLimits(): Promise<LimitsResponse | null> {
