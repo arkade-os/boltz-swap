@@ -1,5 +1,5 @@
 import { NetworkError, SchemaError, SwapError } from './errors';
-import { LimitsResponse, Network } from './types';
+import { FeesResponse, LimitsResponse, Network } from './types';
 
 export interface SwapProviderConfig {
   apiUrl?: string;
@@ -49,7 +49,7 @@ export const isGetSwapStatusResponse = (data: any): data is GetSwapStatusRespons
   );
 };
 
-export type GetPairsResponse = {
+type GetSubmarinePairsResponse = {
   ARK: {
     BTC: {
       hash: string;
@@ -67,7 +67,7 @@ export type GetPairsResponse = {
   };
 };
 
-export const isGetPairsResponse = (data: any): data is GetPairsResponse => {
+const isGetSubmarinePairsResponse = (data: any): data is GetSubmarinePairsResponse => {
   return (
     data &&
     typeof data === 'object' &&
@@ -86,6 +86,50 @@ export const isGetPairsResponse = (data: any): data is GetPairsResponse => {
     typeof data.ARK.BTC.fees === 'object' &&
     typeof data.ARK.BTC.fees.percentage === 'number' &&
     typeof data.ARK.BTC.fees.minerFees === 'number'
+  );
+};
+
+type GetReversePairsResponse = {
+  BTC: {
+    ARK: {
+      hash: string;
+      rate: number;
+      limits: {
+        maximal: number;
+        minimal: number;
+      };
+      fees: {
+        percentage: number;
+        minerFees: {
+          claim: number;
+          lockup: number;
+        };
+      };
+    };
+  };
+};
+
+const isGetReversePairsResponse = (data: any): data is GetReversePairsResponse => {
+  return (
+    data &&
+    typeof data === 'object' &&
+    data.BTC &&
+    typeof data.BTC === 'object' &&
+    data.BTC.ARK &&
+    typeof data.BTC.ARK === 'object' &&
+    data.BTC.ARK.hash &&
+    typeof data.BTC.ARK.hash === 'string' &&
+    typeof data.BTC.ARK.rate === 'number' &&
+    data.BTC.ARK.limits &&
+    typeof data.BTC.ARK.limits === 'object' &&
+    typeof data.BTC.ARK.limits.maximal === 'number' &&
+    typeof data.BTC.ARK.limits.minimal === 'number' &&
+    data.BTC.ARK.fees &&
+    typeof data.BTC.ARK.fees === 'object' &&
+    typeof data.BTC.ARK.fees.percentage === 'number' &&
+    typeof data.BTC.ARK.fees.minerFees === 'object' &&
+    typeof data.BTC.ARK.fees.minerFees.claim === 'number' &&
+    typeof data.BTC.ARK.fees.minerFees.lockup === 'number'
   );
 };
 
@@ -204,9 +248,28 @@ export class BoltzSwapProvider {
     return this.network;
   }
 
+  async getFees(): Promise<FeesResponse> {
+    const [submarine, reverse] = await Promise.all([
+      this.request<GetSubmarinePairsResponse>('/v2/swap/submarine', 'GET'),
+      this.request<GetReversePairsResponse>('/v2/swap/reverse', 'GET'),
+    ]);
+    if (!isGetSubmarinePairsResponse(submarine)) throw new SchemaError({ message: 'error fetching submarine fees' });
+    if (!isGetReversePairsResponse(reverse)) throw new SchemaError({ message: 'error fetching reverse fees' });
+    return {
+      submarine: {
+        percentage: submarine.ARK.BTC.fees.percentage,
+        minerFees: submarine.ARK.BTC.fees.minerFees,
+      },
+      reverse: {
+        percentage: reverse.BTC.ARK.fees.percentage,
+        minerFees: reverse.BTC.ARK.fees.minerFees,
+      },
+    };
+  }
+
   async getLimits(): Promise<LimitsResponse> {
-    const response = await this.request<GetPairsResponse>('/v2/swap/submarine', 'GET');
-    if (!isGetPairsResponse(response)) throw new SchemaError({ message: 'error fetching limits' });
+    const response = await this.request<GetSubmarinePairsResponse>('/v2/swap/submarine', 'GET');
+    if (!isGetSubmarinePairsResponse(response)) throw new SchemaError({ message: 'error fetching limits' });
     return {
       min: response.ARK.BTC.limits.minimal,
       max: response.ARK.BTC.limits.maximal,

@@ -136,3 +136,22 @@ export interface LimitsResponse {
   min: number;
   max: number;
 }
+
+/**
+ * Fee info returned by Boltz.
+ * - percentage: value (e.g., 0.01 = 0.01%)
+ * - minerFees: values in satoshis
+ */
+export interface FeesResponse {
+  submarine: {
+    percentage: number;
+    minerFees: number;
+  };
+  reverse: {
+    percentage: number;
+    minerFees: {
+      lockup: number;
+      claim: number;
+    };
+  };
+}

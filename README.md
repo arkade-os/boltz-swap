@@ -81,7 +81,7 @@ import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
 const serviceWorkerWallet = new ServiceWorkerWallet(serviceWorker);
 await serviceWorkerWallet.init({
   privateKey: 'your_private_key_hex',
-  arkServerUrl: 'https://ark.example.com'
+  arkServerUrl: 'https://ark.example.com',
 });
 
 // Must provide external providers for ServiceWorkerWallet (it doesn't have them)
@@ -104,10 +104,10 @@ const limits = await arkadeLightning.getLimits();
 if (limits) {
   console.log('Minimum swap amount:', limits.min, 'sats');
   console.log('Maximum swap amount:', limits.max, 'sats');
-  
+
   // Example: Validate invoice amount before creating
   const invoiceAmount = 50000; // 50,000 sats
-  
+
   if (invoiceAmount < limits.min) {
     console.error(`Amount ${invoiceAmount} is below minimum ${limits.min} sats`);
   } else if (invoiceAmount > limits.max) {
@@ -145,6 +145,29 @@ if (limits && decodedInvoice.amountSats >= limits.min && decodedInvoice.amountSa
 } else {
   console.error('Invoice amount is outside supported swap limits');
 }
+```
+
+## Checking Swap Fees
+
+You can check the fee to pay for different swap amounts supported by the Boltz service.
+This is useful to validate the user is willing to pay the fees.
+
+```typescript
+// Get current swap fees
+const fees: FeeResponse | null = await arkadeLightning.getFees();
+if (!fees) throw new Error('something went wrong');
+
+const calcSubmarineSwapFee = (satoshis: number): number => {
+  if (!satoshis) return 0;
+  const { percentage, minerFees } = fees.submarine;
+  return Math.ceil((satoshis * percentage) / 100 + minerFees);
+};
+
+const calcReverseSwapFee = (satoshis: number): number => {
+  if (!satoshis) return 0;
+  const { percentage, minerFees } = fees.reverse;
+  return Math.ceil((satoshis * percentage) / 100 + minerFees.claim + minerFees.lockup);
+};
 ```
 
 ## Storage
