@@ -564,4 +564,96 @@ describe('ArkadeLightning', () => {
   // - Fee limits
   // - Retry logic
   // - Custom refund handler
+
+  describe('waitAndClaim', () => {
+    it('should demonstrate current behavior with empty txid is now fixed', async () => {
+      // This test shows the fix: waitAndClaim now throws an error instead of returning empty txid
+      // arrange
+      const pendingSwap: PendingReverseSwap = {
+        type: 'reverse',
+        createdAt: Date.now(),
+        preimage: mock.preimage,
+        request: createReverseSwapRequest,
+        response: createReverseSwapResponse,
+        status: 'swap.created',
+      };
+
+      // Mock getSwapStatus to return a status without transaction (the problematic case)
+      vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValue({
+        status: 'invoice.settled',
+        // transaction is undefined - this now causes an error instead of empty txid
+      });
+
+      // Mock monitorSwap to directly trigger the invoice.settled case
+      vi.spyOn(swapProvider, 'monitorSwap').mockImplementation(async (swapId, update) => {
+        // Simulate the invoice.settled event
+        setTimeout(() => update('invoice.settled'), 10);
+      });
+
+      // act & assert - this should now throw an error instead of returning empty txid
+      await expect(lightning.waitAndClaim(pendingSwap)).rejects.toThrow('Transaction ID not available for settled swap');
+    });
+
+    it('should return valid txid when transaction is available', async () => {
+      // arrange
+      const pendingSwap: PendingReverseSwap = {
+        type: 'reverse',
+        createdAt: Date.now(),
+        preimage: mock.preimage,
+        request: createReverseSwapRequest,
+        response: createReverseSwapResponse,
+        status: 'swap.created',
+      };
+
+      // Mock getSwapStatus to return a status with valid transaction
+      vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValue({
+        status: 'invoice.settled',
+        transaction: {
+          id: mock.txid,
+          hex: mock.hex,
+        },
+      });
+
+      // Mock monitorSwap to directly trigger the invoice.settled case
+      vi.spyOn(swapProvider, 'monitorSwap').mockImplementation(async (swapId, update) => {
+        setTimeout(() => update('invoice.settled'), 10);
+      });
+
+      // act
+      const result = await lightning.waitAndClaim(pendingSwap);
+
+      // assert
+      expect(result.txid).toBe(mock.txid);
+      expect(result.txid).not.toBe('');
+    });
+
+    it('should throw error when transaction id is empty string', async () => {
+      // arrange
+      const pendingSwap: PendingReverseSwap = {
+        type: 'reverse',
+        createdAt: Date.now(),
+        preimage: mock.preimage,
+        request: createReverseSwapRequest,
+        response: createReverseSwapResponse,
+        status: 'swap.created',
+      };
+
+      // Mock getSwapStatus to return a status with empty transaction id
+      vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValue({
+        status: 'invoice.settled',
+        transaction: {
+          id: '',
+          hex: mock.hex,
+        },
+      });
+
+      // Mock monitorSwap to directly trigger the invoice.settled case
+      vi.spyOn(swapProvider, 'monitorSwap').mockImplementation(async (swapId, update) => {
+        setTimeout(() => update('invoice.settled'), 10);
+      });
+
+      // act & assert
+      await expect(lightning.waitAndClaim(pendingSwap)).rejects.toThrow('Transaction ID not available for settled swap');
+    });
+  });
 });

@@ -496,7 +496,16 @@ export class ArkadeLightning {
           case 'invoice.settled': {
             this.storageProvider?.savePendingReverseSwap({ ...pendingSwap, status });
             const swapStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
-            resolve({ txid: swapStatus.transaction?.id ?? '' });
+            const txid = swapStatus.transaction?.id;
+            
+            if (!txid || txid.trim() === '') {
+              reject(new SwapError({ 
+                message: `Transaction ID not available for settled swap ${pendingSwap.response.id}. This may indicate an issue with the swap settlement.` 
+              }));
+              break;
+            }
+            
+            resolve({ txid });
             break;
           }
           case 'invoice.expired':
