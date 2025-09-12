@@ -27,6 +27,9 @@ npm install @arkade-os/sdk @arkade-os/boltz-swap
 import { Wallet } from '@arkade-os/sdk';
 import { ArkadeLightning, BoltzSwapProvider, StorageProvider } from '@arkade-os/boltz-swap';
 
+// Create a identity
+const identity = SingleKey.fromHex('your_private_key_in_hex');
+
 // Initialize your Arkade wallet
 const wallet = await Wallet.create({
   identity,
@@ -77,11 +80,20 @@ const arkadeLightning = new ArkadeLightning({
 ```typescript
 import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
 
-// ServiceWorkerWallet has identity methods spread directly (no nested identity)
-const serviceWorkerWallet = new ServiceWorkerWallet(serviceWorker);
-await serviceWorkerWallet.init({
-  privateKey: 'your_private_key_hex',
+// Setup service worker
+const serviceWorker = await setupServiceWorker('/worker.js');
+
+// Service worker identity for background operations
+const identity = new ServiceWorkerIdentity(serviceWorker);
+
+// Create service worker wallet
+// Note: Service worker manages its own persistent identity stored in IndexedDB
+// When privateKey is undefined, the service worker will load existing identity or generate a new one
+const wallet = await ServiceWorkerWallet.create({
+  identity,
+  serviceWorker,
   arkServerUrl: 'https://ark.example.com',
+  privateKey, // Optional private key for initial identity setup
 });
 
 // Must provide external providers for ServiceWorkerWallet (it doesn't have them)
