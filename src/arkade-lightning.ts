@@ -57,7 +57,7 @@ function getIdentity(wallet: Wallet): Identity {
   return wallet as Identity;
 }
 
-function getXOnlyPublicKey(wallet: Wallet): Uint8Array {
+async function getXOnlyPublicKey(wallet: Wallet): Promise<Uint8Array> {
   return getIdentity(wallet).xOnlyPublicKey();
 }
 
@@ -182,7 +182,7 @@ export class ArkadeLightning {
 
   // create submarine swap
   async createSubmarineSwap(args: SendLightningPaymentRequest): Promise<PendingSubmarineSwap> {
-    const refundPublicKey = hex.encode(getXOnlyPublicKey(this.wallet));
+    const refundPublicKey = hex.encode(await getXOnlyPublicKey(this.wallet));
     if (!refundPublicKey) throw new SwapError({ message: 'Failed to get refund public key from wallet' });
 
     const invoice = args.invoice;
@@ -216,7 +216,7 @@ export class ArkadeLightning {
     // validate amount
     if (args.amount <= 0) throw new SwapError({ message: 'Amount must be greater than 0' });
 
-    const claimPublicKey = hex.encode(getXOnlyPublicKey(this.wallet));
+    const claimPublicKey = hex.encode(await getXOnlyPublicKey(this.wallet));
     if (!claimPublicKey) throw new SwapError({ message: 'Failed to get claim public key from wallet' });
 
     // create random preimage and its hash
@@ -257,7 +257,7 @@ export class ArkadeLightning {
     const address = await this.wallet.getAddress();
 
     // validate we are using a x-only receiver public key
-    let receiverXOnlyPublicKey = getXOnlyPublicKey(this.wallet);
+    let receiverXOnlyPublicKey = await getXOnlyPublicKey(this.wallet);
     if (receiverXOnlyPublicKey.length == 33) {
       receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
     } else if (receiverXOnlyPublicKey.length !== 32) {
@@ -377,7 +377,7 @@ export class ArkadeLightning {
     if (!address) throw new Error('Failed to get ark address from service worker wallet');
 
     // validate we are using a x-only receiver public key
-    let receiverXOnlyPublicKey = getXOnlyPublicKey(this.wallet);
+    let receiverXOnlyPublicKey = await getXOnlyPublicKey(this.wallet);
     if (receiverXOnlyPublicKey.length == 33) {
       receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
     } else if (receiverXOnlyPublicKey.length !== 32) {
@@ -396,7 +396,7 @@ export class ArkadeLightning {
       network: aspInfo.network,
       preimageHash: hex.decode(getInvoicePaymentHash(pendingSwap.request.invoice)),
       receiverPubkey: pendingSwap.response.claimPublicKey,
-      senderPubkey: hex.encode(getXOnlyPublicKey(this.wallet)),
+      senderPubkey: hex.encode(await getXOnlyPublicKey(this.wallet)),
       serverPubkey: aspInfo.signerPubkey,
       timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
     });
@@ -497,14 +497,16 @@ export class ArkadeLightning {
             this.storageProvider?.savePendingReverseSwap({ ...pendingSwap, status });
             const swapStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
             const txid = swapStatus.transaction?.id;
-            
+
             if (!txid || txid.trim() === '') {
-              reject(new SwapError({ 
-                message: `Transaction ID not available for settled swap ${pendingSwap.response.id}. This may indicate an issue with the swap settlement.` 
-              }));
+              reject(
+                new SwapError({
+                  message: `Transaction ID not available for settled swap ${pendingSwap.response.id}. This may indicate an issue with the swap settlement.`,
+                })
+              );
               break;
             }
-            
+
             resolve({ txid });
             break;
           }
