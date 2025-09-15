@@ -24,12 +24,22 @@ export type BoltzSwapStatus =
   | 'transaction.mempool'
   | 'transaction.refunded';
 
+export type GetReverseSwapTxIdResponse = {
+  id: string;
+  timeoutBlockHeight: number;
+};
+
+export const isGetReverseSwapTxIdResponse = (data: any): data is GetReverseSwapTxIdResponse => {
+  return data && typeof data === 'object' && typeof data.id === 'string' && typeof data.timeoutBlockHeight === 'number';
+};
+
 export type GetSwapStatusResponse = {
   status: BoltzSwapStatus;
   zeroConfRejected?: boolean;
   transaction?: {
     id: string;
-    hex: string;
+    hex?: string;
+    eta?: number;
     preimage?: string;
   };
 };
@@ -44,7 +54,8 @@ export const isGetSwapStatusResponse = (data: any): data is GetSwapStatusRespons
       (data.transaction &&
         typeof data.transaction === 'object' &&
         typeof data.transaction.id === 'string' &&
-        typeof data.transaction.hex === 'string' &&
+        (data.transaction.eta === undefined || typeof data.transaction.eta === 'number') &&
+        (data.transaction.hex === undefined || typeof data.transaction.hex === 'string') &&
         (data.transaction.preimage === undefined || typeof data.transaction.preimage === 'string')))
   );
 };
@@ -276,6 +287,12 @@ export class BoltzSwapProvider {
     };
   }
 
+  async getReverseSwapTxId(id: string): Promise<GetReverseSwapTxIdResponse> {
+    const res = await this.request<GetReverseSwapTxIdResponse>(`/v2/swap/reverse/${id}/transaction`, 'GET');
+    if (!isGetReverseSwapTxIdResponse(res)) throw new SchemaError({ message: `error fetching txid for swap: ${id}` });
+    return res;
+  }
+
   async getSwapStatus(id: string): Promise<GetSwapStatusResponse> {
     const response = await this.request<GetSwapStatusResponse>(`/v2/swap/${id}`, 'GET');
     if (!isGetSwapStatusResponse(response)) throw new SchemaError({ message: `error fetching status for swap: ${id}` });
@@ -329,7 +346,7 @@ export class BoltzSwapProvider {
       preimageHash,
       ...(description?.trim() ? { description: description.trim() } : {}),
     };
-    
+
     const response = await this.request<CreateReverseSwapResponse>('/v2/swap/reverse', 'POST', requestBody);
     if (!isCreateReverseSwapResponse(response)) throw new SchemaError({ message: 'Error creating reverse swap' });
     return response;
