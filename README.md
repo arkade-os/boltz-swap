@@ -78,22 +78,17 @@ const arkadeLightning = new ArkadeLightning({
 ### ServiceWorkerWallet (legacy interface)
 
 ```typescript
-import { RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
+import { ServiceWorkerWallet, SingleKey } from '@arkade-os/sdk';
 
-// Setup service worker
-const serviceWorker = await setupServiceWorker('/worker.js');
+// Create your identity
+const identity = SingleKey.fromHex('your_private_key_hex');
+// Or generate a new one:
+// const identity = SingleKey.fromRandomBytes();
 
-// Service worker identity for background operations
-const identity = new ServiceWorkerIdentity(serviceWorker);
-
-// Create service worker wallet
-// Note: Service worker manages its own persistent identity stored in IndexedDB
-// When privateKey is undefined, the service worker will load existing identity or generate a new one
-const wallet = await ServiceWorkerWallet.create({
+const wallet = await ServiceWorkerWallet.setup({
+  serviceWorkerPath: '/service-worker.js',
+  arkServerUrl: 'https://mutinynet.arkade.sh',
   identity,
-  serviceWorker,
-  arkServerUrl: 'https://ark.example.com',
-  privateKey, // Optional private key for initial identity setup
 });
 
 // Must provide external providers for ServiceWorkerWallet (it doesn't have them)
