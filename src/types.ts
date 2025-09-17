@@ -39,9 +39,6 @@ export type Wallet = WalletWithNestedIdentity | ServiceWorkerWallet;
 export const isWalletWithNestedIdentity = (w: Wallet): w is WalletWithNestedIdentity =>
   !!(w as any).identity && typeof (w as any).identity?.xOnlyPublicKey === 'function';
 
-export const isServiceWorkerWallet = (w: Wallet): w is ServiceWorkerWallet =>
-  typeof (w as any).xOnlyPublicKey === 'function' && !(w as any).identity;
-
 export type Network = 'bitcoin' | 'mutinynet' | 'regtest' | 'testnet';
 
 export interface CreateLightningInvoiceRequest {
