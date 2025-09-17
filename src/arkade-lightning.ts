@@ -50,11 +50,8 @@ import { decodeInvoice, getInvoicePaymentHash } from './utils/decoding';
 // Utility functions to handle both wallet types
 function getIdentity(wallet: Wallet): Identity {
   // Use type guard to check if wallet has nested identity
-  if (isWalletWithNestedIdentity(wallet)) {
-    return wallet.identity;
-  }
-  // Otherwise it's a ServiceWorkerWallet with identity methods spread
-  return wallet as Identity;
+  if (isWalletWithNestedIdentity(wallet)) return wallet.identity;
+  throw new Error('Wallet does not have a valid identity.');
 }
 
 async function getXOnlyPublicKey(wallet: Wallet): Promise<Uint8Array> {
