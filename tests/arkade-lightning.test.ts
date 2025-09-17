@@ -7,13 +7,12 @@ import {
   CreateSubmarineSwapRequest,
   CreateSubmarineSwapResponse,
 } from '../src/boltz-swap-provider';
-import type { 
-  PendingReverseSwap, 
-  PendingSubmarineSwap, 
-  Wallet, 
+import type {
+  PendingReverseSwap,
+  PendingSubmarineSwap,
+  Wallet,
   ServiceWorkerWallet,
   ArkadeLightningConfig,
-  WalletWithNestedIdentity
 } from '../src/types';
 import { RestArkProvider, RestIndexerProvider, Identity, ArkInfo } from '@arkade-os/sdk';
 import { StorageProvider } from '../src';
@@ -241,9 +240,13 @@ describe('ArkadeLightning', () => {
       const params: ArkadeLightningConfig = { wallet: mockWallet, swapProvider, arkProvider, indexerProvider };
       expect(() => new ArkadeLightning({ ...params })).not.toThrow();
       expect(() => new ArkadeLightning({ ...params, storageProvider })).not.toThrow();
-      expect(() => new ArkadeLightning({ ...params, arkProvider: null as any })).toThrow('Ark provider is required either in wallet or config.');
+      expect(() => new ArkadeLightning({ ...params, arkProvider: null as any })).toThrow(
+        'Ark provider is required either in wallet or config.'
+      );
       expect(() => new ArkadeLightning({ ...params, swapProvider: null as any })).toThrow('Swap provider is required.');
-      expect(() => new ArkadeLightning({ ...params, indexerProvider: null as any })).toThrow('Indexer provider is required either in wallet or config.');
+      expect(() => new ArkadeLightning({ ...params, indexerProvider: null as any })).toThrow(
+        'Indexer provider is required either in wallet or config.'
+      );
     });
 
     it('should have expected interface methods', () => {
@@ -278,12 +281,15 @@ describe('ArkadeLightning', () => {
       } as ServiceWorkerWallet;
 
       // Should be able to create ArkadeLightning with external providers
-      expect(() => new ArkadeLightning({ 
-        wallet: mockServiceWorkerWallet, 
-        arkProvider, 
-        swapProvider, 
-        indexerProvider 
-      })).not.toThrow();
+      expect(
+        () =>
+          new ArkadeLightning({
+            wallet: mockServiceWorkerWallet,
+            arkProvider,
+            swapProvider,
+            indexerProvider,
+          })
+      ).not.toThrow();
     });
 
     it('should throw when ServiceWorkerWallet lacks external providers', () => {
@@ -307,27 +313,36 @@ describe('ArkadeLightning', () => {
       } as ServiceWorkerWallet;
 
       // Should throw when missing both external providers
-      expect(() => new ArkadeLightning({ 
-        wallet: mockServiceWorkerWallet, 
-        swapProvider 
-      })).toThrow('Ark provider is required either in wallet or config.');
+      expect(
+        () =>
+          new ArkadeLightning({
+            wallet: mockServiceWorkerWallet,
+            swapProvider,
+          })
+      ).toThrow('Ark provider is required either in wallet or config.');
 
       // Should throw when missing indexer provider
-      expect(() => new ArkadeLightning({ 
-        wallet: mockServiceWorkerWallet, 
-        arkProvider,
-        swapProvider 
-      })).toThrow('Indexer provider is required either in wallet or config.');
+      expect(
+        () =>
+          new ArkadeLightning({
+            wallet: mockServiceWorkerWallet,
+            arkProvider,
+            swapProvider,
+          })
+      ).toThrow('Indexer provider is required either in wallet or config.');
     });
 
     it('should work with Wallet (with optional nested identity)', () => {
       // This is what mockWallet already is - with nested identity
-      expect(() => new ArkadeLightning({ 
-        wallet: mockWallet, 
-        arkProvider, 
-        swapProvider, 
-        indexerProvider 
-      })).not.toThrow();
+      expect(
+        () =>
+          new ArkadeLightning({
+            wallet: mockWallet,
+            arkProvider,
+            swapProvider,
+            indexerProvider,
+          })
+      ).not.toThrow();
     });
   });
 
@@ -365,7 +380,7 @@ describe('ArkadeLightning', () => {
         response: createReverseSwapResponse,
         status: 'swap.created',
       };
-      vi.spyOn(arkProvider, 'getInfo').mockResolvedValueOnce({ 
+      vi.spyOn(arkProvider, 'getInfo').mockResolvedValueOnce({
         signerPubkey: hex.encode(mock.pubkeys.server),
         network: 'regtest',
         vtxoTreeExpiry: 604800n,
@@ -432,15 +447,15 @@ describe('ArkadeLightning', () => {
       const createReverseSwapSpy = vi.spyOn(lightning, 'createReverseSwap').mockResolvedValueOnce(pendingSwap);
 
       // act
-      await lightning.createLightningInvoice({ 
-        amount: mock.amount, 
-        description: testDescription 
+      await lightning.createLightningInvoice({
+        amount: mock.amount,
+        description: testDescription,
       });
 
       // assert
       expect(createReverseSwapSpy).toHaveBeenCalledWith({
         amount: mock.amount,
-        description: testDescription
+        description: testDescription,
       });
     });
   });
@@ -463,15 +478,31 @@ describe('ArkadeLightning', () => {
       expect(pendingSwap.status).toEqual('swap.created');
     });
 
+    it('should get correct swap status', async () => {
+      // arrange
+      vi.spyOn(swapProvider, 'createReverseSwap').mockResolvedValueOnce(createReverseSwapResponse);
+      vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValueOnce({ status: 'swap.created' });
+
+      // act
+      const pendingSwap = await lightning.createReverseSwap({ amount: mock.invoice.amount });
+
+      // assert
+      expect(lightning.getSwapStatus).toBeInstanceOf(Function);
+      const status = await lightning.getSwapStatus(pendingSwap.response.id);
+      expect(status.status).toBe('swap.created');
+    });
+
     it('should pass description to swap provider when creating reverse swap', async () => {
       // arrange
       const testDescription = 'Test reverse swap description';
-      const createReverseSwapSpy = vi.spyOn(swapProvider, 'createReverseSwap').mockResolvedValueOnce(createReverseSwapResponse);
+      const createReverseSwapSpy = vi
+        .spyOn(swapProvider, 'createReverseSwap')
+        .mockResolvedValueOnce(createReverseSwapResponse);
 
       // act
-      await lightning.createReverseSwap({ 
-        amount: mock.invoice.amount, 
-        description: testDescription 
+      await lightning.createReverseSwap({
+        amount: mock.invoice.amount,
+        description: testDescription,
       });
 
       // assert
@@ -479,7 +510,7 @@ describe('ArkadeLightning', () => {
         invoiceAmount: mock.invoice.amount,
         claimPublicKey: expect.any(String),
         preimageHash: expect.any(String),
-        description: testDescription
+        description: testDescription,
       });
     });
   });
@@ -496,6 +527,20 @@ describe('ArkadeLightning', () => {
       expect(pendingSwap.status).toEqual('invoice.set');
       expect(pendingSwap.request).toEqual(createSubmarineSwapRequest);
       expect(pendingSwap.response).toEqual(createSubmarineSwapResponse);
+    });
+
+    it('should get correct swap status', async () => {
+      // arrange
+      vi.spyOn(swapProvider, 'createSubmarineSwap').mockResolvedValueOnce(createSubmarineSwapResponse);
+      vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValueOnce({ status: 'swap.created' });
+
+      // act
+      const pendingSwap = await lightning.createSubmarineSwap({ invoice: mock.invoice.address });
+
+      // assert
+      expect(lightning.getSwapStatus).toBeInstanceOf(Function);
+      const status = await lightning.getSwapStatus(pendingSwap.response.id);
+      expect(status.status).toBe('swap.created');
     });
   });
 
@@ -566,34 +611,6 @@ describe('ArkadeLightning', () => {
   // - Custom refund handler
 
   describe('waitAndClaim', () => {
-    it('should demonstrate current behavior with empty txid is now fixed', async () => {
-      // This test shows the fix: waitAndClaim now throws an error instead of returning empty txid
-      // arrange
-      const pendingSwap: PendingReverseSwap = {
-        type: 'reverse',
-        createdAt: Date.now(),
-        preimage: mock.preimage,
-        request: createReverseSwapRequest,
-        response: createReverseSwapResponse,
-        status: 'swap.created',
-      };
-
-      // Mock getSwapStatus to return a status without transaction (the problematic case)
-      vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValue({
-        status: 'invoice.settled',
-        // transaction is undefined - this now causes an error instead of empty txid
-      });
-
-      // Mock monitorSwap to directly trigger the invoice.settled case
-      vi.spyOn(swapProvider, 'monitorSwap').mockImplementation(async (swapId, update) => {
-        // Simulate the invoice.settled event
-        setTimeout(() => update('invoice.settled'), 10);
-      });
-
-      // act & assert - this should now throw an error instead of returning empty txid
-      await expect(lightning.waitAndClaim(pendingSwap)).rejects.toThrow('Transaction ID not available for settled swap');
-    });
-
     it('should return valid txid when transaction is available', async () => {
       // arrange
       const pendingSwap: PendingReverseSwap = {
@@ -608,10 +625,12 @@ describe('ArkadeLightning', () => {
       // Mock getSwapStatus to return a status with valid transaction
       vi.spyOn(swapProvider, 'getSwapStatus').mockResolvedValue({
         status: 'invoice.settled',
-        transaction: {
-          id: mock.txid,
-          hex: mock.hex,
-        },
+      });
+
+      // Mock getReverseSwapTxId to return an object with valid transaction id
+      vi.spyOn(swapProvider, 'getReverseSwapTxId').mockResolvedValue({
+        id: mock.txid,
+        timeoutBlockHeight: 123,
       });
 
       // Mock monitorSwap to directly trigger the invoice.settled case
@@ -647,13 +666,21 @@ describe('ArkadeLightning', () => {
         },
       });
 
+      // Mock getReverseSwapTxId to return a undefined id (the problematic case)
+      vi.spyOn(swapProvider, 'getReverseSwapTxId').mockResolvedValue({
+        id: '',
+        timeoutBlockHeight: 123,
+      });
+
       // Mock monitorSwap to directly trigger the invoice.settled case
       vi.spyOn(swapProvider, 'monitorSwap').mockImplementation(async (swapId, update) => {
         setTimeout(() => update('invoice.settled'), 10);
       });
 
       // act & assert
-      await expect(lightning.waitAndClaim(pendingSwap)).rejects.toThrow('Transaction ID not available for settled swap');
+      await expect(lightning.waitAndClaim(pendingSwap)).rejects.toThrow(
+        'Transaction ID not available for settled swap'
+      );
     });
   });
 });

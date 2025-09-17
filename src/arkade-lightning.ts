@@ -40,6 +40,7 @@ import {
   CreateSubmarineSwapRequest,
   CreateReverseSwapRequest,
   BoltzSwapStatus,
+  GetSwapStatusResponse,
 } from './boltz-swap-provider';
 import { StorageProvider } from './storage-provider';
 import { Transaction } from '@scure/btc-signer';
@@ -107,6 +108,11 @@ export class ArkadeLightning {
   // 3. claim the VHTLC by creating a virtual transaction that spends the VHTLC output
   // 4. return the preimage and the swap info
 
+  /**
+   * Creates a Lightning invoice.
+   * @param args - The arguments for creating a Lightning invoice.
+   * @returns The response containing the created Lightning invoice.
+   */
   async createLightningInvoice(args: CreateLightningInvoiceRequest): Promise<CreateLightningInvoiceResponse> {
     return new Promise((resolve, reject) => {
       this.createReverseSwap(args)
@@ -163,7 +169,7 @@ export class ArkadeLightning {
                     .catch(reject)
                     .finally(async () => {
                       if (this.storageProvider) {
-                        const finalStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
+                        const finalStatus = await this.getSwapStatus(pendingSwap.response.id);
                         this.storageProvider.savePendingSubmarineSwap({ ...pendingSwap, status: finalStatus.status });
                       }
                     });
@@ -177,7 +183,11 @@ export class ArkadeLightning {
     });
   }
 
-  // create submarine swap
+  /**
+   * Creates a submarine swap.
+   * @param args - The arguments for creating a submarine swap.
+   * @returns The created pending submarine swap.
+   */
   async createSubmarineSwap(args: SendLightningPaymentRequest): Promise<PendingSubmarineSwap> {
     const refundPublicKey = hex.encode(await getXOnlyPublicKey(this.wallet));
     if (!refundPublicKey) throw new SwapError({ message: 'Failed to get refund public key from wallet' });
@@ -208,7 +218,11 @@ export class ArkadeLightning {
     return pendingSwap;
   }
 
-  // create reverse submarine swap
+  /**
+   * Creates a reverse swap.
+   * @param args - The arguments for creating a reverse swap.
+   * @returns The created pending reverse swap.
+   */
   async createReverseSwap(args: CreateLightningInvoiceRequest): Promise<PendingReverseSwap> {
     // validate amount
     if (args.amount <= 0) throw new SwapError({ message: 'Amount must be greater than 0' });
@@ -247,8 +261,11 @@ export class ArkadeLightning {
     return pendingSwap;
   }
 
-  // claim the VHTLC by creating a virtual transaction that spends the VHTLC output
-  async claimVHTLC(pendingSwap: PendingReverseSwap) {
+  /**
+   * Claims the VHTLC for a pending reverse swap.
+   * @param pendingSwap - The pending reverse swap to claim the VHTLC.
+   */
+  async claimVHTLC(pendingSwap: PendingReverseSwap): Promise<void> {
     const preimage = hex.decode(pendingSwap.preimage);
     const aspInfo = await this.arkProvider.getInfo();
     const address = await this.wallet.getAddress();
@@ -362,11 +379,15 @@ export class ArkadeLightning {
 
     // update the pending swap on storage if available
     if (this.storageProvider) {
-      const finalStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
+      const finalStatus = await this.getSwapStatus(pendingSwap.response.id);
       this.storageProvider.savePendingReverseSwap({ ...pendingSwap, status: finalStatus.status });
     }
   }
 
+  /**
+   * Claims the VHTLC for a pending submarine swap (aka refund).
+   * @param pendingSwap - The pending submarine swap to refund the VHTLC.
+   */
   async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
     // prepare variables for claiming the VHTLC
     const aspInfo = await this.arkProvider.getInfo();
@@ -475,11 +496,16 @@ export class ArkadeLightning {
 
     // update the pending swap on storage if available
     if (this.storageProvider) {
-      const finalStatus = await this.swapProvider.getSwapStatus(pendingSwap.response.id);
+      const finalStatus = await this.getSwapStatus(pendingSwap.response.id);
       this.storageProvider.savePendingSubmarineSwap({ ...pendingSwap, status: finalStatus.status });
     }
   }
 
+  /**
+   * Waits for the swap to be confirmed and claims the VHTLC.
+   * @param pendingSwap - The pending reverse swap.
+   * @returns The transaction ID of the claimed VHTLC.
+   */
   async waitAndClaim(pendingSwap: PendingReverseSwap): Promise<{ txid: string }> {
     return new Promise<{ txid: string }>((resolve, reject) => {
       // https://api.docs.boltz.exchange/lifecycle.html#swap-states
@@ -697,6 +723,7 @@ export class ArkadeLightning {
 
   /**
    * Retrieves fees for swaps (in sats and percentage).
+   * @returns The fees for swaps.
    */
   async getFees(): Promise<FeesResponse> {
     return this.swapProvider.getFees();
@@ -704,9 +731,19 @@ export class ArkadeLightning {
 
   /**
    * Retrieves max and min limits for swaps (in sats).
+   * @returns The limits for swaps.
    */
   async getLimits(): Promise<LimitsResponse> {
     return this.swapProvider.getLimits();
+  }
+
+  /**
+   * Retrieves swap status by ID.
+   * @param swapId - The ID of the swap.
+   * @returns The status of the swap.
+   */
+  async getSwapStatus(swapId: string): Promise<GetSwapStatusResponse> {
+    return this.swapProvider.getSwapStatus(swapId);
   }
 
   /**

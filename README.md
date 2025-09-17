@@ -177,6 +177,13 @@ const calcReverseSwapFee = (satoshis: number): number => {
 };
 ```
 
+## Checking swap status
+
+```typescript
+const response = await arkadeLightning.getSwapStatus('swap_id');
+console.log('swap status = ', response.status);
+```
+
 ## Storage
 
 By default this library doesn't store pending swaps.
