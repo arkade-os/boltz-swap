@@ -161,7 +161,7 @@ This is useful to validate the user is willing to pay the fees.
 
 ```typescript
 // Get current swap fees
-const fees: FeeResponse | null = await arkadeLightning.getFees();
+const fees: FeesResponse | null = await arkadeLightning.getFees();
 if (!fees) throw new Error('something went wrong');
 
 const calcSubmarineSwapFee = (satoshis: number): number => {
