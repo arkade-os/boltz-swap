@@ -16,8 +16,8 @@ import {
   CSVMultisigTapscript,
   setArkPsbtField,
   TapLeafScript,
+  Wallet,
   VHTLC,
-  Identity,
 } from '@arkade-os/sdk';
 import { sha256 } from '@noble/hashes/sha2';
 import { base64, hex } from '@scure/base';
@@ -29,11 +29,9 @@ import type {
   PendingReverseSwap,
   PendingSubmarineSwap,
   CreateLightningInvoiceRequest,
-  Wallet,
   LimitsResponse,
   FeesResponse,
 } from './types';
-import { isWalletWithNestedIdentity } from './types';
 import { randomBytes } from '@noble/hashes/utils';
 import {
   BoltzSwapProvider,
@@ -48,20 +46,12 @@ import { TransactionInput } from '@scure/btc-signer/psbt';
 import { ripemd160 } from '@noble/hashes/legacy';
 import { decodeInvoice, getInvoicePaymentHash } from './utils/decoding';
 
-// Utility functions to handle both wallet types
-function getIdentity(wallet: Wallet): Identity {
-  // Use type guard to check if wallet has nested identity
-  if (isWalletWithNestedIdentity(wallet)) return wallet.identity;
-  throw new Error('Wallet does not have a valid identity.');
-}
-
 async function getXOnlyPublicKey(wallet: Wallet): Promise<Uint8Array> {
-  return getIdentity(wallet).xOnlyPublicKey();
+  return wallet.identity.xOnlyPublicKey();
 }
 
 function getSignerSession(wallet: Wallet): any {
-  const identity = getIdentity(wallet);
-  const signerSession = identity?.signerSession;
+  const signerSession = wallet.identity.signerSession;
 
   // If signerSession is a function (factory), call it to get the actual session
   if (typeof signerSession === 'function') {
@@ -73,7 +63,7 @@ function getSignerSession(wallet: Wallet): any {
 }
 
 async function signTransaction(wallet: Wallet, tx: Transaction, inputIndexes?: number[]): Promise<Transaction> {
-  return getIdentity(wallet).sign(tx, inputIndexes);
+  return wallet.identity.sign(tx, inputIndexes);
 }
 
 export class ArkadeLightning {

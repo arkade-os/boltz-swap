@@ -28,6 +28,5 @@ export type {
   RetryConfig,
   FeeConfig,
   Network,
-  Wallet,
   Vtxo,
 } from './types';

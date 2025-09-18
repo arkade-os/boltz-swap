@@ -1,4 +1,4 @@
-import { Identity, IWallet, ArkProvider, IndexerProvider } from '@arkade-os/sdk';
+import { ArkProvider, IndexerProvider, Wallet } from '@arkade-os/sdk';
 import { StorageProvider } from './storage-provider';
 import {
   CreateReverseSwapResponse,
@@ -21,23 +21,6 @@ export interface Vtxo {
     locktime: number;
   };
 }
-
-// Support both wallet interfaces:
-// 1. Wallet with optional nested identity and providers
-// 2. ServiceWorkerWallet with identity methods spread directly (legacy)
-export type WalletWithNestedIdentity = IWallet & {
-  arkProvider?: ArkProvider;
-  indexerProvider?: IndexerProvider;
-  identity: Identity;
-};
-
-export type ServiceWorkerWallet = IWallet & Identity;
-
-export type Wallet = WalletWithNestedIdentity | ServiceWorkerWallet;
-
-// Type guards for better ergonomics and type narrowing
-export const isWalletWithNestedIdentity = (w: Wallet): w is WalletWithNestedIdentity =>
-  !!(w as any).identity && typeof (w as any).identity?.xOnlyPublicKey === 'function';
 
 export type Network = 'bitcoin' | 'mutinynet' | 'regtest' | 'testnet';
 
