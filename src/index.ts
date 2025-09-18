@@ -1,5 +1,4 @@
 export { ArkadeLightning } from './arkade-lightning';
-export { StorageProvider } from './storage-provider';
 export { BoltzSwapProvider, BoltzSwapStatus } from './boltz-swap-provider';
 export {
   SwapError,

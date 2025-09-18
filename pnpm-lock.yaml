@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@arkade-os/sdk':
-        specifier: 0.3.0-alpha.0
+        specifier: ^0.3.0-alpha.0
         version: 0.3.0-alpha.0
       '@noble/hashes':
         specifier: 1.8.0
