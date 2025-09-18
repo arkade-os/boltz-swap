@@ -1,4 +1,9 @@
-import { ArkProvider, IndexerProvider, Wallet } from "@arkade-os/sdk";
+import {
+    ArkProvider,
+    IndexerProvider,
+    ServiceWorkerWallet,
+    Wallet,
+} from "@arkade-os/sdk";
 import {
     CreateReverseSwapResponse,
     CreateSubmarineSwapResponse,
@@ -69,7 +74,7 @@ export interface RefundHandler {
 }
 
 export interface ArkadeLightningConfig {
-    wallet: Wallet;
+    wallet: Wallet | ServiceWorkerWallet;
     arkProvider?: ArkProvider;
     swapProvider: BoltzSwapProvider;
     indexerProvider?: IndexerProvider;

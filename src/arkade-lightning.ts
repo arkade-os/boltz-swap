@@ -18,6 +18,7 @@ import {
     TapLeafScript,
     Wallet,
     VHTLC,
+    ServiceWorkerWallet,
 } from "@arkade-os/sdk";
 import { sha256 } from "@noble/hashes/sha2";
 import { base64, hex } from "@scure/base";
@@ -45,11 +46,13 @@ import { TransactionInput } from "@scure/btc-signer/psbt.js";
 import { ripemd160 } from "@noble/hashes/legacy";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
 
-async function getXOnlyPublicKey(wallet: Wallet): Promise<Uint8Array> {
+async function getXOnlyPublicKey(
+    wallet: Wallet | ServiceWorkerWallet
+): Promise<Uint8Array> {
     return wallet.identity.xOnlyPublicKey();
 }
 
-function getSignerSession(wallet: Wallet): any {
+function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
 
     // If signerSession is a function (factory), call it to get the actual session
@@ -62,7 +65,7 @@ function getSignerSession(wallet: Wallet): any {
 }
 
 async function signTransaction(
-    wallet: Wallet,
+    wallet: Wallet | ServiceWorkerWallet,
     tx: Transaction,
     inputIndexes?: number[]
 ): Promise<Transaction> {
@@ -70,7 +73,7 @@ async function signTransaction(
 }
 
 export class ArkadeLightning {
-    private readonly wallet: Wallet;
+    private readonly wallet: Wallet | ServiceWorkerWallet;
     private readonly arkProvider: ArkProvider;
     private readonly swapProvider: BoltzSwapProvider;
     private readonly indexerProvider: IndexerProvider;
