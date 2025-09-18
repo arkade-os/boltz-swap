@@ -24,10 +24,10 @@ npm install @arkade-os/sdk @arkade-os/boltz-swap
 ### Initializing the Lightning Swap Provider
 
 ```typescript
-import { Wallet } from '@arkade-os/sdk';
+import { Wallet, SingleKey } from '@arkade-os/sdk';
 import { ArkadeLightning, BoltzSwapProvider, StorageProvider } from '@arkade-os/boltz-swap';
 
-// Create a identity
+// Create an identity
 const identity = SingleKey.fromHex('your_private_key_in_hex');
 
 // Initialize your Arkade wallet
