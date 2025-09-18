@@ -1,4 +1,3 @@
-
 # scure-btc-signer
 
 Audited & minimal library for creating, signing & decoding Bitcoin transactions.
@@ -52,37 +51,46 @@ For React Native, you may need a [polyfill for crypto.getRandomValues](https://g
 import * as btc from '@scure/btc-signer';
 ```
 
-- [Payments](#payments)
-  - [P2PK Pay To Public Key](#p2pk-pay-to-public-key)
-  - [P2PKH Public Key Hash](#p2pkh-public-key-hash)
-  - [P2WPKH Witness Public Key Hash](#p2wpkh-witness-public-key-hash)
-  - [P2SH Script Hash](#p2sh-script-hash)
-  - [P2WSH Witness Script Hash](#p2wsh-witness-script-hash)
-  - [P2SH-P2WSH](#p2sh-p2wsh)
-  - [P2MS classic multisig](#p2ms-classic-multisig)
-  - [P2TR Taproot](#p2tr-taproot)
-  - [P2TR-NS Taproot multisig](#p2tr-ns-taproot-multisig)
-  - [P2TR-MS Taproot M-of-N multisig](#p2tr-ms-taproot-m-of-n-multisig)
-  - [P2TR-PK Taproot single P2PK script](#p2tr-pk-taproot-single-p2pk-script)
-  - [P2A Pay To Anchor](#p2a-pay-to-anchor)
-- [Transaction](#transaction)
-  - [Encode/decode](#encodedecode)
-  - [Inputs](#inputs)
-  - [Outputs](#outputs)
-  - [Basic transaction sign](#basic-transaction-sign)
-  - [BIP174 PSBT multi-sig example](#bip174-psbt-multi-sig-example)
-- [UTXO selection](#utxo-selection)
-- [MuSig2](#musig2)
-- [P2P, ElligatorSwift, BIP324](#p2p-elligatorswift-bip324)
-- [Ordinals and custom scripts](#ordinals-and-custom-scripts)
-- [Utils](#utils)
-  - [getAddress](#getaddress)
-    - [WIF](#wif)
-  - [Script](#script)
-  - [OutScript](#outscript)
-- [Bitcoin is flawed](#bitcoin-is-flawed)
-- [Security](#security)
-- [License](#license)
+- [scure-btc-signer](#scure-btc-signer)
+    - [This library belongs to _scure_](#this-library-belongs-to-scure)
+  - [Usage](#usage)
+  - [Payments](#payments)
+    - [P2PK (Pay To Public Key)](#p2pk-pay-to-public-key)
+    - [P2PKH (Public Key Hash)](#p2pkh-public-key-hash)
+    - [P2WPKH (Witness Public Key Hash)](#p2wpkh-witness-public-key-hash)
+    - [P2SH (Script Hash)](#p2sh-script-hash)
+    - [P2WSH (Witness Script Hash)](#p2wsh-witness-script-hash)
+    - [P2SH-P2WSH](#p2sh-p2wsh)
+    - [P2MS (classic multisig)](#p2ms-classic-multisig)
+    - [P2TR (Taproot)](#p2tr-taproot)
+    - [P2TR-NS (Taproot multisig)](#p2tr-ns-taproot-multisig)
+    - [P2TR-MS (Taproot M-of-N multisig)](#p2tr-ms-taproot-m-of-n-multisig)
+    - [P2TR-PK (Taproot single P2PK script)](#p2tr-pk-taproot-single-p2pk-script)
+    - [P2A (Pay to Anchor)](#p2a-pay-to-anchor)
+  - [Transaction](#transaction)
+    - [Encode/decode](#encodedecode)
+    - [Inputs](#inputs)
+    - [Outputs](#outputs)
+    - [Basic transaction sign](#basic-transaction-sign)
+    - [BIP174 PSBT multi-sig example](#bip174-psbt-multi-sig-example)
+    - [UTXO selection](#utxo-selection)
+      - [Strategies](#strategies)
+      - [Example](#example)
+  - [MuSig2](#musig2)
+  - [Ordinals and custom scripts](#ordinals-and-custom-scripts)
+  - [P2P, ElligatorSwift, BIP324](#p2p-elligatorswift-bip324)
+  - [Utils](#utils)
+    - [secp256k1 keys](#secp256k1-keys)
+    - [getAddress](#getaddress)
+      - [WIF](#wif)
+    - [Script](#script)
+    - [OutScript](#outscript)
+  - [Bitcoin is flawed](#bitcoin-is-flawed)
+  - [Security](#security)
+    - [Supply chain security](#supply-chain-security)
+  - [Contributing \& testing](#contributing--testing)
+  - [Learning \& documentation](#learning--documentation)
+  - [License](#license)
 
 ## Payments
 
@@ -309,25 +317,19 @@ const PubKey3 = hex.decode('1212121212121212121212121212121212121212121212121212
 // Nested P2TR, owner of private key for any of PubKeys can spend whole
 // By default P2TR expects binary tree, but btc.p2tr can build it if list of scripts passed.
 // Also, you can include {weight: N} to scripts to create differently balanced tree.
-deepStrictEqual(
-  clean(btc.p2tr(undefined, [btc.p2tr_pk(PubKey), btc.p2tr_pk(PubKey2), btc.p2tr_pk(PubKey3)])),
-  {
-    type: 'tr',
-    // weights for bitcoinjs-lib: [3,2,1]
-    address: 'bc1pj2uvajyygyu2zw0rg0d6yxdsc920kzc5pamfgtlqepe30za922cqjjmkta',
-    script: '512092b8cec8844138a139e343dba219b0c154fb0b140f76942fe0c873178ba552b0',
-  }
-);
+deepStrictEqual(clean(btc.p2tr(undefined, [btc.p2tr_pk(PubKey), btc.p2tr_pk(PubKey2), btc.p2tr_pk(PubKey3)])), {
+  type: 'tr',
+  // weights for bitcoinjs-lib: [3,2,1]
+  address: 'bc1pj2uvajyygyu2zw0rg0d6yxdsc920kzc5pamfgtlqepe30za922cqjjmkta',
+  script: '512092b8cec8844138a139e343dba219b0c154fb0b140f76942fe0c873178ba552b0',
+});
 // If scriptsTree is already binary tree, it will be used as-is
-deepStrictEqual(
-  clean(btc.p2tr(undefined, [btc.p2tr_pk(PubKey2), [btc.p2tr_pk(PubKey), btc.p2tr_pk(PubKey3)]])),
-  {
-    type: 'tr',
-    // default weights for bitcoinjs-lib
-    address: 'bc1pvue6sk9efyvcvpzzqkg8at4qy2u67zj7rj5sfsy573m7alxavqjqucc26a',
-    script: '51206733a858b9491986044205907eaea022b9af0a5e1ca904c094f477eefcdd6024',
-  }
-);
+deepStrictEqual(clean(btc.p2tr(undefined, [btc.p2tr_pk(PubKey2), [btc.p2tr_pk(PubKey), btc.p2tr_pk(PubKey3)]])), {
+  type: 'tr',
+  // default weights for bitcoinjs-lib
+  address: 'bc1pvue6sk9efyvcvpzzqkg8at4qy2u67zj7rj5sfsy573m7alxavqjqucc26a',
+  script: '51206733a858b9491986044205907eaea022b9af0a5e1ca904c094f477eefcdd6024',
+});
 ```
 
 ### P2TR-NS (Taproot multisig)
@@ -957,7 +959,7 @@ const finalSignature = session.partialSigAgg(partialSignatures); // Aggregate pa
 
 // 7. Signature Verification (Anyone can verify the final signature)
 // Verify the final signature
-import { schnorr } from '@noble/curves/secp256k1';
+import { schnorr } from '@noble/curves/secp256k1.js';
 schnorr.verify(finalSignature, msg, aggregatePublicKey);
 ```
 
@@ -990,18 +992,8 @@ const sharedAlice = elligatorSwift.getSharedSecret(alice.privateKey, bob.publicK
 const sharedBob = elligatorSwift.getSharedSecret(bob.privateKey, alice.publicKey);
 // deepStrictEqual(sharedAlice, sharedBob);
 // ECDH BIP324
-const sharedAlice2 = elligatorSwift.getSharedSecretBip324(
-  alice.privateKey,
-  bob.publicKey,
-  alice.publicKey,
-  true
-);
-const sharedBob2 = elligatorSwift.getSharedSecretBip324(
-  bob.privateKey,
-  alice.publicKey,
-  bob.publicKey,
-  false
-);
+const sharedAlice2 = elligatorSwift.getSharedSecretBip324(alice.privateKey, bob.publicKey, alice.publicKey, true);
+const sharedBob2 = elligatorSwift.getSharedSecretBip324(bob.privateKey, alice.publicKey, bob.publicKey, false);
 // deepStrictEqual(sharedAlice2, sharedBob2);
 // pubKey decoding
 for (const k of [alice, bob]) {
@@ -1033,10 +1025,7 @@ Returns common addresses from privateKey
 const privKey = hex.decode('0101010101010101010101010101010101010101010101010101010101010101');
 deepStrictEqual(btc.getAddress('pkh', privKey), '1C6Rc3w25VHud3dLDamutaqfKWqhrLRTaD'); // P2PKH (legacy address)
 deepStrictEqual(btc.getAddress('wpkh', privKey), 'bc1q0xcqpzrky6eff2g52qdye53xkk9jxkvrh6yhyw'); // SegWit V0 address
-deepStrictEqual(
-  btc.getAddress('tr', priv),
-  'bc1p33wm0auhr9kkahzd6l0kqj85af4cswn276hsxg6zpz85xe2r0y8syx4e5t'
-); // TapRoot KeyPathSpend
+deepStrictEqual(btc.getAddress('tr', priv), 'bc1p33wm0auhr9kkahzd6l0kqj85af4cswn276hsxg6zpz85xe2r0y8syx4e5t'); // TapRoot KeyPathSpend
 ```
 
 #### WIF
