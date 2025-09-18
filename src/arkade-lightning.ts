@@ -392,7 +392,7 @@ export class ArkadeLightning {
     // prepare variables for claiming the VHTLC
     const aspInfo = await this.arkProvider.getInfo();
     const address = await this.wallet.getAddress();
-    if (!address) throw new Error('Failed to get ark address from service worker wallet');
+    if (!address) throw new Error('Failed to get ark address from wallet');
 
     // validate we are using a x-only receiver public key
     let receiverXOnlyPublicKey = await getXOnlyPublicKey(this.wallet);
