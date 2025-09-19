@@ -1,69 +1,69 @@
 {
-  "name": "@arkade-os/boltz-swap",
-  "version": "0.2.0-alpha.1",
-  "type": "module",
-  "description": "A production-ready TypeScript package that brings Boltz submarine-swaps to Arkade.",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.cjs"
-      }
-    }
-  },
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
-    "test": "vitest run",
-    "format": "prettier --write src tests",
-    "lint": "prettier --check src tests",
-    "release": "bash scripts/release.sh",
-    "release:dry-run": "bash scripts/release.sh --dry-run",
-    "release:cleanup": "bash scripts/release.sh --cleanup"
-  },
-  "keywords": [
-    "arkade",
-    "boltz",
-    "swap",
-    "lightning",
-    "bitcoin"
-  ],
-  "author": "Arkade-OS",
-  "license": "MIT",
-  "dependencies": {
-    "@arkade-os/sdk": "0.3.0-alpha.1",
-    "@noble/hashes": "2.0.0",
-    "@scure/base": "2.0.0",
-    "@scure/btc-signer": "2.0.1",
-    "light-bolt11-decoder": "3.2.0"
-  },
-  "devDependencies": {
-    "@eslint/js": "^9.35.0",
-    "@noble/curves": "^1.9.7",
-    "@types/node": "^24.3.1",
-    "@types/ws": "^8.18.1",
-    "@typescript-eslint/eslint-plugin": "^8.43.0",
-    "@typescript-eslint/parser": "^8.43.0",
-    "eslint": "^9.35.0",
-    "prettier": "3.6.2",
-    "tsup": "^8.5.0",
-    "typescript": "^5.9.2",
-    "vite": "^7.1.5",
-    "vitest": "^3.2.4"
-  },
-  "engines": {
-    "node": ">=22"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "packageManager": "pnpm@10.7.0+sha512.6b865ad4b62a1d9842b61d674a393903b871d9244954f652b8842c2b553c72176b278f64c463e52d40fff8aba385c235c8c9ecf5cc7de4fd78b8bb6d49633ab6"
+    "name": "@arkade-os/boltz-swap",
+    "version": "0.2.0-alpha.2",
+    "type": "module",
+    "description": "A production-ready TypeScript package that brings Boltz submarine-swaps to Arkade.",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": {
+                "types": "./dist/index.d.ts",
+                "default": "./dist/index.js"
+            },
+            "require": {
+                "types": "./dist/index.d.ts",
+                "default": "./dist/index.cjs"
+            }
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+        "test": "vitest run",
+        "format": "prettier --write src tests",
+        "lint": "prettier --check src tests",
+        "release": "bash scripts/release.sh",
+        "release:dry-run": "bash scripts/release.sh --dry-run",
+        "release:cleanup": "bash scripts/release.sh --cleanup"
+    },
+    "keywords": [
+        "arkade",
+        "boltz",
+        "swap",
+        "lightning",
+        "bitcoin"
+    ],
+    "author": "Arkade-OS",
+    "license": "MIT",
+    "dependencies": {
+        "@arkade-os/sdk": "0.3.0-alpha.2",
+        "@noble/hashes": "2.0.0",
+        "@scure/base": "2.0.0",
+        "@scure/btc-signer": "2.0.1",
+        "light-bolt11-decoder": "3.2.0"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.35.0",
+        "@noble/curves": "^1.9.7",
+        "@types/node": "^24.3.1",
+        "@types/ws": "^8.18.1",
+        "@typescript-eslint/eslint-plugin": "^8.43.0",
+        "@typescript-eslint/parser": "^8.43.0",
+        "eslint": "^9.35.0",
+        "prettier": "3.6.2",
+        "tsup": "^8.5.0",
+        "typescript": "^5.9.2",
+        "vite": "^7.1.5",
+        "vitest": "^3.2.4"
+    },
+    "engines": {
+        "node": ">=22"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "packageManager": "pnpm@10.7.0+sha512.6b865ad4b62a1d9842b61d674a393903b871d9244954f652b8842c2b553c72176b278f64c463e52d40fff8aba385c235c8c9ecf5cc7de4fd78b8bb6d49633ab6"
 }
