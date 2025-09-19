@@ -20,7 +20,7 @@ import {
     VHTLC,
     ServiceWorkerWallet,
 } from "@arkade-os/sdk";
-import { sha256 } from "@noble/hashes/sha2";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { base64, hex } from "@scure/base";
 import type {
     ArkadeLightningConfig,
@@ -33,20 +33,20 @@ import type {
     LimitsResponse,
     FeesResponse,
 } from "./types";
-import { randomBytes } from "@noble/hashes/utils";
+import { randomBytes } from "@noble/hashes/utils.js";
 import {
-  BoltzSwapProvider,
-  CreateSubmarineSwapRequest,
-  CreateReverseSwapRequest,
-  BoltzSwapStatus,
-  GetSwapStatusResponse,
-  isSubmarineFinalStatus,
-  isReverseFinalStatus,
-} from './boltz-swap-provider';
-import { Transaction } from '@scure/btc-signer';
-import { TransactionInput } from '@scure/btc-signer/psbt';
-import { ripemd160 } from '@noble/hashes/legacy';
-import { decodeInvoice, getInvoicePaymentHash } from './utils/decoding';
+    BoltzSwapProvider,
+    CreateSubmarineSwapRequest,
+    CreateReverseSwapRequest,
+    BoltzSwapStatus,
+    GetSwapStatusResponse,
+    isSubmarineFinalStatus,
+    isReverseFinalStatus,
+} from "./boltz-swap-provider";
+import { Transaction } from "@scure/btc-signer";
+import { TransactionInput } from "@scure/btc-signer/psbt";
+import { ripemd160 } from "@noble/hashes/legacy.js";
+import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
 
 async function getXOnlyPublicKey(
     wallet: Wallet | ServiceWorkerWallet
@@ -997,37 +997,43 @@ export class ArkadeLightning {
     }
 
     /**
-   * Refreshes the status of all pending swaps in the storage provider.
-   * This method iterates through all pending reverse and submarine swaps,
-   * checks their current status using the swap provider, and updates the storage provider accordingly.
-   * It skips swaps that are already in a final status to avoid unnecessary API calls.
-   * If no storage provider is set, the method exits early.
-   * Errors during status refresh are logged to the console but do not interrupt the process.
-   * @returns void
-   * Important: a submarine swap with status payment.failedToPay is considered final and won't be refreshed.
-   * User should manually retry or delete it if refund fails.
-   */
-  async refreshAllSwapStatus() {
-    // refresh status of all pending reverse swaps
-    for (const swap of await this.getPendingReverseSwapsFromStorage()) {
-      if (isReverseFinalStatus(swap.status)) continue;
-      this.getSwapStatus(swap.response.id)
-        .then(({ status }) => {
-          this.savePendingReverseSwap({ ...swap, status });
-        })
-        .catch((error) => {
-          console.error(`Failed to refresh swap status for ${swap.response.id}:`, error);
-        });
+     * Refreshes the status of all pending swaps in the storage provider.
+     * This method iterates through all pending reverse and submarine swaps,
+     * checks their current status using the swap provider, and updates the storage provider accordingly.
+     * It skips swaps that are already in a final status to avoid unnecessary API calls.
+     * If no storage provider is set, the method exits early.
+     * Errors during status refresh are logged to the console but do not interrupt the process.
+     * @returns void
+     * Important: a submarine swap with status payment.failedToPay is considered final and won't be refreshed.
+     * User should manually retry or delete it if refund fails.
+     */
+    async refreshAllSwapStatus() {
+        // refresh status of all pending reverse swaps
+        for (const swap of await this.getPendingReverseSwapsFromStorage()) {
+            if (isReverseFinalStatus(swap.status)) continue;
+            this.getSwapStatus(swap.response.id)
+                .then(({ status }) => {
+                    this.savePendingReverseSwap({ ...swap, status });
+                })
+                .catch((error) => {
+                    console.error(
+                        `Failed to refresh swap status for ${swap.response.id}:`,
+                        error
+                    );
+                });
+        }
+        for (const swap of await this.getPendingSubmarineSwapsFromStorage()) {
+            if (isSubmarineFinalStatus(swap.status)) continue;
+            this.getSwapStatus(swap.response.id)
+                .then(({ status }) => {
+                    this.savePendingSubmarineSwap({ ...swap, status });
+                })
+                .catch((error) => {
+                    console.error(
+                        `Failed to refresh swap status for ${swap.response.id}:`,
+                        error
+                    );
+                });
+        }
     }
-    for (const swap of await this.getPendingSubmarineSwapsFromStorage()) {
-      if (isSubmarineFinalStatus(swap.status)) continue;
-      this.getSwapStatus(swap.response.id)
-        .then(({ status }) => {
-          this.savePendingSubmarineSwap({ ...swap, status });
-        })
-        .catch((error) => {
-          console.error(`Failed to refresh swap status for ${swap.response.id}:`, error);
-        });
-    }
-  }
 }
