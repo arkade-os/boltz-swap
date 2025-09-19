@@ -625,6 +625,11 @@ export class ArkadeLightning {
             const onStatusUpdate = async (status: BoltzSwapStatus) => {
                 switch (status) {
                     case "transaction.mempool":
+                        await this.savePendingReverseSwap({
+                            ...pendingSwap,
+                            status,
+                        });
+                        break;
                     case "transaction.confirmed":
                         await this.savePendingReverseSwap({
                             ...pendingSwap,
