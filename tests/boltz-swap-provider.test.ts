@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { BoltzSwapProvider } from "../src/boltz-swap-provider";
 import { SchemaError } from "../src/errors";
+import { hex } from "@scure/base";
 
 // Scaffolding test file for BoltzSwapProvider
 // This file will be updated when implementing features from README.md
@@ -20,8 +21,20 @@ function createFetchResponse(mockData) {
     });
 }
 
+function generateRandomUint8Array(size = 33): Uint8Array {
+    const array = new Uint8Array(size);
+    crypto.getRandomValues(array);
+    return array;
+}
+
+function generateRandomHex(size = 33): string {
+    return hex.encode(generateRandomUint8Array(size));
+}
+
 describe("BoltzSwapProvider", () => {
     let provider: BoltzSwapProvider;
+    const mockRefundPublicKey = generateRandomHex();
+    const mockClaimPublicKey = generateRandomHex();
     const invoice =
         "lntb30m1pw2f2yspp5s59w4a0kjecw3zyexm7zur8l8n4scw674w" +
         "8sftjhwec33km882gsdpa2pshjmt9de6zqun9w96k2um5ypmkjar" +
@@ -237,7 +250,7 @@ describe("BoltzSwapProvider", () => {
                 id: "mock-id",
                 address: "mock-address",
                 expectedAmount: 21000,
-                claimPublicKey: "mock-claimPublicKey",
+                claimPublicKey: mockClaimPublicKey,
                 acceptZeroConf: true,
                 timeoutBlockHeights: {
                     refund: 17,
@@ -253,7 +266,7 @@ describe("BoltzSwapProvider", () => {
             // act
             const response = await provider.createSubmarineSwap({
                 invoice,
-                refundPublicKey: "mock-refundPublicKey",
+                refundPublicKey: mockRefundPublicKey,
             });
             // assert
             expect(fetch).toHaveBeenCalledWith(
@@ -265,7 +278,7 @@ describe("BoltzSwapProvider", () => {
                         from: "ARK",
                         to: "BTC",
                         invoice,
-                        refundPublicKey: "mock-refundPublicKey",
+                        refundPublicKey: mockRefundPublicKey,
                     }),
                 }
             );
@@ -282,7 +295,7 @@ describe("BoltzSwapProvider", () => {
             await expect(
                 provider.createSubmarineSwap({
                     invoice,
-                    refundPublicKey: "mock-refundPublicKey",
+                    refundPublicKey: mockRefundPublicKey,
                 })
             ).rejects.toThrow(SchemaError);
         });
@@ -296,7 +309,7 @@ describe("BoltzSwapProvider", () => {
                 invoice: "mock-invoice",
                 onchainAmount: 21000,
                 lockupAddress: "mock-lockupAddress",
-                refundPublicKey: "mock-refundPublicKey",
+                refundPublicKey: mockRefundPublicKey,
                 timeoutBlockHeights: {
                     refund: 17,
                     unilateralClaim: 21,
@@ -311,7 +324,7 @@ describe("BoltzSwapProvider", () => {
             // act
             const response = await provider.createReverseSwap({
                 invoiceAmount: 21000,
-                claimPublicKey: "mock-claimPublicKey",
+                claimPublicKey: mockClaimPublicKey,
                 preimageHash: "mock-preimage-hash",
             });
             // assert
@@ -324,7 +337,7 @@ describe("BoltzSwapProvider", () => {
                         from: "BTC",
                         to: "ARK",
                         invoiceAmount: 21000,
-                        claimPublicKey: "mock-claimPublicKey",
+                        claimPublicKey: mockClaimPublicKey,
                         preimageHash: "mock-preimage-hash",
                     }),
                 }
@@ -339,7 +352,7 @@ describe("BoltzSwapProvider", () => {
                 invoice: invoice,
                 onchainAmount: 21000,
                 lockupAddress: "mock-lockup-address",
-                refundPublicKey: "mock-refund-public-key",
+                refundPublicKey: mockRefundPublicKey,
                 timeoutBlockHeights: {
                     refund: 800000,
                     unilateralClaim: 800050,
@@ -354,7 +367,7 @@ describe("BoltzSwapProvider", () => {
             // act
             const response = await provider.createReverseSwap({
                 invoiceAmount: 21000,
-                claimPublicKey: "mock-claimPublicKey",
+                claimPublicKey: mockClaimPublicKey,
                 preimageHash: "mock-preimage-hash",
                 description: "Test payment for coffee",
             });
@@ -368,7 +381,7 @@ describe("BoltzSwapProvider", () => {
                         from: "BTC",
                         to: "ARK",
                         invoiceAmount: 21000,
-                        claimPublicKey: "mock-claimPublicKey",
+                        claimPublicKey: mockClaimPublicKey,
                         preimageHash: "mock-preimage-hash",
                         description: "Test payment for coffee",
                     }),
@@ -384,7 +397,7 @@ describe("BoltzSwapProvider", () => {
                 invoice: invoice,
                 onchainAmount: 21000,
                 lockupAddress: "mock-lockup-address",
-                refundPublicKey: "mock-refund-public-key",
+                refundPublicKey: mockRefundPublicKey,
                 timeoutBlockHeights: {
                     refund: 800000,
                     unilateralClaim: 800050,
@@ -399,7 +412,7 @@ describe("BoltzSwapProvider", () => {
             // act
             const response = await provider.createReverseSwap({
                 invoiceAmount: 21000,
-                claimPublicKey: "mock-claimPublicKey",
+                claimPublicKey: mockClaimPublicKey,
                 preimageHash: "mock-preimage-hash",
                 description: "   ", // whitespace-only description
             });
@@ -413,7 +426,7 @@ describe("BoltzSwapProvider", () => {
                         from: "BTC",
                         to: "ARK",
                         invoiceAmount: 21000,
-                        claimPublicKey: "mock-claimPublicKey",
+                        claimPublicKey: mockClaimPublicKey,
                         preimageHash: "mock-preimage-hash",
                         // description should be omitted when it's only whitespace
                     }),
@@ -432,7 +445,7 @@ describe("BoltzSwapProvider", () => {
             await expect(
                 provider.createReverseSwap({
                     invoiceAmount: 21000,
-                    claimPublicKey: "mock-claimPublicKey",
+                    claimPublicKey: mockClaimPublicKey,
                     preimageHash: "mock-preimage-hash",
                 })
             ).rejects.toThrow(SchemaError);

@@ -26,6 +26,7 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice } from "../src/utils/decoding";
+import { pubECDSA } from "@scure/btc-signer/utils.js";
 
 // Mock WebSocket - this needs to be at the top level
 vi.mock("ws", () => {
@@ -129,6 +130,12 @@ describe("ArkadeLightning", () => {
         server: schnorr.utils.randomSecretKey(),
     };
 
+    const compressedPubkeys = {
+        alice: hex.encode(pubECDSA(seckeys.alice, true)),
+        boltz: hex.encode(pubECDSA(seckeys.boltz, true)),
+        server: hex.encode(pubECDSA(seckeys.server, true)),
+    };
+
     const mock = {
         address: "mock-address",
         amount: 21000,
@@ -162,7 +169,7 @@ describe("ArkadeLightning", () => {
 
     const createSubmarineSwapRequest: CreateSubmarineSwapRequest = {
         invoice: mock.invoice.address,
-        refundPublicKey: hex.encode(mock.pubkeys.alice),
+        refundPublicKey: compressedPubkeys.alice,
     };
 
     const createSubmarineSwapResponse: CreateSubmarineSwapResponse = {
@@ -170,7 +177,7 @@ describe("ArkadeLightning", () => {
         address: mock.address,
         expectedAmount: mock.invoice.amount,
         acceptZeroConf: true,
-        claimPublicKey: hex.encode(mock.pubkeys.boltz),
+        claimPublicKey: compressedPubkeys.boltz,
         timeoutBlockHeights: {
             refund: 17,
             unilateralClaim: 21,
@@ -180,7 +187,7 @@ describe("ArkadeLightning", () => {
     };
 
     const createReverseSwapRequest: CreateReverseSwapRequest = {
-        claimPublicKey: hex.encode(mock.pubkeys.alice),
+        claimPublicKey: compressedPubkeys.alice,
         preimageHash: mock.invoice.paymentHash,
         invoiceAmount: mock.invoice.amount,
     };
@@ -190,7 +197,7 @@ describe("ArkadeLightning", () => {
         invoice: mock.invoice.address,
         onchainAmount: mock.invoice.amount,
         lockupAddress: mock.lockupAddress,
-        refundPublicKey: hex.encode(mock.pubkeys.boltz),
+        refundPublicKey: compressedPubkeys.boltz,
         timeoutBlockHeights: {
             refund: 17,
             unilateralClaim: 21,
@@ -325,6 +332,7 @@ describe("ArkadeLightning", () => {
                 utxoMaxAmount: 21000000n * 100_000_000n,
                 vtxoMinAmount: -1n,
                 utxoMinAmount: -1n,
+                checkpointExitClosure: "",
             });
             vi.spyOn(lightning, "createVHTLCScript").mockReturnValueOnce(
                 mockVHTLC
@@ -380,7 +388,7 @@ describe("ArkadeLightning", () => {
             expect(result.paymentHash).toBe(mock.invoice.paymentHash);
             expect(result.preimage).toBe(mock.preimage);
             expect(result.pendingSwap.request.claimPublicKey).toBe(
-                hex.encode(mock.pubkeys.alice)
+                compressedPubkeys.alice
             );
         });
 
@@ -437,7 +445,7 @@ describe("ArkadeLightning", () => {
                 mock.invoice.amount
             );
             expect(pendingSwap.response.refundPublicKey).toBe(
-                hex.encode(mock.pubkeys.boltz)
+                compressedPubkeys.boltz
             );
             expect(pendingSwap.status).toEqual("swap.created");
         });
