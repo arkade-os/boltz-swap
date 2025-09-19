@@ -25,20 +25,20 @@ export type BoltzSwapStatus =
     | "transaction.refunded";
 
 export const isSubmarineFinalStatus = (status: BoltzSwapStatus): boolean => {
-  return [
-    'invoice.failedToPay', // user should refund, but status will not change
-    'transaction.claimed', // normal status for completed swaps
-    'swap.expired',
-  ].includes(status);
+    return [
+        "invoice.failedToPay", // user should refund, but status will not change
+        "transaction.claimed", // normal status for completed swaps
+        "swap.expired",
+    ].includes(status);
 };
 
 export const isReverseFinalStatus = (status: BoltzSwapStatus): boolean => {
-  return [
-    'transaction.refunded',
-    'transaction.failed',
-    'invoice.settled', // normal status for completed swaps
-    'swap.expired',
-  ].includes(status);
+    return [
+        "transaction.refunded",
+        "transaction.failed",
+        "invoice.settled", // normal status for completed swaps
+        "swap.expired",
+    ].includes(status);
 };
 
 export type GetReverseSwapTxIdResponse = {
@@ -386,9 +386,12 @@ export class BoltzSwapProvider {
         invoice,
         refundPublicKey,
     }: CreateSubmarineSwapRequest): Promise<CreateSubmarineSwapResponse> {
-        // if refundPublicKey is a xOnlyPublicKey, we need the compressed version
-        if (refundPublicKey.length == 64)
-            refundPublicKey = "02" + refundPublicKey;
+        // refundPublicKey must be in compressed version (33 bytes / 66 hex chars)
+        if (refundPublicKey.length != 66) {
+            throw new SwapError({
+                message: "refundPublicKey must be a compressed public key",
+            });
+        }
         // make submarine swap request
         const response = await this.request<CreateSubmarineSwapResponse>(
             "/v2/swap/submarine",
@@ -411,8 +414,12 @@ export class BoltzSwapProvider {
         preimageHash,
         description,
     }: CreateReverseSwapRequest): Promise<CreateReverseSwapResponse> {
-        // if claimPublicKey is a xOnlyPublicKey, we need the compressed version
-        if (claimPublicKey.length == 64) claimPublicKey = "02" + claimPublicKey;
+        // claimPublicKey must be in compressed version (33 bytes / 66 hex chars)
+        if (claimPublicKey.length != 66) {
+            throw new SwapError({
+                message: "claimPublicKey must be a compressed public key",
+            });
+        }
         // make reverse swap request
         const requestBody: {
             from: "BTC";

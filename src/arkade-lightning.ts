@@ -48,12 +48,6 @@ import { TransactionInput } from "@scure/btc-signer/psbt";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
 
-async function getXOnlyPublicKey(
-    wallet: Wallet | ServiceWorkerWallet
-): Promise<Uint8Array> {
-    return wallet.identity.xOnlyPublicKey();
-}
-
 function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
 
@@ -242,7 +236,7 @@ export class ArkadeLightning {
         args: SendLightningPaymentRequest
     ): Promise<PendingSubmarineSwap> {
         const refundPublicKey = hex.encode(
-            await getXOnlyPublicKey(this.wallet)
+            await this.wallet.identity.compressedPublicKey()
         );
         if (!refundPublicKey)
             throw new SwapError({
@@ -288,7 +282,9 @@ export class ArkadeLightning {
         if (args.amount <= 0)
             throw new SwapError({ message: "Amount must be greater than 0" });
 
-        const claimPublicKey = hex.encode(await getXOnlyPublicKey(this.wallet));
+        const claimPublicKey = hex.encode(
+            await this.wallet.identity.compressedPublicKey()
+        );
         if (!claimPublicKey)
             throw new SwapError({
                 message: "Failed to get claim public key from wallet",
@@ -339,7 +335,8 @@ export class ArkadeLightning {
         const address = await this.wallet.getAddress();
 
         // validate we are using a x-only receiver public key
-        let receiverXOnlyPublicKey = await getXOnlyPublicKey(this.wallet);
+        let receiverXOnlyPublicKey =
+            await this.wallet.identity.xOnlyPublicKey();
         if (receiverXOnlyPublicKey.length == 33) {
             receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
         } else if (receiverXOnlyPublicKey.length !== 32) {
@@ -484,7 +481,8 @@ export class ArkadeLightning {
         if (!address) throw new Error("Failed to get ark address from wallet");
 
         // validate we are using a x-only receiver public key
-        let receiverXOnlyPublicKey = await getXOnlyPublicKey(this.wallet);
+        let receiverXOnlyPublicKey =
+            await this.wallet.identity.xOnlyPublicKey();
         if (receiverXOnlyPublicKey.length == 33) {
             receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
         } else if (receiverXOnlyPublicKey.length !== 32) {
@@ -509,7 +507,9 @@ export class ArkadeLightning {
                 getInvoicePaymentHash(pendingSwap.request.invoice)
             ),
             receiverPubkey: pendingSwap.response.claimPublicKey,
-            senderPubkey: hex.encode(await getXOnlyPublicKey(this.wallet)),
+            senderPubkey: hex.encode(
+                await this.wallet.identity.xOnlyPublicKey()
+            ),
             serverPubkey: aspInfo.signerPubkey,
             timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
         });
