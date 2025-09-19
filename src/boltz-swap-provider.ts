@@ -24,6 +24,23 @@ export type BoltzSwapStatus =
   | 'transaction.mempool'
   | 'transaction.refunded';
 
+export const isSubmarineFinalStatus = (status: BoltzSwapStatus): boolean => {
+  return [
+    'invoice.failedToPay', // user should refund, but status will not change
+    'transaction.claimed', // normal status for completed swaps
+    'swap.expired',
+  ].includes(status);
+};
+
+export const isReverseFinalStatus = (status: BoltzSwapStatus): boolean => {
+  return [
+    'transaction.refunded',
+    'transaction.failed',
+    'invoice.settled', // normal status for completed swaps
+    'swap.expired',
+  ].includes(status);
+};
+
 export type GetReverseSwapTxIdResponse = {
   id: string;
   timeoutBlockHeight: number;

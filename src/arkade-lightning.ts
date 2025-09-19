@@ -39,6 +39,8 @@ import {
   CreateReverseSwapRequest,
   BoltzSwapStatus,
   GetSwapStatusResponse,
+  isSubmarineFinalStatus,
+  isReverseFinalStatus,
 } from './boltz-swap-provider';
 import { StorageProvider } from './storage-provider';
 import { Transaction } from '@scure/btc-signer';
@@ -774,5 +776,39 @@ export class ArkadeLightning {
     const swaps = this.storageProvider.getSwapHistory();
     if (!swaps) return [];
     return swaps.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /**
+   * Refreshes the status of all pending swaps in the storage provider.
+   * This method iterates through all pending reverse and submarine swaps,
+   * checks their current status using the swap provider, and updates the storage provider accordingly.
+   * It skips swaps that are already in a final status to avoid unnecessary API calls.
+   * If no storage provider is set, the method exits early.
+   * Errors during status refresh are logged to the console but do not interrupt the process.
+   * @returns void
+   */
+  refreshAllSwapStatus() {
+    if (!this.storageProvider) return;
+    // refresh status of all pending reverse swaps
+    for (const swap of this.storageProvider.getPendingReverseSwaps()) {
+      if (isReverseFinalStatus(swap.status)) continue;
+      this.getSwapStatus(swap.response.id)
+        .then(({ status }) => {
+          this.storageProvider!.savePendingReverseSwap({ ...swap, status });
+        })
+        .catch((error) => {
+          console.error(`Failed to refresh swap status for ${swap.response.id}:`, error);
+        });
+    }
+    for (const swap of this.storageProvider.getPendingSubmarineSwaps()) {
+      if (isSubmarineFinalStatus(swap.status)) continue;
+      this.getSwapStatus(swap.response.id)
+        .then(({ status }) => {
+          this.storageProvider!.savePendingSubmarineSwap({ ...swap, status });
+        })
+        .catch((error) => {
+          console.error(`Failed to refresh swap status for ${swap.response.id}:`, error);
+        });
+    }
   }
 }
