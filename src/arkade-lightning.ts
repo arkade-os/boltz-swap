@@ -310,12 +310,12 @@ export class ArkadeLightning {
       signerSession: getSignerSession(this.wallet),
     };
 
-    // create the server unroll script for checkpoint transactions
+    // use default server unroll script (not custom checkpoint tapscript)
     const serverUnrollScript = CSVMultisigTapscript.encode({
       pubkeys: [serverXOnlyPublicKey],
       timelock: {
-        type: aspInfo.unilateralExitDelay < 512 ? 'blocks' : 'seconds',
-        value: aspInfo.unilateralExitDelay,
+        type: 'blocks',
+        value: 1n, // minimal timelock, following golang pattern
       },
     });
 
