@@ -403,13 +403,12 @@ export class ArkadeLightning {
         };
 
         // create the server unroll script for checkpoint transactions
-        const serverUnrollScript = CSVMultisigTapscript.encode({
-            pubkeys: [serverXOnlyPublicKey],
-            timelock: {
-                type: aspInfo.unilateralExitDelay < 512 ? "blocks" : "seconds",
-                value: aspInfo.unilateralExitDelay,
-            },
-        });
+        const rawCheckpointExitClosure = hex.decode(
+            aspInfo.checkpointExitClosure
+        );
+        const serverUnrollScript = CSVMultisigTapscript.decode(
+            rawCheckpointExitClosure
+        );
 
         // create the offchain transaction to claim the VHTLC
         const { arkTx, checkpoints } = buildOffchainTx(
@@ -547,14 +546,13 @@ export class ArkadeLightning {
             signerSession: getSignerSession(this.wallet),
         };
 
-        // Create the server unroll script for checkpoint transactions
-        const serverUnrollScript = CSVMultisigTapscript.encode({
-            pubkeys: [serverXOnlyPublicKey],
-            timelock: {
-                type: aspInfo.unilateralExitDelay < 512 ? "blocks" : "seconds",
-                value: aspInfo.unilateralExitDelay,
-            },
-        });
+        // create the server unroll script for checkpoint transactions
+        const rawCheckpointExitClosure = hex.decode(
+            aspInfo.checkpointExitClosure
+        );
+        const serverUnrollScript = CSVMultisigTapscript.decode(
+            rawCheckpointExitClosure
+        );
 
         // create the virtual transaction to claim the VHTLC
         const { arkTx, checkpoints } = buildOffchainTx(
