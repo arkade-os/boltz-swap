@@ -253,7 +253,7 @@ export class ArkadeLightning {
   // claim the VHTLC by creating a virtual transaction that spends the VHTLC output
   async claimVHTLC(pendingSwap: PendingReverseSwap) {
     const preimage = hex.decode(pendingSwap.preimage);
-    const aspInfo = await this.arkProvider.getInfo();
+    const arkInfo = await this.arkProvider.getInfo();
     const address = await this.wallet.getAddress();
 
     // validate we are using a x-only receiver public key
@@ -265,7 +265,7 @@ export class ArkadeLightning {
     }
 
     // validate we are using a x-only server public key
-    let serverXOnlyPublicKey = hex.decode(aspInfo.signerPubkey);
+    let serverXOnlyPublicKey = hex.decode(arkInfo.signerPubkey);
     if (serverXOnlyPublicKey.length == 33) {
       serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
     } else if (serverXOnlyPublicKey.length !== 32) {
@@ -274,7 +274,7 @@ export class ArkadeLightning {
 
     // build expected VHTLC script
     const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
-      network: aspInfo.network,
+      network: arkInfo.network,
       preimageHash: sha256(preimage),
       receiverPubkey: hex.encode(receiverXOnlyPublicKey),
       senderPubkey: pendingSwap.response.refundPublicKey,
@@ -314,8 +314,8 @@ export class ArkadeLightning {
     const serverUnrollScript = CSVMultisigTapscript.encode({
       pubkeys: [serverXOnlyPublicKey],
       timelock: {
-        type: aspInfo.unilateralExitDelay < 512 ? 'blocks' : 'seconds',
-        value: aspInfo.unilateralExitDelay,
+        type: arkInfo.unilateralExitDelay < 512 ? 'blocks' : 'seconds',
+        value: arkInfo.unilateralExitDelay,
       },
     });
 
@@ -372,7 +372,7 @@ export class ArkadeLightning {
 
   async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
     // prepare variables for claiming the VHTLC
-    const aspInfo = await this.arkProvider.getInfo();
+    const arkInfo = await this.arkProvider.getInfo();
     const address = await this.wallet.getAddress();
     if (!address) throw new Error('Failed to get ark address from service worker wallet');
 
@@ -385,7 +385,7 @@ export class ArkadeLightning {
     }
 
     // validate we are using a x-only server public key
-    let serverXOnlyPublicKey = hex.decode(aspInfo.signerPubkey);
+    let serverXOnlyPublicKey = hex.decode(arkInfo.signerPubkey);
     if (serverXOnlyPublicKey.length == 33) {
       serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
     } else if (serverXOnlyPublicKey.length !== 32) {
@@ -393,11 +393,11 @@ export class ArkadeLightning {
     }
 
     const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
-      network: aspInfo.network,
+      network: arkInfo.network,
       preimageHash: hex.decode(getInvoicePaymentHash(pendingSwap.request.invoice)),
       receiverPubkey: pendingSwap.response.claimPublicKey,
       senderPubkey: hex.encode(getXOnlyPublicKey(this.wallet)),
-      serverPubkey: aspInfo.signerPubkey,
+      serverPubkey: arkInfo.signerPubkey,
       timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
     });
 
@@ -430,8 +430,8 @@ export class ArkadeLightning {
     const serverUnrollScript = CSVMultisigTapscript.encode({
       pubkeys: [serverXOnlyPublicKey],
       timelock: {
-        type: aspInfo.unilateralExitDelay < 512 ? 'blocks' : 'seconds',
-        value: aspInfo.unilateralExitDelay,
+        type: arkInfo.unilateralExitDelay < 512 ? 'blocks' : 'seconds',
+        value: arkInfo.unilateralExitDelay,
       },
     });
 
