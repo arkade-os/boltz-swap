@@ -224,7 +224,7 @@ describe("ArkadeLightning", () => {
 
         // Create mock instances
         identity = SingleKey.fromPrivateKey(seckeys.alice);
-        
+
         // Create mock providers first
         arkProvider = {
             getInfo: vi.fn(),
@@ -253,7 +253,7 @@ describe("ArkadeLightning", () => {
         vi.mocked(Wallet.create).mockResolvedValue(wallet);
 
         swapProvider = new BoltzSwapProvider({ network: "regtest" });
-        
+
         lightning = new ArkadeLightning({
             wallet,
             arkProvider,
