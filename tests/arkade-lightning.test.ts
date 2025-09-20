@@ -28,6 +28,19 @@ import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice } from "../src/utils/decoding";
 import { pubECDSA } from "@scure/btc-signer/utils.js";
 
+// Mock the @arkade-os/sdk modules
+vi.mock("@arkade-os/sdk", async () => {
+    const actual = await vi.importActual("@arkade-os/sdk");
+    return {
+        ...actual,
+        Wallet: {
+            create: vi.fn(),
+        },
+        RestArkProvider: vi.fn(),
+        RestIndexerProvider: vi.fn(),
+    };
+});
+
 // Mock WebSocket - this needs to be at the top level
 vi.mock("ws", () => {
     return {
@@ -209,15 +222,38 @@ describe("ArkadeLightning", () => {
     beforeEach(async () => {
         vi.clearAllMocks();
 
-        // Basic mocks
+        // Create mock instances
         identity = SingleKey.fromPrivateKey(seckeys.alice);
-        wallet = await Wallet.create({
+        
+        // Create mock providers first
+        arkProvider = {
+            getInfo: vi.fn(),
+            submitTx: vi.fn(),
+            finalizeTx: vi.fn(),
+        } as any;
+
+        indexerProvider = {
+            getVtxos: vi.fn(),
+        } as any;
+
+        // Mock wallet with necessary methods and providers
+        wallet = {
             identity,
-            arkServerUrl: "http://localhost:7070",
-        });
-        arkProvider = new RestArkProvider("http://localhost:7070");
+            arkProvider, // Add arkProvider to wallet
+            indexerProvider, // Add indexerProvider to wallet
+            contractRepository: {
+                saveToContractCollection: vi.fn(),
+                getContractCollection: vi.fn(),
+            },
+            sendBitcoin: vi.fn(),
+            getAddress: vi.fn().mockResolvedValue("mock-address"), // Add getAddress method
+        } as any;
+
+        // Mock the Wallet.create method
+        vi.mocked(Wallet.create).mockResolvedValue(wallet);
+
         swapProvider = new BoltzSwapProvider({ network: "regtest" });
-        indexerProvider = new RestIndexerProvider("http://localhost:7070");
+        
         lightning = new ArkadeLightning({
             wallet,
             arkProvider,

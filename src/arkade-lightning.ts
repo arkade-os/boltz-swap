@@ -44,7 +44,7 @@ import {
     isReverseFinalStatus,
 } from "./boltz-swap-provider";
 import { Transaction } from "@scure/btc-signer";
-import { TransactionInput } from "@scure/btc-signer/psbt";
+import { TransactionInput } from "@scure/btc-signer/psbt.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
 
