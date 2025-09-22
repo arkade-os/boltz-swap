@@ -13,6 +13,7 @@ export interface SwapProviderConfig {
 }
 
 // Boltz swap status types
+
 export type BoltzSwapStatus =
     | "invoice.expired"
     | "invoice.failedToPay"
@@ -30,11 +31,44 @@ export type BoltzSwapStatus =
     | "transaction.mempool"
     | "transaction.refunded";
 
+export const isSubmarineFailedStatus = (status: BoltzSwapStatus): boolean => {
+    return [
+        "invoice.failedToPay",
+        "transaction.lockupFailed",
+        "swap.expired",
+    ].includes(status);
+};
+
 export const isSubmarineFinalStatus = (status: BoltzSwapStatus): boolean => {
     return [
-        "invoice.failedToPay", // user should refund, but status will not change
-        "transaction.claimed", // normal status for completed swaps
-        "swap.expired", // user should refund, but status will not change
+        "invoice.failedToPay",
+        "transaction.claimed",
+        "swap.expired",
+    ].includes(status);
+};
+
+export const isSubmarinePendingStatus = (status: BoltzSwapStatus): boolean => {
+    return [
+        "swap.created",
+        "transaction.mempool",
+        "transaction.confirmed",
+        "invoice.set",
+        "invoice.pending",
+        "invoice.paid",
+        "transaction.claim.pending",
+    ].includes(status);
+};
+
+export const isSubmarineSuccessStatus = (status: BoltzSwapStatus): boolean => {
+    return status === "transaction.claimed";
+};
+
+export const isReverseFailedStatus = (status: BoltzSwapStatus): boolean => {
+    return [
+        "invoice.expired",
+        "transaction.failed",
+        "transaction.refunded",
+        "swap.expired",
     ].includes(status);
 };
 
@@ -46,6 +80,34 @@ export const isReverseFinalStatus = (status: BoltzSwapStatus): boolean => {
         "swap.expired",
     ].includes(status);
 };
+
+export const isReversePendingStatus = (status: BoltzSwapStatus): boolean => {
+    return [
+        "swap.created",
+        "transaction.mempool",
+        "transaction.confirmed",
+    ].includes(status);
+};
+
+export const isReverseSuccessStatus = (status: BoltzSwapStatus): boolean => {
+    return status === "invoice.settled";
+};
+
+// type guards
+
+export const isPendingReverseSwap = (
+    swap: PendingSubmarineSwap | PendingReverseSwap
+): swap is PendingReverseSwap => {
+    return swap.type === "reverse";
+};
+
+export const isPendingSubmarineSwap = (
+    swap: PendingSubmarineSwap | PendingReverseSwap
+): swap is PendingSubmarineSwap => {
+    return swap.type === "submarine";
+};
+
+// refundable submarine swaps are those that have failed and can be refunded
 
 export const isSubmarineRefundableStatus = (
     status: BoltzSwapStatus
@@ -67,17 +129,7 @@ export const isSubmarineSwapRefundable = (
     );
 };
 
-export const isPendingReverseSwap = (
-    swap: PendingSubmarineSwap | PendingReverseSwap
-): swap is PendingReverseSwap => {
-    return swap.type === "reverse";
-};
-
-export const isPendingSubmarineSwap = (
-    swap: PendingSubmarineSwap | PendingReverseSwap
-): swap is PendingSubmarineSwap => {
-    return swap.type === "submarine";
-};
+// API call types and validators
 
 export type GetReverseSwapTxIdResponse = {
     id: string;
