@@ -1,5 +1,11 @@
 import { NetworkError, SchemaError, SwapError } from "./errors";
-import { FeesResponse, LimitsResponse, Network } from "./types";
+import {
+    FeesResponse,
+    LimitsResponse,
+    Network,
+    PendingReverseSwap,
+    PendingSubmarineSwap,
+} from "./types";
 
 export interface SwapProviderConfig {
     apiUrl?: string;
@@ -28,7 +34,7 @@ export const isSubmarineFinalStatus = (status: BoltzSwapStatus): boolean => {
     return [
         "invoice.failedToPay", // user should refund, but status will not change
         "transaction.claimed", // normal status for completed swaps
-        "swap.expired",
+        "swap.expired", // user should refund, but status will not change
     ].includes(status);
 };
 
@@ -39,6 +45,38 @@ export const isReverseFinalStatus = (status: BoltzSwapStatus): boolean => {
         "invoice.settled", // normal status for completed swaps
         "swap.expired",
     ].includes(status);
+};
+
+export const isSubmarineRefundableStatus = (
+    status: BoltzSwapStatus
+): boolean => {
+    return [
+        "invoice.failedToPay",
+        "transaction.lockupFailed",
+        "swap.expired",
+    ].includes(status);
+};
+
+export const isSubmarineSwapRefundable = (
+    swap: PendingSubmarineSwap | PendingReverseSwap
+): swap is PendingSubmarineSwap => {
+    return (
+        isSubmarineRefundableStatus(swap.status) &&
+        isPendingSubmarineSwap(swap) &&
+        swap.refundable !== false
+    );
+};
+
+export const isPendingReverseSwap = (
+    swap: PendingSubmarineSwap | PendingReverseSwap
+): swap is PendingReverseSwap => {
+    return swap.type === "reverse";
+};
+
+export const isPendingSubmarineSwap = (
+    swap: PendingSubmarineSwap | PendingReverseSwap
+): swap is PendingSubmarineSwap => {
+    return swap.type === "submarine";
 };
 
 export type GetReverseSwapTxIdResponse = {

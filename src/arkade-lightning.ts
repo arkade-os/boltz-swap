@@ -35,10 +35,10 @@ import type {
 } from "./types";
 import { randomBytes } from "@noble/hashes/utils.js";
 import {
+    BoltzSwapStatus,
     BoltzSwapProvider,
     CreateSubmarineSwapRequest,
     CreateReverseSwapRequest,
-    BoltzSwapStatus,
     GetSwapStatusResponse,
     isSubmarineFinalStatus,
     isReverseFinalStatus,
@@ -709,7 +709,7 @@ export class ArkadeLightning {
 
     /**
      * Waits for the swap settlement.
-     * @param pendingSwap - The pending swap.
+     * @param pendingSwap - The pending submarine swap.
      * @returns The status of the swap settlement.
      */
     async waitForSwapSettlement(
@@ -727,6 +727,7 @@ export class ArkadeLightning {
                         isResolved = true;
                         await this.savePendingSubmarineSwap({
                             ...pendingSwap,
+                            refundable: true,
                             status,
                         });
                         reject(
@@ -740,6 +741,7 @@ export class ArkadeLightning {
                         isResolved = true;
                         await this.savePendingSubmarineSwap({
                             ...pendingSwap,
+                            refundable: true,
                             status,
                         });
                         reject(
@@ -753,6 +755,7 @@ export class ArkadeLightning {
                         isResolved = true;
                         await this.savePendingSubmarineSwap({
                             ...pendingSwap,
+                            refundable: true,
                             status,
                         });
                         reject(
@@ -1005,7 +1008,7 @@ export class ArkadeLightning {
      * Important: a submarine swap with status payment.failedToPay is considered final and won't be refreshed.
      * User should manually retry or delete it if refund fails.
      */
-    async refreshAllSwapStatus() {
+    async refreshSwapsStatus() {
         // refresh status of all pending reverse swaps
         for (const swap of await this.getPendingReverseSwapsFromStorage()) {
             if (isReverseFinalStatus(swap.status)) continue;

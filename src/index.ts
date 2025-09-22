@@ -1,5 +1,14 @@
 export { ArkadeLightning } from "./arkade-lightning";
-export { BoltzSwapProvider, BoltzSwapStatus } from "./boltz-swap-provider";
+export {
+    BoltzSwapProvider,
+    BoltzSwapStatus,
+    isPendingReverseSwap,
+    isPendingSubmarineSwap,
+    isSubmarineFinalStatus,
+    isSubmarineSwapRefundable,
+    isSubmarineRefundableStatus,
+    isReverseFinalStatus,
+} from "./boltz-swap-provider";
 export {
     SwapError,
     SchemaError,

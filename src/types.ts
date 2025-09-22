@@ -64,6 +64,7 @@ export interface PendingSubmarineSwap {
     type: "submarine";
     createdAt: number;
     preimage?: string;
+    refundable?: boolean;
     status: BoltzSwapStatus;
     request: CreateSubmarineSwapRequest;
     response: CreateSubmarineSwapResponse;
