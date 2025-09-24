@@ -6,7 +6,7 @@ import { hex } from "@scure/base";
 // Scaffolding test file for BoltzSwapProvider
 // This file will be updated when implementing features from README.md
 
-function createFetchResponse(mockData) {
+function createFetchResponse(mockData: any) {
     return Promise.resolve({
         ok: true,
         json: () => Promise.resolve(mockData),
