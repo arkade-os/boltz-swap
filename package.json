@@ -23,11 +23,11 @@
     "scripts": {
         "build": "tsup src/index.ts --format esm,cjs --dts --clean",
         "test": "vitest run",
-        "test:unit": "vitest run --exclude tests/e2e",
-        "test:setup": "tests/setupRegtestEnv.sh",
-        "test:integration": "vitest run tests/e2e/**",
-        "format": "prettier --write src tests",
-        "lint": "prettier --check src tests",
+        "test:unit": "vitest run --exclude test/e2e",
+        "test:setup": "test/setupRegtestEnv.sh",
+        "test:integration": "vitest run test/e2e/**",
+        "format": "prettier --write src test",
+        "lint": "prettier --check src test",
         "release": "bash scripts/release.sh",
         "release:dry-run": "bash scripts/release.sh --dry-run",
         "release:cleanup": "bash scripts/release.sh --cleanup"
