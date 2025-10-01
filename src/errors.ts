@@ -43,9 +43,14 @@ export class InsufficientFundsError extends SwapError {
 }
 
 export class NetworkError extends Error {
-  constructor(message: string) {
+  public statusCode?: number;
+  public errorData?: any;
+
+  constructor(message: string, statusCode?: number, errorData?: any) {
     super(message);
     this.name = 'NetworkError';
+    this.statusCode = statusCode;
+    this.errorData = errorData;
   }
 }
 
