@@ -368,7 +368,7 @@ describe("ArkadeLightning", () => {
                 utxoMaxAmount: 21000000n * 100_000_000n,
                 vtxoMinAmount: -1n,
                 utxoMinAmount: -1n,
-                checkpointExitClosure: "",
+                checkpointTapscript: "",
             });
             vi.spyOn(lightning, "createVHTLCScript").mockReturnValueOnce(
                 mockVHTLC

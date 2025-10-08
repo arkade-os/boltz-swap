@@ -403,11 +403,9 @@ export class ArkadeLightning {
         };
 
         // create the server unroll script for checkpoint transactions
-        const rawCheckpointExitClosure = hex.decode(
-            aspInfo.checkpointExitClosure
-        );
+        const rawCheckpointTapscript = hex.decode(aspInfo.checkpointTapscript);
         const serverUnrollScript = CSVMultisigTapscript.decode(
-            rawCheckpointExitClosure
+            rawCheckpointTapscript
         );
 
         // create the offchain transaction to claim the VHTLC
@@ -547,11 +545,9 @@ export class ArkadeLightning {
         };
 
         // create the server unroll script for checkpoint transactions
-        const rawCheckpointExitClosure = hex.decode(
-            aspInfo.checkpointExitClosure
-        );
+        const rawCheckpointTapscript = hex.decode(aspInfo.checkpointTapscript);
         const serverUnrollScript = CSVMultisigTapscript.decode(
-            rawCheckpointExitClosure
+            rawCheckpointTapscript
         );
 
         // create the virtual transaction to claim the VHTLC
