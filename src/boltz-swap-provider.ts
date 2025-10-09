@@ -414,7 +414,14 @@ export class BoltzSwapProvider {
 
       if (!response.ok) {
         const errorBody = await response.text();
-        throw new NetworkError(`Boltz API error: ${response.status} ${errorBody}`);
+        let errorData: any;
+        try {
+          errorData = JSON.parse(errorBody);
+        } catch {
+          // If parsing fails, errorData remains undefined
+        }
+        const message = errorData ? `Boltz API error: ${response.status}` : `Boltz API error: ${response.status} ${errorBody}`;
+        throw new NetworkError(message, response.status, errorData);
       }
       if (response.headers.get('content-length') === '0') {
         throw new NetworkError('Empty response from Boltz API');

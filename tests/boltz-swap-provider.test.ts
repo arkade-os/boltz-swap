@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { BoltzSwapProvider } from '../src/boltz-swap-provider';
 import { schnorr, secp256k1 as secp } from '@noble/curves/secp256k1';
-import { SchemaError } from '../src/errors';
+import { SchemaError, NetworkError } from '../src/errors';
 import { hex } from '@scure/base';
 
 // Scaffolding test file for BoltzSwapProvider
@@ -434,5 +434,87 @@ describe('BoltzSwapProvider', () => {
     expect(provider.createSubmarineSwap).toBeInstanceOf(Function);
     expect(provider.getSwapStatus).toBeInstanceOf(Function);
     expect(provider.getNetwork).toBeInstanceOf(Function);
+  });
+
+  describe('error handling', () => {
+    it('should parse JSON error responses from Boltz API', async () => {
+      // arrange
+      const errorResponse = {
+        error: '27 is less than minimal of 333',
+      };
+      vi.stubGlobal('fetch', vi.fn(() => 
+        Promise.resolve({
+          ok: false,
+          status: 400,
+          text: () => Promise.resolve(JSON.stringify(errorResponse)),
+          headers: {
+            get: () => null,
+          },
+        })
+      ));
+
+      // act & assert
+      try {
+        await provider.getLimits();
+        expect.fail('Should have thrown NetworkError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(NetworkError);
+        expect((error as NetworkError).statusCode).toBe(400);
+        expect((error as NetworkError).errorData).toEqual(errorResponse);
+        expect((error as NetworkError).message).toBe('Boltz API error: 400');
+      }
+    });
+
+    it('should handle non-JSON error responses from Boltz API', async () => {
+      // arrange
+      const errorText = 'Internal Server Error';
+      vi.stubGlobal('fetch', vi.fn(() => 
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          text: () => Promise.resolve(errorText),
+          headers: {
+            get: () => null,
+          },
+        })
+      ));
+
+      // act & assert
+      try {
+        await provider.getLimits();
+        expect.fail('Should have thrown NetworkError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(NetworkError);
+        expect((error as NetworkError).statusCode).toBe(500);
+        expect((error as NetworkError).errorData).toBeUndefined();
+        expect((error as NetworkError).message).toBe('Boltz API error: 500 Internal Server Error');
+      }
+    });
+
+    it('should handle malformed JSON error responses from Boltz API', async () => {
+      // arrange
+      const malformedJson = '{invalid json}';
+      vi.stubGlobal('fetch', vi.fn(() => 
+        Promise.resolve({
+          ok: false,
+          status: 400,
+          text: () => Promise.resolve(malformedJson),
+          headers: {
+            get: () => null,
+          },
+        })
+      ));
+
+      // act & assert
+      try {
+        await provider.getLimits();
+        expect.fail('Should have thrown NetworkError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(NetworkError);
+        expect((error as NetworkError).statusCode).toBe(400);
+        expect((error as NetworkError).errorData).toBeUndefined();
+        expect((error as NetworkError).message).toBe('Boltz API error: 400 {invalid json}');
+      }
+    });
   });
 });
