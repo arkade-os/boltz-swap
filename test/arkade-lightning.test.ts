@@ -18,6 +18,7 @@ import {
     Identity,
     Wallet,
     SingleKey,
+    ArkInfo,
 } from "@arkade-os/sdk";
 import { VHTLC } from "@arkade-os/sdk";
 import { hex } from "@scure/base";
@@ -219,6 +220,63 @@ describe("ArkadeLightning", () => {
         },
     };
 
+    const mockReverseSwap: PendingReverseSwap = {
+        id: mock.id,
+        type: "reverse",
+        createdAt: Date.now(),
+        preimage: hex.encode(randomBytes(20)),
+        request: createReverseSwapRequest,
+        response: createReverseSwapResponse,
+        status: "swap.created",
+    };
+
+    const mockSubmarineSwap: PendingSubmarineSwap = {
+        id: mock.id,
+        type: "submarine",
+        createdAt: Date.now(),
+        request: createSubmarineSwapRequest,
+        response: createSubmarineSwapResponse,
+        status: "swap.created",
+    };
+
+    const mockFeeInfo = {
+        txFeeRate: "",
+        intentFee: {
+            offchainInput: "",
+            offchainOutput: "",
+            onchainInput: "",
+            onchainOutput: "",
+        },
+    };
+
+    const mockArkInfo: ArkInfo = {
+        boardingExitDelay: 604800n,
+        checkpointTapscript: "",
+        deprecatedSigners: [],
+        digest: "",
+        dust: 333n,
+        fees: mockFeeInfo,
+        forfeitAddress: "mock-forfeit-address",
+        forfeitPubkey: "mock-forfeit-pubkey",
+        network: "regtest",
+        scheduledSession: {
+            duration: BigInt(0),
+            fees: mockFeeInfo,
+            nextEndTime: BigInt(0),
+            nextStartTime: BigInt(0),
+            period: BigInt(0),
+        },
+        serviceStatus: {},
+        sessionDuration: 604800n,
+        signerPubkey: hex.encode(mock.pubkeys.server),
+        unilateralExitDelay: 604800n,
+        version: "1.0.0",
+        vtxoMaxAmount: 21000000n * 100_000_000n,
+        utxoMaxAmount: 21000000n * 100_000_000n,
+        vtxoMinAmount: -1n,
+        utxoMinAmount: -1n,
+    };
+
     beforeEach(async () => {
         vi.clearAllMocks();
 
@@ -347,6 +405,7 @@ describe("ArkadeLightning", () => {
         it("should claim a VHTLC", async () => {
             // arrange
             const pendingSwap: PendingReverseSwap = {
+                id: mock.id,
                 type: "reverse",
                 createdAt: Date.now(),
                 preimage: hex.encode(preimage),
@@ -354,22 +413,7 @@ describe("ArkadeLightning", () => {
                 response: createReverseSwapResponse,
                 status: "swap.created",
             };
-            vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce({
-                signerPubkey: hex.encode(mock.pubkeys.server),
-                network: "regtest",
-                vtxoTreeExpiry: 604800n,
-                unilateralExitDelay: 604800n,
-                roundInterval: 604800n,
-                dust: 333n,
-                forfeitAddress: "mock-forfeit-address",
-                version: "1.0.0",
-                boardingExitDelay: 604800n,
-                vtxoMaxAmount: 21000000n * 100_000_000n,
-                utxoMaxAmount: 21000000n * 100_000_000n,
-                vtxoMinAmount: -1n,
-                utxoMinAmount: -1n,
-                checkpointTapscript: "",
-            });
+            vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(mockArkInfo);
             vi.spyOn(lightning, "createVHTLCScript").mockReturnValueOnce(
                 mockVHTLC
             );
@@ -402,12 +446,8 @@ describe("ArkadeLightning", () => {
         it("should create a Lightning invoice", async () => {
             // arrange
             const pendingSwap: PendingReverseSwap = {
-                type: "reverse",
-                createdAt: Date.now(),
+                ...mockReverseSwap,
                 preimage: mock.preimage,
-                request: createReverseSwapRequest,
-                response: createReverseSwapResponse,
-                status: "swap.created",
             };
             vi.spyOn(lightning, "createReverseSwap").mockResolvedValueOnce(
                 pendingSwap
@@ -432,15 +472,11 @@ describe("ArkadeLightning", () => {
             // arrange
             const testDescription = "Test payment description";
             const pendingSwap: PendingReverseSwap = {
-                type: "reverse",
-                createdAt: Date.now(),
-                preimage: mock.preimage,
+                ...mockReverseSwap,
                 request: {
                     ...createReverseSwapRequest,
                     description: testDescription,
                 },
-                response: createReverseSwapResponse,
-                status: "swap.created",
             };
             const createReverseSwapSpy = vi
                 .spyOn(lightning, "createReverseSwap")
@@ -502,9 +538,7 @@ describe("ArkadeLightning", () => {
 
             // assert
             expect(lightning.getSwapStatus).toBeInstanceOf(Function);
-            const status = await lightning.getSwapStatus(
-                pendingSwap.response.id
-            );
+            const status = await lightning.getSwapStatus(pendingSwap.id);
             expect(status.status).toBe("swap.created");
         });
 
@@ -565,9 +599,7 @@ describe("ArkadeLightning", () => {
 
             // assert
             expect(lightning.getSwapStatus).toBeInstanceOf(Function);
-            const status = await lightning.getSwapStatus(
-                pendingSwap.response.id
-            );
+            const status = await lightning.getSwapStatus(pendingSwap.id);
             expect(status.status).toBe("swap.created");
         });
     });
@@ -594,13 +626,7 @@ describe("ArkadeLightning", () => {
     describe("Sending Lightning Payments", () => {
         it("should send a Lightning payment", async () => {
             // arrange
-            const pendingSwap: PendingSubmarineSwap = {
-                type: "submarine",
-                createdAt: Date.now(),
-                request: createSubmarineSwapRequest,
-                response: createSubmarineSwapResponse,
-                status: "swap.created",
-            };
+            const pendingSwap = mockSubmarineSwap;
             vi.spyOn(wallet, "sendBitcoin").mockResolvedValueOnce(mock.txid);
             vi.spyOn(lightning, "createSubmarineSwap").mockResolvedValueOnce(
                 pendingSwap
@@ -685,27 +711,18 @@ describe("ArkadeLightning", () => {
                 // arrange
                 const mockReverseSwaps: PendingReverseSwap[] = [
                     {
-                        type: "reverse",
-                        createdAt: Date.now() - 2000,
-                        preimage: "preimage1",
-                        request: createReverseSwapRequest,
-                        response: { ...createReverseSwapResponse, id: "swap1" },
+                        ...mockReverseSwap,
+                        id: "swap1",
                         status: "swap.created",
                     },
                     {
-                        type: "reverse",
-                        createdAt: Date.now() - 1000,
-                        preimage: "preimage2",
-                        request: createReverseSwapRequest,
-                        response: { ...createReverseSwapResponse, id: "swap2" },
+                        ...mockReverseSwap,
+                        id: "swap2",
                         status: "invoice.settled",
                     },
                     {
-                        type: "reverse",
-                        createdAt: Date.now(),
-                        preimage: "preimage3",
-                        request: createReverseSwapRequest,
-                        response: { ...createReverseSwapResponse, id: "swap3" },
+                        ...mockReverseSwap,
+                        id: "swap3",
                         status: "swap.created",
                     },
                 ];
@@ -725,8 +742,8 @@ describe("ArkadeLightning", () => {
 
                 // assert
                 expect(result).toHaveLength(2);
-                expect(result[0].response.id).toBe("swap1");
-                expect(result[1].response.id).toBe("swap3");
+                expect(result[0].id).toBe("swap1");
+                expect(result[1].id).toBe("swap3");
                 expect(
                     result.every((swap) => swap.status === "swap.created")
                 ).toBe(true);
@@ -749,33 +766,17 @@ describe("ArkadeLightning", () => {
                 // arrange
                 const mockSubmarineSwaps: PendingSubmarineSwap[] = [
                     {
-                        type: "submarine",
-                        createdAt: Date.now() - 2000,
-                        request: createSubmarineSwapRequest,
-                        response: {
-                            ...createSubmarineSwapResponse,
-                            id: "swap1",
-                        },
+                        ...mockSubmarineSwap,
+                        id: "swap1",
                         status: "invoice.set",
                     },
                     {
-                        type: "submarine",
-                        createdAt: Date.now() - 1000,
-                        request: createSubmarineSwapRequest,
-                        response: {
-                            ...createSubmarineSwapResponse,
-                            id: "swap2",
-                        },
-                        status: "swap.created",
+                        ...mockSubmarineSwap,
+                        id: "swap2",
                     },
                     {
-                        type: "submarine",
-                        createdAt: Date.now(),
-                        request: createSubmarineSwapRequest,
-                        response: {
-                            ...createSubmarineSwapResponse,
-                            id: "swap3",
-                        },
+                        ...mockSubmarineSwap,
+                        id: "swap3",
                         status: "invoice.set",
                     },
                 ];
@@ -795,8 +796,8 @@ describe("ArkadeLightning", () => {
 
                 // assert
                 expect(result).toHaveLength(2);
-                expect(result[0].response.id).toBe("swap1");
-                expect(result[1].response.id).toBe("swap3");
+                expect(result[0].id).toBe("swap1");
+                expect(result[1].id).toBe("swap3");
                 expect(
                     result.every((swap) => swap.status === "invoice.set")
                 ).toBe(true);
@@ -823,48 +824,29 @@ describe("ArkadeLightning", () => {
                 const now = Date.now();
                 const mockReverseSwaps: PendingReverseSwap[] = [
                     {
-                        type: "reverse",
+                        ...mockReverseSwap,
+                        id: "reverse1",
                         createdAt: now - 3000, // oldest
-                        preimage: "preimage1",
-                        request: createReverseSwapRequest,
-                        response: {
-                            ...createReverseSwapResponse,
-                            id: "reverse1",
-                        },
-                        status: "swap.created",
                     },
                     {
-                        type: "reverse",
-                        createdAt: now - 1000, // newest reverse
-                        preimage: "preimage2",
-                        request: createReverseSwapRequest,
-                        response: {
-                            ...createReverseSwapResponse,
-                            id: "reverse2",
-                        },
+                        ...mockReverseSwap,
+                        id: "reverse2",
+                        createdAt: now - 1000, // newest
                         status: "invoice.settled",
                     },
                 ];
 
                 const mockSubmarineSwaps: PendingSubmarineSwap[] = [
                     {
-                        type: "submarine",
+                        ...mockSubmarineSwap,
+                        id: "submarine1",
                         createdAt: now - 2000, // middle
-                        request: createSubmarineSwapRequest,
-                        response: {
-                            ...createSubmarineSwapResponse,
-                            id: "submarine1",
-                        },
                         status: "invoice.set",
                     },
                     {
-                        type: "submarine",
+                        ...mockSubmarineSwap,
+                        id: "submarine2",
                         createdAt: now, // newest overall
-                        request: createSubmarineSwapRequest,
-                        response: {
-                            ...createSubmarineSwapResponse,
-                            id: "submarine2",
-                        },
                         status: "swap.created",
                     },
                 ];
@@ -888,10 +870,10 @@ describe("ArkadeLightning", () => {
                 // assert
                 expect(result).toHaveLength(4);
                 // Should be sorted by createdAt desc (newest first)
-                expect(result[0].response.id).toBe("submarine2"); // newest
-                expect(result[1].response.id).toBe("reverse2");
-                expect(result[2].response.id).toBe("submarine1");
-                expect(result[3].response.id).toBe("reverse1"); // oldest
+                expect(result[0].id).toBe("submarine2"); // newest
+                expect(result[1].id).toBe("reverse2");
+                expect(result[2].id).toBe("submarine1");
+                expect(result[3].id).toBe("reverse1"); // oldest
 
                 // Verify the sort order
                 for (let i = 0; i < result.length - 1; i++) {
@@ -905,10 +887,9 @@ describe("ArkadeLightning", () => {
                 // arrange
                 const mockReverseSwaps: PendingReverseSwap[] = [
                     {
-                        type: "reverse",
+                        ...mockReverseSwap,
                         createdAt: Date.now() - 1000,
                         preimage: "preimage1",
-                        request: createReverseSwapRequest,
                         response: {
                             ...createReverseSwapResponse,
                             id: "reverse1",
@@ -919,9 +900,7 @@ describe("ArkadeLightning", () => {
 
                 const mockSubmarineSwaps: PendingSubmarineSwap[] = [
                     {
-                        type: "submarine",
-                        createdAt: Date.now(),
-                        request: createSubmarineSwapRequest,
+                        ...mockSubmarineSwap,
                         response: {
                             ...createSubmarineSwapResponse,
                             id: "submarine1",
@@ -956,14 +935,9 @@ describe("ArkadeLightning", () => {
         describe("swap persistence during operations", () => {
             it("should save reverse swap when creating lightning invoice", async () => {
                 // arrange
-                vi.spyOn(lightning, "createReverseSwap").mockResolvedValueOnce({
-                    type: "reverse",
-                    createdAt: Date.now(),
-                    preimage: mock.preimage,
-                    request: createReverseSwapRequest,
-                    response: createReverseSwapResponse,
-                    status: "swap.created",
-                });
+                vi.spyOn(lightning, "createReverseSwap").mockResolvedValueOnce(
+                    mockReverseSwap
+                );
 
                 // act
                 await lightning.createLightningInvoice({ amount: mock.amount });
@@ -999,7 +973,7 @@ describe("ArkadeLightning", () => {
                         }),
                         response: createSubmarineSwapResponse,
                     }),
-                    "type"
+                    "id"
                 );
                 expect(result.type).toBe("submarine");
                 expect(result.status).toBe("invoice.set");
@@ -1030,7 +1004,7 @@ describe("ArkadeLightning", () => {
                         }),
                         response: createReverseSwapResponse,
                     }),
-                    "type"
+                    "id"
                 );
                 expect(result.type).toBe("reverse");
                 expect(result.status).toBe("swap.created");
@@ -1041,14 +1015,7 @@ describe("ArkadeLightning", () => {
     describe("waitAndClaim", () => {
         it("should return valid txid when transaction is available", async () => {
             // arrange
-            const pendingSwap: PendingReverseSwap = {
-                type: "reverse",
-                createdAt: Date.now(),
-                preimage: mock.preimage,
-                request: createReverseSwapRequest,
-                response: createReverseSwapResponse,
-                status: "swap.created",
-            };
+            const pendingSwap = mockReverseSwap;
 
             // Mock getSwapStatus to return a status with valid transaction
             vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValue({
@@ -1078,14 +1045,7 @@ describe("ArkadeLightning", () => {
 
         it("should throw error when transaction id is empty string", async () => {
             // arrange
-            const pendingSwap: PendingReverseSwap = {
-                type: "reverse",
-                createdAt: Date.now(),
-                preimage: mock.preimage,
-                request: createReverseSwapRequest,
-                response: createReverseSwapResponse,
-                status: "swap.created",
-            };
+            const pendingSwap = mockReverseSwap;
 
             // Mock getSwapStatus to return a status with empty transaction id
             vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValue({
