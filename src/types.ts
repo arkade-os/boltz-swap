@@ -1,140 +1,124 @@
-import { Identity, IWallet, ArkProvider, IndexerProvider } from '@arkade-os/sdk';
-import { StorageProvider } from './storage-provider';
 import {
-  CreateReverseSwapResponse,
-  CreateSubmarineSwapResponse,
-  BoltzSwapProvider,
-  CreateReverseSwapRequest,
-  CreateSubmarineSwapRequest,
-  BoltzSwapStatus,
-} from './boltz-swap-provider';
+    ArkProvider,
+    IndexerProvider,
+    ServiceWorkerWallet,
+    Wallet,
+} from "@arkade-os/sdk";
+import {
+    CreateReverseSwapResponse,
+    CreateSubmarineSwapResponse,
+    BoltzSwapProvider,
+    CreateReverseSwapRequest,
+    CreateSubmarineSwapRequest,
+    BoltzSwapStatus,
+} from "./boltz-swap-provider";
 
 // TODO: replace with better data structure
 export interface Vtxo {
-  txid: string;
-  vout: number;
-  sats: number;
-  script: string;
-  tx: {
-    hex: string;
-    version: number;
-    locktime: number;
-  };
+    txid: string;
+    vout: number;
+    sats: number;
+    script: string;
+    tx: {
+        hex: string;
+        version: number;
+        locktime: number;
+    };
 }
 
-// Support both wallet interfaces:
-// 1. Wallet with optional nested identity and providers
-// 2. ServiceWorkerWallet with identity methods spread directly (legacy)
-export type WalletWithNestedIdentity = IWallet & {
-  arkProvider?: ArkProvider;
-  indexerProvider?: IndexerProvider;
-  identity: Identity;
-};
-
-export type ServiceWorkerWallet = IWallet & Identity;
-
-export type Wallet = WalletWithNestedIdentity | ServiceWorkerWallet;
-
-// Type guards for better ergonomics and type narrowing
-export const isWalletWithNestedIdentity = (w: Wallet): w is WalletWithNestedIdentity =>
-  !!(w as any).identity && typeof (w as any).identity?.xOnlyPublicKey === 'function';
-
-export const isServiceWorkerWallet = (w: Wallet): w is ServiceWorkerWallet =>
-  typeof (w as any).xOnlyPublicKey === 'function' && !(w as any).identity;
-
-export type Network = 'bitcoin' | 'mutinynet' | 'regtest' | 'testnet';
+export type Network = "bitcoin" | "mutinynet" | "regtest" | "testnet";
 
 export interface CreateLightningInvoiceRequest {
-  amount: number;
-  description?: string;
+    amount: number;
+    description?: string;
 }
 export interface CreateLightningInvoiceResponse {
-  amount: number;
-  expiry: number;
-  invoice: string;
-  paymentHash: string;
-  pendingSwap: PendingReverseSwap;
-  preimage: string;
+    amount: number;
+    expiry: number;
+    invoice: string;
+    paymentHash: string;
+    pendingSwap: PendingReverseSwap;
+    preimage: string;
 }
 export interface SendLightningPaymentRequest {
-  invoice: string;
-  maxFeeSats?: number;
+    invoice: string;
+    maxFeeSats?: number;
 }
 
 export interface SendLightningPaymentResponse {
-  amount: number;
-  preimage: string;
-  txid: string;
+    amount: number;
+    preimage: string;
+    txid: string;
 }
 
 export interface PendingReverseSwap {
-  type: 'reverse';
-  createdAt: number;
-  preimage: string;
-  status: BoltzSwapStatus;
-  request: CreateReverseSwapRequest;
-  response: CreateReverseSwapResponse;
+    type: "reverse";
+    createdAt: number;
+    preimage: string;
+    status: BoltzSwapStatus;
+    request: CreateReverseSwapRequest;
+    response: CreateReverseSwapResponse;
 }
 
 export interface PendingSubmarineSwap {
-  type: 'submarine';
-  createdAt: number;
-  preimage?: string;
-  status: BoltzSwapStatus;
-  request: CreateSubmarineSwapRequest;
-  response: CreateSubmarineSwapResponse;
+    type: "submarine";
+    createdAt: number;
+    preimage?: string;
+    refundable?: boolean;
+    status: BoltzSwapStatus;
+    request: CreateSubmarineSwapRequest;
+    response: CreateSubmarineSwapResponse;
 }
 
 export interface RefundHandler {
-  onRefundNeeded: (swapData: PendingSubmarineSwap) => Promise<void>;
+    onRefundNeeded: (swapData: PendingSubmarineSwap) => Promise<void>;
 }
 
 export interface ArkadeLightningConfig {
-  wallet: Wallet;
-  arkProvider?: ArkProvider;
-  swapProvider: BoltzSwapProvider;
-  indexerProvider?: IndexerProvider;
-  feeConfig?: Partial<FeeConfig>;
-  refundHandler?: RefundHandler;
-  storageProvider?: StorageProvider | null;
-  timeoutConfig?: Partial<TimeoutConfig>;
-  retryConfig?: Partial<RetryConfig>;
+    wallet: Wallet | ServiceWorkerWallet;
+    arkProvider?: ArkProvider;
+    swapProvider: BoltzSwapProvider;
+    indexerProvider?: IndexerProvider;
+    feeConfig?: Partial<FeeConfig>;
+    refundHandler?: RefundHandler;
+    timeoutConfig?: Partial<TimeoutConfig>;
+    retryConfig?: Partial<RetryConfig>;
 }
 
 export interface TimeoutConfig {
-  swapExpiryBlocks: number;
-  invoiceExpirySeconds: number;
-  claimDelayBlocks: number;
+    swapExpiryBlocks: number;
+    invoiceExpirySeconds: number;
+    claimDelayBlocks: number;
 }
 
 export interface FeeConfig {
-  maxMinerFeeSats: number;
-  maxSwapFeeSats: number;
+    maxMinerFeeSats: number;
+    maxSwapFeeSats: number;
 }
 
 export interface RetryConfig {
-  maxAttempts: number;
-  delayMs: number;
+    maxAttempts: number;
+    delayMs: number;
 }
 
 export interface DecodedInvoice {
-  expiry: number;
-  amountSats: number;
-  description: string;
-  paymentHash: string;
+    expiry: number;
+    amountSats: number;
+    description: string;
+    paymentHash: string;
 }
 
 export interface IncomingPaymentSubscription {
-  on(event: 'pending', listener: () => void): this;
-  on(event: 'created', listener: () => void): this;
-  on(event: 'settled', listener: () => void): this;
-  on(event: 'failed', listener: (error: Error) => void): this;
-  unsubscribe(): void;
+    on(event: "pending", listener: () => void): this;
+    on(event: "created", listener: () => void): this;
+    on(event: "settled", listener: () => void): this;
+    on(event: "failed", listener: (error: Error) => void): this;
+    unsubscribe(): void;
 }
 
 export interface LimitsResponse {
-  min: number;
-  max: number;
+    min: number;
+    max: number;
 }
 
 /**
@@ -143,15 +127,15 @@ export interface LimitsResponse {
  * - minerFees: values in satoshis
  */
 export interface FeesResponse {
-  submarine: {
-    percentage: number;
-    minerFees: number;
-  };
-  reverse: {
-    percentage: number;
-    minerFees: {
-      lockup: number;
-      claim: number;
+    submarine: {
+        percentage: number;
+        minerFees: number;
     };
-  };
+    reverse: {
+        percentage: number;
+        minerFees: {
+            lockup: number;
+            claim: number;
+        };
+    };
 }
