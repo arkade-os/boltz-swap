@@ -43,7 +43,7 @@ jobs:
       run: pnpm lint
 
     - name: Run tests
-      run: pnpm test
+      run: pnpm test:unit
 
     - name: Check TypeScript compilation
       run: pnpm build
