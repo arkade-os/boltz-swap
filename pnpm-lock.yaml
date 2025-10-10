@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@arkade-os/sdk':
-        specifier: 0.3.1-alpha.1
-        version: 0.3.1-alpha.1
+        specifier: 0.3.1-alpha.2
+        version: 0.3.1-alpha.2
       '@noble/hashes':
         specifier: 2.0.0
         version: 2.0.0
@@ -63,8 +63,8 @@ importers:
 
 packages:
 
-  '@arkade-os/sdk@0.3.1-alpha.1':
-    resolution: {integrity: sha512-hCbtpLReV47bpZrGOzBngkYkAdUYMYmyN/Wr2M5i3sS9+XdEsT8QRPuMkXZDyILOtRRdIRJ0Gyx/IZqQ2m0Zeg==}
+  '@arkade-os/sdk@0.3.1-alpha.2':
+    resolution: {integrity: sha512-JGmsXQeJKM3+OFyRrChFHGqW+dMjfFxB9BbzYsOE2+0S5lt15ACed1JOcWVUjFdOvK3mbBgJrR3VmN4amPmHew==}
     engines: {node: '>=20.0.0'}
 
   '@esbuild/aix-ppc64@0.25.9':
@@ -1345,7 +1345,7 @@ packages:
 
 snapshots:
 
-  '@arkade-os/sdk@0.3.1-alpha.1':
+  '@arkade-os/sdk@0.3.1-alpha.2':
     dependencies:
       '@noble/curves': 2.0.0
       '@noble/secp256k1': 3.0.0
