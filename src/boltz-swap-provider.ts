@@ -362,10 +362,8 @@ export const isCreateReverseSwapResponse = (
     );
 };
 
-const BASE_URLS: Record<Network, string> = {
-    bitcoin: "https://boltz.arkade.sh",
+const BASE_URLS: Partial<Record<Network, string>> = {
     mutinynet: "https://api.boltz.mutinynet.arkade.sh",
-    testnet: "https://boltz.testnet.arkade.sh",
     regtest: "http://localhost:9069",
 };
 
@@ -376,11 +374,12 @@ export class BoltzSwapProvider {
 
     constructor(config: SwapProviderConfig) {
         this.network = config.network;
-        this.apiUrl = config.apiUrl || BASE_URLS[config.network];
-        if (!this.apiUrl)
+        const apiUrl = config.apiUrl || BASE_URLS[config.network];
+        if (!apiUrl)
             throw new Error(
                 `API URL is required for network: ${config.network}`
             );
+        this.apiUrl = apiUrl;
         this.wsUrl =
             this.apiUrl
                 .replace(/^http(s)?:\/\//, "ws$1://")
