@@ -362,10 +362,9 @@ export const isCreateReverseSwapResponse = (
     );
 };
 
-const BASE_URLS: Record<Network, string> = {
+const BASE_URLS: Partial<Record<Network, string>> = {
     bitcoin: "https://boltz.arkade.sh",
     mutinynet: "https://api.boltz.mutinynet.arkade.sh",
-    signet: "https://boltz.signet.arkade.sh",
     regtest: "http://localhost:9069",
 };
 
