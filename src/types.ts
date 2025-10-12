@@ -42,7 +42,6 @@ export interface CreateLightningInvoiceResponse {
 }
 export interface SendLightningPaymentRequest {
     invoice: string;
-    maxFeeSats?: number;
 }
 
 export interface SendLightningPaymentResponse {
