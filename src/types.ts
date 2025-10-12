@@ -26,7 +26,7 @@ export interface Vtxo {
     };
 }
 
-export type Network = "bitcoin" | "mutinynet" | "regtest" | "testnet";
+export type Network = "bitcoin" | "mutinynet" | "regtest" | "signet";
 
 export interface CreateLightningInvoiceRequest {
     amount: number;

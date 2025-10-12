@@ -469,7 +469,7 @@ describe("BoltzSwapProvider", () => {
 
     // Configuration:
     // - Default vs custom API URL
-    // - Network selection (mainnet/testnet/regtest)
+    // - Network selection (mainnet/signet/regtest)
     // - Custom request timeouts
     // - Custom retry logic
 
