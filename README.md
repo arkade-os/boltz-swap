@@ -145,7 +145,6 @@ if (limits && decodedInvoice.amountSats >= limits.min && decodedInvoice.amountSa
   // Amount is valid for swaps
   const paymentResult = await arkadeLightning.sendLightningPayment({
     invoice: invoice,
-    maxFeeSats: 1000,
   });
   console.log('Payment successful!');
 } else {
@@ -253,7 +252,6 @@ console.log('Payment Hash:', invoiceDetails.paymentHash);
 // Pay the Lightning invoice from your Arkade wallet
 const paymentResult = await arkadeLightning.sendLightningPayment({
   invoice: 'lnbc500u1pj...', // Lightning invoice string
-  maxFeeSats: 1000, // Optional: Maximum fee you're willing to pay (in sats)
 });
 
 console.log('Payment successful!');

@@ -185,17 +185,6 @@ export class ArkadeLightning {
     ): Promise<SendLightningPaymentResponse> {
         const pendingSwap = await this.createSubmarineSwap(args);
 
-        // validate max fee if provided
-        if (args.maxFeeSats != null) {
-            const invoiceAmount = decodeInvoice(args.invoice).amountSats ?? 0;
-            const fees = pendingSwap.response.expectedAmount - invoiceAmount;
-            if (invoiceAmount > 0 && fees > args.maxFeeSats) {
-                throw new SwapError({
-                    message: `Swap fees ${fees} exceed max allowed ${args.maxFeeSats}`,
-                });
-            }
-        }
-
         // save pending swap to storage
         await this.savePendingSubmarineSwap(pendingSwap);
 
