@@ -875,6 +875,8 @@ export class ArkadeLightning {
             );
         }
 
+        const delayType = (num: number) => (num < 512 ? "blocks" : "seconds");
+
         const vhtlcScript = new VHTLC.Script({
             preimageHash: ripemd160(preimageHash),
             sender: senderXOnlyPublicKey,
@@ -882,15 +884,17 @@ export class ArkadeLightning {
             server: serverXOnlyPublicKey,
             refundLocktime: BigInt(timeoutBlockHeights.refund),
             unilateralClaimDelay: {
-                type: "blocks",
+                type: delayType(timeoutBlockHeights.unilateralClaim),
                 value: BigInt(timeoutBlockHeights.unilateralClaim),
             },
             unilateralRefundDelay: {
-                type: "blocks",
+                type: delayType(timeoutBlockHeights.unilateralRefund),
                 value: BigInt(timeoutBlockHeights.unilateralRefund),
             },
             unilateralRefundWithoutReceiverDelay: {
-                type: "blocks",
+                type: delayType(
+                    timeoutBlockHeights.unilateralRefundWithoutReceiver
+                ),
                 value: BigInt(
                     timeoutBlockHeights.unilateralRefundWithoutReceiver
                 ),
