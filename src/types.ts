@@ -26,7 +26,7 @@ export interface Vtxo {
     };
 }
 
-export type Network = "bitcoin" | "mutinynet" | "regtest" | "testnet";
+export type Network = "bitcoin" | "mutinynet" | "regtest" | "signet";
 
 export interface CreateLightningInvoiceRequest {
     amount: number;
@@ -42,7 +42,6 @@ export interface CreateLightningInvoiceResponse {
 }
 export interface SendLightningPaymentRequest {
     invoice: string;
-    maxFeeSats?: number;
 }
 
 export interface SendLightningPaymentResponse {
@@ -52,6 +51,7 @@ export interface SendLightningPaymentResponse {
 }
 
 export interface PendingReverseSwap {
+    id: string;
     type: "reverse";
     createdAt: number;
     preimage: string;
@@ -61,6 +61,7 @@ export interface PendingReverseSwap {
 }
 
 export interface PendingSubmarineSwap {
+    id: string;
     type: "submarine";
     createdAt: number;
     preimage?: string;

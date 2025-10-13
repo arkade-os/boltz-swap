@@ -106,7 +106,7 @@ export class ArkadeLightning {
         await this.wallet.contractRepository.saveToContractCollection(
             "reverseSwaps",
             swap,
-            "type"
+            "id"
         );
     }
 
@@ -116,7 +116,7 @@ export class ArkadeLightning {
         await this.wallet.contractRepository.saveToContractCollection(
             "submarineSwaps",
             swap,
-            "type"
+            "id"
         );
     }
 
@@ -185,17 +185,6 @@ export class ArkadeLightning {
     ): Promise<SendLightningPaymentResponse> {
         const pendingSwap = await this.createSubmarineSwap(args);
 
-        // validate max fee if provided
-        if (args.maxFeeSats != null) {
-            const invoiceAmount = decodeInvoice(args.invoice).amountSats ?? 0;
-            const fees = pendingSwap.response.expectedAmount - invoiceAmount;
-            if (invoiceAmount > 0 && fees > args.maxFeeSats) {
-                throw new SwapError({
-                    message: `Swap fees ${fees} exceed max allowed ${args.maxFeeSats}`,
-                });
-            }
-        }
-
         // save pending swap to storage
         await this.savePendingSubmarineSwap(pendingSwap);
 
@@ -215,9 +204,7 @@ export class ArkadeLightning {
         } catch (error: any) {
             if (error.isRefundable) {
                 await this.refundVHTLC(pendingSwap);
-                const finalStatus = await this.getSwapStatus(
-                    pendingSwap.response.id
-                );
+                const finalStatus = await this.getSwapStatus(pendingSwap.id);
                 await this.savePendingSubmarineSwap({
                     ...pendingSwap,
                     status: finalStatus.status,
@@ -257,6 +244,7 @@ export class ArkadeLightning {
 
         // create pending swap object
         const pendingSwap: PendingSubmarineSwap = {
+            id: swapResponse.id,
             type: "submarine",
             createdAt: Math.floor(Date.now() / 1000),
             request: swapRequest,
@@ -311,6 +299,7 @@ export class ArkadeLightning {
             await this.swapProvider.createReverseSwap(swapRequest);
 
         const pendingSwap: PendingReverseSwap = {
+            id: swapResponse.id,
             type: "reverse",
             createdAt: Math.floor(Date.now() / 1000),
             preimage: hex.encode(preimage),
@@ -460,7 +449,7 @@ export class ArkadeLightning {
         await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
 
         // update the pending swap on storage if available
-        const finalStatus = await this.getSwapStatus(pendingSwap.response.id);
+        const finalStatus = await this.getSwapStatus(pendingSwap.id);
         await this.savePendingReverseSwap({
             ...pendingSwap,
             status: finalStatus.status,
@@ -599,7 +588,7 @@ export class ArkadeLightning {
         await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
 
         // update the pending swap on storage if available
-        const finalStatus = await this.getSwapStatus(pendingSwap.response.id);
+        const finalStatus = await this.getSwapStatus(pendingSwap.id);
         await this.savePendingSubmarineSwap({
             ...pendingSwap,
             status: finalStatus.status,
@@ -633,14 +622,14 @@ export class ArkadeLightning {
                         });
                         const swapStatus =
                             await this.swapProvider.getReverseSwapTxId(
-                                pendingSwap.response.id
+                                pendingSwap.id
                             );
                         const txid = swapStatus.id;
 
                         if (!txid || txid.trim() === "") {
                             reject(
                                 new SwapError({
-                                    message: `Transaction ID not available for settled swap ${pendingSwap.response.id}.`,
+                                    message: `Transaction ID not available for settled swap ${pendingSwap.id}.`,
                                 })
                             );
                             break;
@@ -696,10 +685,7 @@ export class ArkadeLightning {
                 }
             };
 
-            this.swapProvider.monitorSwap(
-                pendingSwap.response.id,
-                onStatusUpdate
-            );
+            this.swapProvider.monitorSwap(pendingSwap.id, onStatusUpdate);
         });
     }
 
@@ -765,7 +751,7 @@ export class ArkadeLightning {
                         isResolved = true;
                         const { preimage } =
                             await this.swapProvider.getSwapPreimage(
-                                pendingSwap.response.id
+                                pendingSwap.id
                             );
                         await this.savePendingSubmarineSwap({
                             ...pendingSwap,
@@ -786,7 +772,7 @@ export class ArkadeLightning {
 
             // Start monitoring - the WebSocket will auto-close on terminal states
             this.swapProvider
-                .monitorSwap(pendingSwap.response.id, onStatusUpdate)
+                .monitorSwap(pendingSwap.id, onStatusUpdate)
                 .catch((error) => {
                     if (!isResolved) {
                         isResolved = true;
@@ -1008,26 +994,26 @@ export class ArkadeLightning {
         // refresh status of all pending reverse swaps
         for (const swap of await this.getPendingReverseSwapsFromStorage()) {
             if (isReverseFinalStatus(swap.status)) continue;
-            this.getSwapStatus(swap.response.id)
+            this.getSwapStatus(swap.id)
                 .then(({ status }) => {
                     this.savePendingReverseSwap({ ...swap, status });
                 })
                 .catch((error) => {
                     console.error(
-                        `Failed to refresh swap status for ${swap.response.id}:`,
+                        `Failed to refresh swap status for ${swap.id}:`,
                         error
                     );
                 });
         }
         for (const swap of await this.getPendingSubmarineSwapsFromStorage()) {
             if (isSubmarineFinalStatus(swap.status)) continue;
-            this.getSwapStatus(swap.response.id)
+            this.getSwapStatus(swap.id)
                 .then(({ status }) => {
                     this.savePendingSubmarineSwap({ ...swap, status });
                 })
                 .catch((error) => {
                     console.error(
-                        `Failed to refresh swap status for ${swap.response.id}:`,
+                        `Failed to refresh swap status for ${swap.id}:`,
                         error
                     );
                 });
