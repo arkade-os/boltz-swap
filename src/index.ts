@@ -7,6 +7,7 @@ export {
     isSubmarineFinalStatus,
     isSubmarineSwapRefundable,
     isSubmarineRefundableStatus,
+    isReverseClaimableStatus,
     isReverseFinalStatus,
 } from "./boltz-swap-provider";
 export {
