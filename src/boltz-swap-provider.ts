@@ -89,6 +89,10 @@ export const isReversePendingStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
+export const isReverseClaimableStatus = (status: BoltzSwapStatus): boolean => {
+    return ["transaction.mempool", "transaction.confirmed"].includes(status);
+};
+
 export const isReverseSuccessStatus = (status: BoltzSwapStatus): boolean => {
     return status === "invoice.settled";
 };
