@@ -47,6 +47,7 @@ import { Transaction } from "@scure/btc-signer";
 import { TransactionInput } from "@scure/btc-signer/psbt.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
+import { mergeTxs } from "./utils/signatures";
 
 function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
@@ -540,29 +541,61 @@ export class ArkadeLightning {
         );
 
         // create the virtual transaction to claim the VHTLC
-        const { arkTx, checkpoints } = buildOffchainTx(
-            [
-                {
-                    ...spendableVtxos.vtxos[0],
-                    tapLeafScript: vhtlcScript.refund(),
-                    tapTree: vhtlcScript.encode(),
-                },
-            ],
-            [
-                {
-                    amount: BigInt(spendableVtxos.vtxos[0].value),
-                    script: ArkAddress.decode(address).pkScript,
-                },
-            ],
-            serverUnrollScript
+        const { arkTx: unsignedRefundTx, checkpoints: checkpointPtxs } =
+            buildOffchainTx(
+                [
+                    {
+                        ...spendableVtxos.vtxos[0],
+                        tapLeafScript: vhtlcScript.refund(),
+                        tapTree: vhtlcScript.encode(),
+                    },
+                ],
+                [
+                    {
+                        amount: BigInt(spendableVtxos.vtxos[0].value),
+                        script: ArkAddress.decode(address).pkScript,
+                    },
+                ],
+                serverUnrollScript
+            );
+
+        // validate we have one checkpoint transaction
+        if (checkpointPtxs.length !== 1)
+            throw new Error(
+                `Expected one checkpoint transaction, got ${checkpointPtxs.length}`
+            );
+
+        const unsignedCheckpointTx = checkpointPtxs[0];
+
+        // get Boltz to sign its part
+        const {
+            transaction: boltzSignedRefundTx,
+            checkpoint: boltzSignedCheckpointTx,
+        } = await this.swapProvider.refundSubmarineSwap(
+            pendingSwap.id,
+            unsignedRefundTx,
+            unsignedCheckpointTx
         );
 
-        // sign and submit the virtual transaction
-        const signedArkTx = await vhtlcIdentity.sign(arkTx);
+        // sign our part
+        const signedRefundTx = await vhtlcIdentity.sign(unsignedRefundTx);
+        const signedCheckpointTx =
+            await vhtlcIdentity.sign(unsignedCheckpointTx);
+
+        // combine transactions
+        const combinedSignedRefundTx = mergeTxs(
+            boltzSignedRefundTx,
+            signedRefundTx
+        );
+        const combinedSignedCheckpointTx = mergeTxs(
+            boltzSignedCheckpointTx,
+            signedCheckpointTx
+        );
+
         const { arkTxid, finalArkTx, signedCheckpointTxs } =
             await this.arkProvider.submitTx(
-                base64.encode(signedArkTx.toPSBT()),
-                checkpoints.map((c) => base64.encode(c.toPSBT()))
+                base64.encode(combinedSignedRefundTx.toPSBT()),
+                [base64.encode(unsignedCheckpointTx.toPSBT())]
             );
 
         // verify the server signed the transaction with correct key
@@ -576,22 +609,23 @@ export class ArkadeLightning {
             throw new Error("Invalid final Ark transaction");
         }
 
-        const finalCheckpoints = await Promise.all(
-            signedCheckpointTxs.map(async (c) => {
-                const tx = Transaction.fromPSBT(base64.decode(c), {
-                    allowUnknown: true,
-                });
-                const signedCheckpoint = await vhtlcIdentity.sign(tx, [0]);
-                return base64.encode(signedCheckpoint.toPSBT());
-            })
+        const serverSignedCheckpointTx = Transaction.fromPSBT(
+            base64.decode(signedCheckpointTxs[0])
         );
-        await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
+
+        const finalCheckpointTx = mergeTxs(
+            combinedSignedCheckpointTx,
+            serverSignedCheckpointTx
+        );
+
+        await this.arkProvider.finalizeTx(arkTxid, [
+            base64.encode(finalCheckpointTx.toPSBT()),
+        ]);
 
         // update the pending swap on storage if available
-        const finalStatus = await this.getSwapStatus(pendingSwap.id);
         await this.savePendingSubmarineSwap({
             ...pendingSwap,
-            status: finalStatus.status,
+            refunded: true,
         });
     }
 

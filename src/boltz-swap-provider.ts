@@ -1,3 +1,4 @@
+import { Transaction } from "@arkade-os/sdk";
 import { NetworkError, SchemaError, SwapError } from "./errors";
 import {
     FeesResponse,
@@ -6,6 +7,7 @@ import {
     PendingReverseSwap,
     PendingSubmarineSwap,
 } from "./types";
+import { base64 } from "@scure/base";
 
 export interface SwapProviderConfig {
     apiUrl?: string;
@@ -129,7 +131,8 @@ export const isSubmarineSwapRefundable = (
     return (
         isSubmarineRefundableStatus(swap.status) &&
         isPendingSubmarineSwap(swap) &&
-        swap.refundable !== false
+        swap.refundable !== false &&
+        swap.refunded !== true
     );
 };
 
@@ -366,6 +369,19 @@ export const isCreateReverseSwapResponse = (
     );
 };
 
+export type RefundSubmarineSwapResponse = {
+    transaction: string;
+    checkpoint: string;
+};
+
+export const isRefundSubmarineSwapResponse = (
+    data: any
+): data is RefundSubmarineSwapResponse => {
+    return (
+        data && typeof data === "object" && typeof data.transaction === "string"
+    );
+};
+
 const BASE_URLS: Partial<Record<Network, string>> = {
     mutinynet: "https://api.boltz.mutinynet.arkade.sh",
     regtest: "http://localhost:9069",
@@ -538,6 +554,36 @@ export class BoltzSwapProvider {
         if (!isCreateReverseSwapResponse(response))
             throw new SchemaError({ message: "Error creating reverse swap" });
         return response;
+    }
+
+    async refundSubmarineSwap(
+        swapId: string,
+        transaction: Transaction,
+        checkpoint: Transaction
+    ): Promise<{ transaction: Transaction; checkpoint: Transaction }> {
+        // make refund swap request
+        const requestBody = {
+            checkpoint: base64.encode(checkpoint.toPSBT()),
+            transaction: base64.encode(transaction.toPSBT()),
+        };
+
+        const response = await this.request<RefundSubmarineSwapResponse>(
+            `/v2/swap/submarine/${swapId}/refund/ark`,
+            "POST",
+            requestBody
+        );
+        if (!isRefundSubmarineSwapResponse(response))
+            throw new SchemaError({
+                message: "Error refunding submarine swap",
+            });
+        return {
+            transaction: Transaction.fromPSBT(
+                base64.decode(response.transaction)
+            ),
+            checkpoint: Transaction.fromPSBT(
+                base64.decode(response.checkpoint)
+            ),
+        };
     }
 
     async monitorSwap(
