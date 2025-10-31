@@ -601,28 +601,17 @@ export class ArkadeLightning {
             );
 
         // verify the server signed the transaction with correct key
-        if (
-            !this.validFinalArkTx(
-                finalArkTx,
-                serverXOnlyPublicKey,
-                vhtlcScript.leaves
-            )
-        ) {
-            throw new Error("Invalid final Ark transaction");
-        }
-
         const tx = Transaction.fromPSBT(base64.decode(finalArkTx));
         const inputIndex = 0;
         const requiredSigners = [
             hex.encode(serverXOnlyPublicKey),
             hex.encode(receiverXOnlyPublicKey),
-            pendingSwap.response.claimPublicKey,
+            pendingSwap.response.claimPublicKey.slice(2),
         ];
 
-        console.log(
-            "verifySignatures",
-            this.verifySignatures(tx, inputIndex, requiredSigners)
-        );
+        if (!this.validRefundTx(tx, inputIndex, requiredSigners)) {
+            throw new Error("Invalid refund transaction");
+        }
 
         const serverSignedCheckpointTx = Transaction.fromPSBT(
             base64.decode(signedCheckpointTxs[0])
@@ -640,6 +629,7 @@ export class ArkadeLightning {
         // update the pending swap on storage if available
         await this.savePendingSubmarineSwap({
             ...pendingSwap,
+            refundable: true,
             refunded: true,
         });
     }
@@ -865,7 +855,7 @@ export class ArkadeLightning {
         return inputs.every((input) => input.witnessUtxo);
     };
 
-    private verifySignatures = (
+    private validRefundTx = (
         tx: Transaction,
         inputIndex: number,
         requiredSigners: string[]
