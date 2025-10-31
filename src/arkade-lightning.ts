@@ -489,12 +489,24 @@ export class ArkadeLightning {
             );
         }
 
+        // validate we are using a x-only boltz public key
+        let boltzXOnlyPublicKey = hex.decode(
+            pendingSwap.response.claimPublicKey
+        );
+        if (boltzXOnlyPublicKey.length == 33) {
+            boltzXOnlyPublicKey = boltzXOnlyPublicKey.slice(1);
+        } else if (boltzXOnlyPublicKey.length !== 32) {
+            throw new Error(
+                `Invalid boltz public key length: ${boltzXOnlyPublicKey.length}`
+            );
+        }
+
         const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
             network: aspInfo.network,
             preimageHash: hex.decode(
                 getInvoicePaymentHash(pendingSwap.request.invoice)
             ),
-            receiverPubkey: pendingSwap.response.claimPublicKey,
+            receiverPubkey: hex.encode(boltzXOnlyPublicKey),
             senderPubkey: hex.encode(
                 await this.wallet.identity.xOnlyPublicKey()
             ),
@@ -578,6 +590,25 @@ export class ArkadeLightning {
             unsignedCheckpointTx
         );
 
+        // Verify Boltz signatures before combining
+        const boltzXOnlyPublicKeyHex = hex.encode(boltzXOnlyPublicKey);
+        if (
+            !this.verifySignatures(boltzSignedRefundTx, 0, [
+                boltzXOnlyPublicKeyHex,
+            ])
+        ) {
+            throw new Error("Invalid Boltz signature in refund transaction");
+        }
+        if (
+            !this.verifySignatures(boltzSignedCheckpointTx, 0, [
+                boltzXOnlyPublicKeyHex,
+            ])
+        ) {
+            throw new Error(
+                "Invalid Boltz signature in checkpoint transaction"
+            );
+        }
+
         // sign our part
         const signedRefundTx = await vhtlcIdentity.sign(unsignedRefundTx);
         const signedCheckpointTx =
@@ -600,19 +631,20 @@ export class ArkadeLightning {
                 [base64.encode(unsignedCheckpointTx.toPSBT())]
             );
 
-        // verify the server signed the transaction with correct key
+        // verify the final tx is properly signed
         const tx = Transaction.fromPSBT(base64.decode(finalArkTx));
         const inputIndex = 0;
         const requiredSigners = [
+            hex.encode(boltzXOnlyPublicKey),
             hex.encode(serverXOnlyPublicKey),
             hex.encode(receiverXOnlyPublicKey),
-            pendingSwap.response.claimPublicKey.slice(2),
         ];
 
-        if (!this.validRefundTx(tx, inputIndex, requiredSigners)) {
+        if (!this.verifySignatures(tx, inputIndex, requiredSigners)) {
             throw new Error("Invalid refund transaction");
         }
 
+        // combine the checkpoint signatures
         const serverSignedCheckpointTx = Transaction.fromPSBT(
             base64.decode(signedCheckpointTxs[0])
         );
@@ -622,6 +654,7 @@ export class ArkadeLightning {
             serverSignedCheckpointTx
         );
 
+        // finalize the transaction
         await this.arkProvider.finalizeTx(arkTxid, [
             base64.encode(finalCheckpointTx.toPSBT()),
         ]);
@@ -855,7 +888,7 @@ export class ArkadeLightning {
         return inputs.every((input) => input.witnessUtxo);
     };
 
-    private validRefundTx = (
+    private verifySignatures = (
         tx: Transaction,
         inputIndex: number,
         requiredSigners: string[]
