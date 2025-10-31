@@ -19,6 +19,8 @@ import {
     Wallet,
     VHTLC,
     ServiceWorkerWallet,
+    verifyTapscriptSignatures,
+    combineTapscriptSigs,
 } from "@arkade-os/sdk";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { base64, hex } from "@scure/base";
@@ -47,7 +49,6 @@ import { Transaction } from "@scure/btc-signer";
 import { TransactionInput } from "@scure/btc-signer/psbt.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
-import { mergeTxs } from "./utils/signatures";
 
 function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
@@ -583,15 +584,16 @@ export class ArkadeLightning {
             await vhtlcIdentity.sign(unsignedCheckpointTx);
 
         // combine transactions
-        const combinedSignedRefundTx = mergeTxs(
+        const combinedSignedRefundTx = combineTapscriptSigs(
             boltzSignedRefundTx,
             signedRefundTx
         );
-        const combinedSignedCheckpointTx = mergeTxs(
+        const combinedSignedCheckpointTx = combineTapscriptSigs(
             boltzSignedCheckpointTx,
             signedCheckpointTx
         );
 
+        // get server to sign its part of the combined transaction
         const { arkTxid, finalArkTx, signedCheckpointTxs } =
             await this.arkProvider.submitTx(
                 base64.encode(combinedSignedRefundTx.toPSBT()),
@@ -609,11 +611,24 @@ export class ArkadeLightning {
             throw new Error("Invalid final Ark transaction");
         }
 
+        const tx = Transaction.fromPSBT(base64.decode(finalArkTx));
+        const inputIndex = 0;
+        const requiredSigners = [
+            hex.encode(serverXOnlyPublicKey),
+            hex.encode(receiverXOnlyPublicKey),
+            pendingSwap.response.claimPublicKey,
+        ];
+
+        console.log(
+            "verifySignatures",
+            this.verifySignatures(tx, inputIndex, requiredSigners)
+        );
+
         const serverSignedCheckpointTx = Transaction.fromPSBT(
             base64.decode(signedCheckpointTxs[0])
         );
 
-        const finalCheckpointTx = mergeTxs(
+        const finalCheckpointTx = combineTapscriptSigs(
             combinedSignedCheckpointTx,
             serverSignedCheckpointTx
         );
@@ -848,6 +863,19 @@ export class ArkadeLightning {
         // basic check that all inputs have a witnessUtxo
         // this is a simplified check, we should verify the actual signatures
         return inputs.every((input) => input.witnessUtxo);
+    };
+
+    private verifySignatures = (
+        tx: Transaction,
+        inputIndex: number,
+        requiredSigners: string[]
+    ): boolean => {
+        try {
+            verifyTapscriptSignatures(tx, inputIndex, requiredSigners);
+            return true;
+        } catch (_) {
+            return false;
+        }
     };
 
     /**
