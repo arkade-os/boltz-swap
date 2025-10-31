@@ -378,7 +378,10 @@ export const isRefundSubmarineSwapResponse = (
     data: any
 ): data is RefundSubmarineSwapResponse => {
     return (
-        data && typeof data === "object" && typeof data.transaction === "string"
+        data &&
+        typeof data === "object" &&
+        typeof data.transaction === "string" &&
+        typeof data.checkpoint === "string"
     );
 };
 
