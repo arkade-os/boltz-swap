@@ -326,9 +326,16 @@ export class ArkadeLightning {
         const address = await this.wallet.getAddress();
 
         // validate we are using a x-only receiver public key
-        const receiverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const ourXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
             await this.wallet.identity.xOnlyPublicKey(),
-            "receiver",
+            "our",
+            pendingSwap.id
+        );
+
+        // validate we are using a x-only boltz public key
+        const boltzXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(pendingSwap.response.refundPublicKey),
+            "boltz",
             pendingSwap.id
         );
 
@@ -343,8 +350,8 @@ export class ArkadeLightning {
         const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
             network: aspInfo.network,
             preimageHash: sha256(preimage),
-            receiverPubkey: hex.encode(receiverXOnlyPublicKey),
-            senderPubkey: pendingSwap.response.refundPublicKey,
+            receiverPubkey: hex.encode(ourXOnlyPublicKey),
+            senderPubkey: hex.encode(boltzXOnlyPublicKey),
             serverPubkey: hex.encode(serverXOnlyPublicKey),
             timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
         });
@@ -382,7 +389,7 @@ export class ArkadeLightning {
                 setArkPsbtField(signedTx, 0, ConditionWitness, [preimage]);
                 return signedTx;
             },
-            xOnlyPublicKey: receiverXOnlyPublicKey,
+            xOnlyPublicKey: ourXOnlyPublicKey,
             signerSession: getSignerSession(this.wallet),
         };
 
@@ -461,10 +468,10 @@ export class ArkadeLightning {
         const address = await this.wallet.getAddress();
         if (!address) throw new Error("Failed to get ark address from wallet");
 
-        // validate we are using a x-only receiver public key
-        const receiverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        // validate we are using a x-only public key
+        const ourXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
             await this.wallet.identity.xOnlyPublicKey(),
-            "receiver",
+            "our",
             pendingSwap.id
         );
 
@@ -488,10 +495,8 @@ export class ArkadeLightning {
                 getInvoicePaymentHash(pendingSwap.request.invoice)
             ),
             receiverPubkey: hex.encode(boltzXOnlyPublicKey),
-            senderPubkey: hex.encode(
-                await this.wallet.identity.xOnlyPublicKey()
-            ),
-            serverPubkey: aspInfo.signerPubkey,
+            senderPubkey: hex.encode(ourXOnlyPublicKey),
+            serverPubkey: hex.encode(serverXOnlyPublicKey),
             timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
         });
 
@@ -524,7 +529,7 @@ export class ArkadeLightning {
                     allowUnknown: true,
                 });
             },
-            xOnlyPublicKey: receiverXOnlyPublicKey,
+            xOnlyPublicKey: ourXOnlyPublicKey,
             signerSession: getSignerSession(this.wallet),
         };
 
@@ -616,9 +621,9 @@ export class ArkadeLightning {
         const tx = Transaction.fromPSBT(base64.decode(finalArkTx));
         const inputIndex = 0;
         const requiredSigners = [
+            hex.encode(ourXOnlyPublicKey),
             hex.encode(boltzXOnlyPublicKey),
             hex.encode(serverXOnlyPublicKey),
-            hex.encode(receiverXOnlyPublicKey),
         ];
 
         if (!this.verifySignatures(tx, inputIndex, requiredSigners)) {
