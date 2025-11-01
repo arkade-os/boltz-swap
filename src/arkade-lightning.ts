@@ -326,25 +326,18 @@ export class ArkadeLightning {
         const address = await this.wallet.getAddress();
 
         // validate we are using a x-only receiver public key
-        let receiverXOnlyPublicKey =
-            await this.wallet.identity.xOnlyPublicKey();
-        if (receiverXOnlyPublicKey.length == 33) {
-            receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
-        } else if (receiverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid receiver public key length: ${receiverXOnlyPublicKey.length}`
-            );
-        }
+        const receiverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            await this.wallet.identity.xOnlyPublicKey(),
+            "receiver",
+            pendingSwap.id
+        );
 
         // validate we are using a x-only server public key
-        let serverXOnlyPublicKey = hex.decode(aspInfo.signerPubkey);
-        if (serverXOnlyPublicKey.length == 33) {
-            serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
-        } else if (serverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid server public key length: ${serverXOnlyPublicKey.length}`
-            );
-        }
+        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(aspInfo.signerPubkey),
+            "server",
+            pendingSwap.id
+        );
 
         // build expected VHTLC script
         const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
@@ -469,37 +462,25 @@ export class ArkadeLightning {
         if (!address) throw new Error("Failed to get ark address from wallet");
 
         // validate we are using a x-only receiver public key
-        let receiverXOnlyPublicKey =
-            await this.wallet.identity.xOnlyPublicKey();
-        if (receiverXOnlyPublicKey.length == 33) {
-            receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
-        } else if (receiverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid receiver public key length: ${receiverXOnlyPublicKey.length}`
-            );
-        }
+        const receiverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            await this.wallet.identity.xOnlyPublicKey(),
+            "receiver",
+            pendingSwap.id
+        );
 
         // validate we are using a x-only server public key
-        let serverXOnlyPublicKey = hex.decode(aspInfo.signerPubkey);
-        if (serverXOnlyPublicKey.length == 33) {
-            serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
-        } else if (serverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid server public key length: ${serverXOnlyPublicKey.length}`
-            );
-        }
+        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(aspInfo.signerPubkey),
+            "server",
+            pendingSwap.id
+        );
 
         // validate we are using a x-only boltz public key
-        let boltzXOnlyPublicKey = hex.decode(
-            pendingSwap.response.claimPublicKey
+        const boltzXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(pendingSwap.response.claimPublicKey),
+            "boltz",
+            pendingSwap.id
         );
-        if (boltzXOnlyPublicKey.length == 33) {
-            boltzXOnlyPublicKey = boltzXOnlyPublicKey.slice(1);
-        } else if (boltzXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid boltz public key length: ${boltzXOnlyPublicKey.length}`
-            );
-        }
 
         const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
             network: aspInfo.network,
@@ -938,34 +919,22 @@ export class ArkadeLightning {
         };
     }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string } {
         // validate we are using a x-only receiver public key
-        let receiverXOnlyPublicKey = hex.decode(receiverPubkey);
-        if (receiverXOnlyPublicKey.length == 33) {
-            receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
-        } else if (receiverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid receiver public key length: ${receiverXOnlyPublicKey.length}`
-            );
-        }
+        const receiverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(receiverPubkey),
+            "receiver"
+        );
 
         // validate we are using a x-only sender public key
-        let senderXOnlyPublicKey = hex.decode(senderPubkey);
-        if (senderXOnlyPublicKey.length == 33) {
-            senderXOnlyPublicKey = senderXOnlyPublicKey.slice(1);
-        } else if (senderXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid sender public key length: ${senderXOnlyPublicKey.length}`
-            );
-        }
+        const senderXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(senderPubkey),
+            "sender"
+        );
 
         // validate we are using a x-only server public key
-        let serverXOnlyPublicKey = hex.decode(serverPubkey);
-        if (serverXOnlyPublicKey.length == 33) {
-            serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
-        } else if (serverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid server public key length: ${serverXOnlyPublicKey.length}`
-            );
-        }
+        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(serverPubkey),
+            "server"
+        );
 
         const delayType = (num: number) => (num < 512 ? "blocks" : "seconds");
 
@@ -1114,5 +1083,27 @@ export class ArkadeLightning {
                     );
                 });
         }
+    }
+
+    /**
+     * Validate we are using a x-only public key
+     * @param publicKey
+     * @param keyName
+     * @param swapId
+     * @returns Uint8Array
+     */
+    private normalizeToXOnlyPublicKey(
+        publicKey: Uint8Array,
+        keyName: string,
+        swapId?: string
+    ): Uint8Array {
+        if (publicKey.length === 33) {
+            return publicKey.slice(1);
+        } else if (publicKey.length !== 32) {
+            throw new Error(
+                `Invalid ${keyName} public key length: ${publicKey.length} ${swapId ? "for swap " + swapId : ""}`
+            );
+        }
+        return publicKey;
     }
 }
