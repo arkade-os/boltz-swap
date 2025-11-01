@@ -644,6 +644,13 @@ export class ArkadeLightning {
             throw new Error("Invalid refund transaction");
         }
 
+        // validate we received exactly one checkpoint transaction
+        if (signedCheckpointTxs.length !== 1) {
+            throw new Error(
+                `Expected one signed checkpoint transaction, got ${signedCheckpointTxs.length}`
+            );
+        }
+
         // combine the checkpoint signatures
         const serverSignedCheckpointTx = Transaction.fromPSBT(
             base64.decode(signedCheckpointTxs[0])
