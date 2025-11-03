@@ -63,13 +63,8 @@ importers:
 
 packages:
 
-<<<<<<< HEAD
-  '@arkade-os/sdk@0.3.3':
-    resolution: {integrity: sha512-WUvUF+3HR5Emc+wY88DvYifXYVQTqedzUy8bCYF/7/bHLlz+YoCxtrse0sPjKyDMJ/mq5+aNghQxynpi6YXkiA==}
-=======
   '@arkade-os/sdk@0.3.4':
     resolution: {integrity: sha512-44/TM/+C37VMBdSKqVEWBFup8KRzYIfTrrxL5+jc4z23pBL1GXhMM24mHwfNRCpTtFEM0Lgkc1C7zuC9d0Uxag==}
->>>>>>> 9f0e8178b9f2186fec05027f7af72a241b972949
     engines: {node: '>=20.0.0'}
 
   '@esbuild/aix-ppc64@0.25.9':
@@ -1350,11 +1345,7 @@ packages:
 
 snapshots:
 
-<<<<<<< HEAD
-  '@arkade-os/sdk@0.3.3':
-=======
   '@arkade-os/sdk@0.3.4':
->>>>>>> 9f0e8178b9f2186fec05027f7af72a241b972949
     dependencies:
       '@noble/curves': 2.0.0
       '@noble/secp256k1': 3.0.0
