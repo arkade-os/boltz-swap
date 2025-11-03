@@ -19,6 +19,7 @@ import {
     Wallet,
     VHTLC,
     ServiceWorkerWallet,
+    combineTapscriptSigs,
 } from "@arkade-os/sdk";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { base64, hex } from "@scure/base";
@@ -47,6 +48,7 @@ import { Transaction } from "@scure/btc-signer";
 import { TransactionInput } from "@scure/btc-signer/psbt.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
+import { verifySignatures } from "./utils/signatures";
 
 function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
@@ -324,32 +326,32 @@ export class ArkadeLightning {
         const address = await this.wallet.getAddress();
 
         // validate we are using a x-only receiver public key
-        let receiverXOnlyPublicKey =
-            await this.wallet.identity.xOnlyPublicKey();
-        if (receiverXOnlyPublicKey.length == 33) {
-            receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
-        } else if (receiverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid receiver public key length: ${receiverXOnlyPublicKey.length}`
-            );
-        }
+        const ourXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            await this.wallet.identity.xOnlyPublicKey(),
+            "our",
+            pendingSwap.id
+        );
+
+        // validate we are using a x-only boltz public key
+        const boltzXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(pendingSwap.response.refundPublicKey),
+            "boltz",
+            pendingSwap.id
+        );
 
         // validate we are using a x-only server public key
-        let serverXOnlyPublicKey = hex.decode(aspInfo.signerPubkey);
-        if (serverXOnlyPublicKey.length == 33) {
-            serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
-        } else if (serverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid server public key length: ${serverXOnlyPublicKey.length}`
-            );
-        }
+        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(aspInfo.signerPubkey),
+            "server",
+            pendingSwap.id
+        );
 
         // build expected VHTLC script
         const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
             network: aspInfo.network,
             preimageHash: sha256(preimage),
-            receiverPubkey: hex.encode(receiverXOnlyPublicKey),
-            senderPubkey: pendingSwap.response.refundPublicKey,
+            receiverPubkey: hex.encode(ourXOnlyPublicKey),
+            senderPubkey: hex.encode(boltzXOnlyPublicKey),
             serverPubkey: hex.encode(serverXOnlyPublicKey),
             timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
         });
@@ -387,7 +389,7 @@ export class ArkadeLightning {
                 setArkPsbtField(signedTx, 0, ConditionWitness, [preimage]);
                 return signedTx;
             },
-            xOnlyPublicKey: receiverXOnlyPublicKey,
+            xOnlyPublicKey: ourXOnlyPublicKey,
             signerSession: getSignerSession(this.wallet),
         };
 
@@ -466,37 +468,35 @@ export class ArkadeLightning {
         const address = await this.wallet.getAddress();
         if (!address) throw new Error("Failed to get ark address from wallet");
 
-        // validate we are using a x-only receiver public key
-        let receiverXOnlyPublicKey =
-            await this.wallet.identity.xOnlyPublicKey();
-        if (receiverXOnlyPublicKey.length == 33) {
-            receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
-        } else if (receiverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid receiver public key length: ${receiverXOnlyPublicKey.length}`
-            );
-        }
+        // validate we are using a x-only public key
+        const ourXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            await this.wallet.identity.xOnlyPublicKey(),
+            "our",
+            pendingSwap.id
+        );
 
         // validate we are using a x-only server public key
-        let serverXOnlyPublicKey = hex.decode(aspInfo.signerPubkey);
-        if (serverXOnlyPublicKey.length == 33) {
-            serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
-        } else if (serverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid server public key length: ${serverXOnlyPublicKey.length}`
-            );
-        }
+        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(aspInfo.signerPubkey),
+            "server",
+            pendingSwap.id
+        );
+
+        // validate we are using a x-only boltz public key
+        const boltzXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(pendingSwap.response.claimPublicKey),
+            "boltz",
+            pendingSwap.id
+        );
 
         const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
             network: aspInfo.network,
             preimageHash: hex.decode(
                 getInvoicePaymentHash(pendingSwap.request.invoice)
             ),
-            receiverPubkey: pendingSwap.response.claimPublicKey,
-            senderPubkey: hex.encode(
-                await this.wallet.identity.xOnlyPublicKey()
-            ),
-            serverPubkey: aspInfo.signerPubkey,
+            receiverPubkey: hex.encode(boltzXOnlyPublicKey),
+            senderPubkey: hex.encode(ourXOnlyPublicKey),
+            serverPubkey: hex.encode(serverXOnlyPublicKey),
             timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
         });
 
@@ -529,7 +529,7 @@ export class ArkadeLightning {
                     allowUnknown: true,
                 });
             },
-            xOnlyPublicKey: receiverXOnlyPublicKey,
+            xOnlyPublicKey: ourXOnlyPublicKey,
             signerSession: getSignerSession(this.wallet),
         };
 
@@ -540,58 +540,121 @@ export class ArkadeLightning {
         );
 
         // create the virtual transaction to claim the VHTLC
-        const { arkTx, checkpoints } = buildOffchainTx(
-            [
-                {
-                    ...spendableVtxos.vtxos[0],
-                    tapLeafScript: vhtlcScript.refund(),
-                    tapTree: vhtlcScript.encode(),
-                },
-            ],
-            [
-                {
-                    amount: BigInt(spendableVtxos.vtxos[0].value),
-                    script: ArkAddress.decode(address).pkScript,
-                },
-            ],
-            serverUnrollScript
-        );
-
-        // sign and submit the virtual transaction
-        const signedArkTx = await vhtlcIdentity.sign(arkTx);
-        const { arkTxid, finalArkTx, signedCheckpointTxs } =
-            await this.arkProvider.submitTx(
-                base64.encode(signedArkTx.toPSBT()),
-                checkpoints.map((c) => base64.encode(c.toPSBT()))
+        const { arkTx: unsignedRefundTx, checkpoints: checkpointPtxs } =
+            buildOffchainTx(
+                [
+                    {
+                        ...spendableVtxos.vtxos[0],
+                        tapLeafScript: vhtlcScript.refund(),
+                        tapTree: vhtlcScript.encode(),
+                    },
+                ],
+                [
+                    {
+                        amount: BigInt(spendableVtxos.vtxos[0].value),
+                        script: ArkAddress.decode(address).pkScript,
+                    },
+                ],
+                serverUnrollScript
             );
 
-        // verify the server signed the transaction with correct key
+        // validate we have one checkpoint transaction
+        if (checkpointPtxs.length !== 1)
+            throw new Error(
+                `Expected one checkpoint transaction, got ${checkpointPtxs.length}`
+            );
+
+        const unsignedCheckpointTx = checkpointPtxs[0];
+
+        // get Boltz to sign its part
+        const {
+            transaction: boltzSignedRefundTx,
+            checkpoint: boltzSignedCheckpointTx,
+        } = await this.swapProvider.refundSubmarineSwap(
+            pendingSwap.id,
+            unsignedRefundTx,
+            unsignedCheckpointTx
+        );
+
+        // Verify Boltz signatures before combining
+        const boltzXOnlyPublicKeyHex = hex.encode(boltzXOnlyPublicKey);
         if (
-            !this.validFinalArkTx(
-                finalArkTx,
-                serverXOnlyPublicKey,
-                vhtlcScript.leaves
-            )
+            !verifySignatures(boltzSignedRefundTx, 0, [boltzXOnlyPublicKeyHex])
         ) {
-            throw new Error("Invalid final Ark transaction");
+            throw new Error("Invalid Boltz signature in refund transaction");
+        }
+        if (
+            !verifySignatures(boltzSignedCheckpointTx, 0, [
+                boltzXOnlyPublicKeyHex,
+            ])
+        ) {
+            throw new Error(
+                "Invalid Boltz signature in checkpoint transaction"
+            );
         }
 
-        const finalCheckpoints = await Promise.all(
-            signedCheckpointTxs.map(async (c) => {
-                const tx = Transaction.fromPSBT(base64.decode(c), {
-                    allowUnknown: true,
-                });
-                const signedCheckpoint = await vhtlcIdentity.sign(tx, [0]);
-                return base64.encode(signedCheckpoint.toPSBT());
-            })
+        // sign our part
+        const signedRefundTx = await vhtlcIdentity.sign(unsignedRefundTx);
+        const signedCheckpointTx =
+            await vhtlcIdentity.sign(unsignedCheckpointTx);
+
+        // combine transactions
+        const combinedSignedRefundTx = combineTapscriptSigs(
+            boltzSignedRefundTx,
+            signedRefundTx
         );
-        await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
+        const combinedSignedCheckpointTx = combineTapscriptSigs(
+            boltzSignedCheckpointTx,
+            signedCheckpointTx
+        );
+
+        // get server to sign its part of the combined transaction
+        const { arkTxid, finalArkTx, signedCheckpointTxs } =
+            await this.arkProvider.submitTx(
+                base64.encode(combinedSignedRefundTx.toPSBT()),
+                [base64.encode(unsignedCheckpointTx.toPSBT())]
+            );
+
+        // verify the final tx is properly signed
+        const tx = Transaction.fromPSBT(base64.decode(finalArkTx));
+        const inputIndex = 0;
+        const requiredSigners = [
+            hex.encode(ourXOnlyPublicKey),
+            hex.encode(boltzXOnlyPublicKey),
+            hex.encode(serverXOnlyPublicKey),
+        ];
+
+        if (!verifySignatures(tx, inputIndex, requiredSigners)) {
+            throw new Error("Invalid refund transaction");
+        }
+
+        // validate we received exactly one checkpoint transaction
+        if (signedCheckpointTxs.length !== 1) {
+            throw new Error(
+                `Expected one signed checkpoint transaction, got ${signedCheckpointTxs.length}`
+            );
+        }
+
+        // combine the checkpoint signatures
+        const serverSignedCheckpointTx = Transaction.fromPSBT(
+            base64.decode(signedCheckpointTxs[0])
+        );
+
+        const finalCheckpointTx = combineTapscriptSigs(
+            combinedSignedCheckpointTx,
+            serverSignedCheckpointTx
+        );
+
+        // finalize the transaction
+        await this.arkProvider.finalizeTx(arkTxid, [
+            base64.encode(finalCheckpointTx.toPSBT()),
+        ]);
 
         // update the pending swap on storage if available
-        const finalStatus = await this.getSwapStatus(pendingSwap.id);
         await this.savePendingSubmarineSwap({
             ...pendingSwap,
-            status: finalStatus.status,
+            refundable: true,
+            refunded: true,
         });
     }
 
@@ -846,34 +909,22 @@ export class ArkadeLightning {
         };
     }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string } {
         // validate we are using a x-only receiver public key
-        let receiverXOnlyPublicKey = hex.decode(receiverPubkey);
-        if (receiverXOnlyPublicKey.length == 33) {
-            receiverXOnlyPublicKey = receiverXOnlyPublicKey.slice(1);
-        } else if (receiverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid receiver public key length: ${receiverXOnlyPublicKey.length}`
-            );
-        }
+        const receiverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(receiverPubkey),
+            "receiver"
+        );
 
         // validate we are using a x-only sender public key
-        let senderXOnlyPublicKey = hex.decode(senderPubkey);
-        if (senderXOnlyPublicKey.length == 33) {
-            senderXOnlyPublicKey = senderXOnlyPublicKey.slice(1);
-        } else if (senderXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid sender public key length: ${senderXOnlyPublicKey.length}`
-            );
-        }
+        const senderXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(senderPubkey),
+            "sender"
+        );
 
         // validate we are using a x-only server public key
-        let serverXOnlyPublicKey = hex.decode(serverPubkey);
-        if (serverXOnlyPublicKey.length == 33) {
-            serverXOnlyPublicKey = serverXOnlyPublicKey.slice(1);
-        } else if (serverXOnlyPublicKey.length !== 32) {
-            throw new Error(
-                `Invalid server public key length: ${serverXOnlyPublicKey.length}`
-            );
-        }
+        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+            hex.decode(serverPubkey),
+            "server"
+        );
 
         const delayType = (num: number) => (num < 512 ? "blocks" : "seconds");
 
@@ -1022,5 +1073,28 @@ export class ArkadeLightning {
                     );
                 });
         }
+    }
+
+    /**
+     * Validate we are using a x-only public key
+     * @param publicKey
+     * @param keyName
+     * @param swapId
+     * @returns Uint8Array
+     */
+    private normalizeToXOnlyPublicKey(
+        publicKey: Uint8Array,
+        keyName: string,
+        swapId?: string
+    ): Uint8Array {
+        if (publicKey.length === 33) {
+            return publicKey.slice(1);
+        }
+        if (publicKey.length !== 32) {
+            throw new Error(
+                `Invalid ${keyName} public key length: ${publicKey.length} ${swapId ? "for swap " + swapId : ""}`
+            );
+        }
+        return publicKey;
     }
 }

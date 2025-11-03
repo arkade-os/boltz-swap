@@ -25,6 +25,7 @@ export {
     getInvoicePaymentHash,
     getInvoiceSatoshis,
 } from "./utils/decoding";
+export { verifySignatures } from "./utils/signatures";
 export type {
     CreateLightningInvoiceResponse,
     SendLightningPaymentResponse,
