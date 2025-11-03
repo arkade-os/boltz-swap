@@ -1089,7 +1089,8 @@ export class ArkadeLightning {
     ): Uint8Array {
         if (publicKey.length === 33) {
             return publicKey.slice(1);
-        } else if (publicKey.length !== 32) {
+        }
+        if (publicKey.length !== 32) {
             throw new Error(
                 `Invalid ${keyName} public key length: ${publicKey.length} ${swapId ? "for swap " + swapId : ""}`
             );
