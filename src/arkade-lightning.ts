@@ -19,7 +19,6 @@ import {
     Wallet,
     VHTLC,
     ServiceWorkerWallet,
-    verifyTapscriptSignatures,
     combineTapscriptSigs,
 } from "@arkade-os/sdk";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -49,6 +48,7 @@ import { Transaction } from "@scure/btc-signer";
 import { TransactionInput } from "@scure/btc-signer/psbt.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
+import { verifySignatures } from "./utils/signatures";
 
 function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
@@ -579,14 +579,12 @@ export class ArkadeLightning {
         // Verify Boltz signatures before combining
         const boltzXOnlyPublicKeyHex = hex.encode(boltzXOnlyPublicKey);
         if (
-            !this.verifySignatures(boltzSignedRefundTx, 0, [
-                boltzXOnlyPublicKeyHex,
-            ])
+            !verifySignatures(boltzSignedRefundTx, 0, [boltzXOnlyPublicKeyHex])
         ) {
             throw new Error("Invalid Boltz signature in refund transaction");
         }
         if (
-            !this.verifySignatures(boltzSignedCheckpointTx, 0, [
+            !verifySignatures(boltzSignedCheckpointTx, 0, [
                 boltzXOnlyPublicKeyHex,
             ])
         ) {
@@ -626,7 +624,7 @@ export class ArkadeLightning {
             hex.encode(serverXOnlyPublicKey),
         ];
 
-        if (!this.verifySignatures(tx, inputIndex, requiredSigners)) {
+        if (!verifySignatures(tx, inputIndex, requiredSigners)) {
             throw new Error("Invalid refund transaction");
         }
 
@@ -879,19 +877,6 @@ export class ArkadeLightning {
         // basic check that all inputs have a witnessUtxo
         // this is a simplified check, we should verify the actual signatures
         return inputs.every((input) => input.witnessUtxo);
-    };
-
-    private verifySignatures = (
-        tx: Transaction,
-        inputIndex: number,
-        requiredSigners: string[]
-    ): boolean => {
-        try {
-            verifyTapscriptSignatures(tx, inputIndex, requiredSigners);
-            return true;
-        } catch (_) {
-            return false;
-        }
     };
 
     /**
