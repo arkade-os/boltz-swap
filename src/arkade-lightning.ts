@@ -463,6 +463,21 @@ export class ArkadeLightning {
      * @param pendingSwap - The pending submarine swap to refund the VHTLC.
      */
     async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
+        const vhtlcPkScript = ArkAddress.decode(
+            pendingSwap.response.address
+        ).pkScript;
+
+        // get spendable VTXOs from the lockup address
+        const spendableVtxos = await this.indexerProvider.getVtxos({
+            scripts: [hex.encode(vhtlcPkScript)],
+            spendableOnly: true,
+        });
+        if (spendableVtxos.vtxos.length === 0) {
+            throw new Error(
+                `VHTLC not found for address ${pendingSwap.response.address}`
+            );
+        }
+
         // prepare variables for claiming the VHTLC
         const aspInfo = await this.arkProvider.getInfo();
         const address = await this.wallet.getAddress();
@@ -489,7 +504,7 @@ export class ArkadeLightning {
             pendingSwap.id
         );
 
-        const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
+        const { vhtlcScript } = this.createVHTLCScript({
             network: aspInfo.network,
             preimageHash: hex.decode(
                 getInvoicePaymentHash(pendingSwap.request.invoice)
@@ -502,17 +517,6 @@ export class ArkadeLightning {
 
         if (!vhtlcScript)
             throw new Error("Failed to create VHTLC script for reverse swap");
-        if (vhtlcAddress !== pendingSwap.response.address)
-            throw new Error("Boltz is trying to scam us");
-
-        // get spendable VTXOs from the lockup address
-        const spendableVtxos = await this.indexerProvider.getVtxos({
-            scripts: [hex.encode(vhtlcScript.pkScript)],
-            spendableOnly: true,
-        });
-        if (spendableVtxos.vtxos.length === 0) {
-            throw new Error("No spendable virtual coins found");
-        }
 
         // signing a VTHLC needs an extra witness element to be added to the PSBT input
         // reveal the secret in the PSBT, thus the server can verify the claim script
