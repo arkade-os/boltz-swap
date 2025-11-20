@@ -40,6 +40,7 @@ const wallet = await Wallet.create({
 const swapProvider = new BoltzSwapProvider({
   apiUrl: 'https://api.boltz.mutinynet.arkade.sh',
   network: 'mutinynet',
+  referralId: 'arkade', // optional
 });
 
 // Create the ArkadeLightning instance
