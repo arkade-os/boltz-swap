@@ -1,0 +1,23 @@
+{
+  "name": "vercel-payment-poc",
+  "version": "1.0.0",
+  "description": "PoC for accepting Lightning payments via Boltz VHTLC using Vercel functions",
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "vercel build",
+    "deploy": "vercel deploy"
+  },
+  "dependencies": {
+    "@arkade-os/sdk": "^0.3.7",
+    "@arkade-os/boltz-swap": "^0.2.9",
+    "@vercel/node": "^3.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vercel": "^34.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "functions": {
+    "api/**/*.ts": {
+      "memory": 1024,
+      "maxDuration": 300
+    }
+  },
+  "env": {
+    "ARKADE_PRIVATE_KEY": "@arkade-private-key",
+    "ARK_SERVER_URL": "https://mutinynet.arkade.sh",
+    "BOLTZ_API_URL": "https://api.boltz.mutinynet.arkade.sh",
+    "NETWORK": "mutinynet"
+  }
+}
