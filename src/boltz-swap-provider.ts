@@ -12,6 +12,7 @@ import { base64 } from "@scure/base";
 export interface SwapProviderConfig {
     apiUrl?: string;
     network: Network;
+    referralId?: string;
 }
 
 // Boltz swap status types
@@ -394,6 +395,7 @@ export class BoltzSwapProvider {
     private readonly wsUrl: string;
     private readonly apiUrl: string;
     private readonly network: Network;
+    private readonly referralId?: string;
 
     constructor(config: SwapProviderConfig) {
         this.network = config.network;
@@ -505,15 +507,23 @@ export class BoltzSwapProvider {
             });
         }
         // make submarine swap request
+        const requestBody: {
+            from: "ARK";
+            to: "BTC";
+            invoice: string;
+            refundPublicKey: string;
+            referralId?: string;
+        } = {
+            from: "ARK",
+            to: "BTC",
+            invoice,
+            refundPublicKey,
+            ...(this.referralId ? { referralId: this.referralId } : {}),
+        };
         const response = await this.request<CreateSubmarineSwapResponse>(
             "/v2/swap/submarine",
             "POST",
-            {
-                from: "ARK",
-                to: "BTC",
-                invoice,
-                refundPublicKey,
-            }
+            requestBody
         );
         if (!isCreateSubmarineSwapResponse(response))
             throw new SchemaError({ message: "Error creating submarine swap" });
@@ -540,6 +550,7 @@ export class BoltzSwapProvider {
             claimPublicKey: string;
             preimageHash: string;
             description?: string;
+            referralId?: string;
         } = {
             from: "BTC",
             to: "ARK",
@@ -547,6 +558,7 @@ export class BoltzSwapProvider {
             claimPublicKey,
             preimageHash,
             ...(description?.trim() ? { description: description.trim() } : {}),
+            ...(this.referralId ? { referralId: this.referralId } : {}),
         };
 
         const response = await this.request<CreateReverseSwapResponse>(
