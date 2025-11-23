@@ -1,6 +1,7 @@
 import {
     ArkProvider,
     IndexerProvider,
+    NetworkName,
     ServiceWorkerWallet,
     Wallet,
 } from "@arkade-os/sdk";
@@ -26,7 +27,7 @@ export interface Vtxo {
     };
 }
 
-export type Network = "bitcoin" | "mutinynet" | "regtest" | "signet";
+export type Network = NetworkName;
 
 export interface CreateLightningInvoiceRequest {
     amount: number;
