@@ -1,6 +1,8 @@
 import { Transaction } from "@arkade-os/sdk";
 import { NetworkError, SchemaError, SwapError } from "./errors";
 import {
+    Chain,
+    ChainFeesResponse,
     FeesResponse,
     LimitsResponse,
     Network,
@@ -32,7 +34,9 @@ export type BoltzSwapStatus =
     | "transaction.failed"
     | "transaction.lockupFailed"
     | "transaction.mempool"
-    | "transaction.refunded";
+    | "transaction.refunded"
+    | "transaction.server.mempool"
+    | "transaction.server.confirmed";
 
 export const isSubmarineFailedStatus = (status: BoltzSwapStatus): boolean => {
     return [
@@ -98,6 +102,33 @@ export const isReverseClaimableStatus = (status: BoltzSwapStatus): boolean => {
 
 export const isReverseSuccessStatus = (status: BoltzSwapStatus): boolean => {
     return status === "invoice.settled";
+};
+
+export const isChainFinalStatus = (status: BoltzSwapStatus): boolean => {
+    return [
+        "transaction.refunded",
+        "transaction.failed",
+        "transaction.claimed", // normal status for completed swaps
+        "swap.expired",
+    ].includes(status);
+};
+
+export const isChainPendingStatus = (status: BoltzSwapStatus): boolean => {
+    return [
+        "swap.created",
+        "transaction.mempool",
+        "transaction.confirmed",
+        "transaction.server.mempool",
+        "transaction.server.confirmed",
+    ].includes(status);
+};
+
+export const isChainClaimableStatus = (status: BoltzSwapStatus): boolean => {
+    return ["transaction.mempool", "transaction.confirmed"].includes(status);
+};
+
+export const isChainSuccessStatus = (status: BoltzSwapStatus): boolean => {
+    return status === "transaction.claimed";
 };
 
 // type guards
@@ -331,8 +362,7 @@ export type CreateReverseSwapRequest = {
     claimPublicKey: string;
     invoiceAmount: number;
     preimageHash: string;
-    /** Optional description forwarded to Boltz as the invoice description. May be omitted or subject to provider-side limits. */
-    description?: string;
+    description?: string; // optional description for the invoice
 };
 
 export type CreateReverseSwapResponse = {
@@ -383,6 +413,197 @@ export const isRefundSubmarineSwapResponse = (
         typeof data === "object" &&
         typeof data.transaction === "string" &&
         typeof data.checkpoint === "string"
+    );
+};
+
+type GetChainPairsResponse = Record<
+    Chain,
+    Record<
+        Chain,
+        {
+            hash: string;
+            rate: number;
+            limits: {
+                maximal: number;
+                minimal: number;
+                maximalZeroConf: number;
+            };
+            fees: ChainFeesResponse;
+        }
+    >
+>;
+
+const isGetChainPairsResponse = (data: any): data is GetChainPairsResponse => {
+    return (
+        data &&
+        typeof data === "object" &&
+        data.ARK &&
+        data.BTC &&
+        typeof data.ARK === "object" &&
+        typeof data.BTC === "object" &&
+        data.ARK.BTC &&
+        data.BTC.ARK &&
+        typeof data.ARK.BTC === "object" &&
+        typeof data.BTC.ARK === "object" &&
+        typeof data.ARK.BTC.hash === "string" &&
+        typeof data.BTC.ARK.hash === "string" &&
+        typeof data.ARK.BTC.rate === "number" &&
+        typeof data.BTC.ARK.rate === "number" &&
+        data.ARK.BTC.limits &&
+        data.BTC.ARK.limits &&
+        typeof data.ARK.BTC.limits === "object" &&
+        typeof data.BTC.ARK.limits === "object" &&
+        typeof data.ARK.BTC.limits.maximal === "number" &&
+        typeof data.BTC.ARK.limits.maximal === "number" &&
+        typeof data.ARK.BTC.limits.minimal === "number" &&
+        typeof data.BTC.ARK.limits.minimal === "number" &&
+        typeof data.ARK.BTC.limits.maximalZeroConf === "number" &&
+        typeof data.BTC.ARK.limits.maximalZeroConf === "number" &&
+        data.ARK.BTC.fees &&
+        data.BTC.ARK.fees &&
+        typeof data.ARK.BTC.fees === "object" &&
+        typeof data.BTC.ARK.fees === "object" &&
+        typeof data.ARK.BTC.fees.percentage === "number" &&
+        typeof data.BTC.ARK.fees.percentage === "number" &&
+        typeof data.ARK.BTC.fees.minerFees === "object" &&
+        typeof data.BTC.ARK.fees.minerFees === "object" &&
+        typeof data.ARK.BTC.fees.minerFees.server === "number" &&
+        typeof data.BTC.ARK.fees.minerFees.server === "number" &&
+        data.ARK.BTC.fees.minerFees.user &&
+        data.BTC.ARK.fees.minerFees.user &&
+        typeof data.ARK.BTC.fees.minerFees.user === "object" &&
+        typeof data.BTC.ARK.fees.minerFees.user === "object" &&
+        typeof data.ARK.BTC.fees.minerFees.user.claim === "number" &&
+        typeof data.BTC.ARK.fees.minerFees.user.claim === "number" &&
+        typeof data.ARK.BTC.fees.minerFees.user.lockup === "number" &&
+        typeof data.BTC.ARK.fees.minerFees.user.lockup === "number"
+    );
+};
+
+export type CreateChainSwapRequest = {
+    to: Chain;
+    from: Chain;
+    preimageHash: string;
+    claimPublicKey: string;
+    feeSatsPerByte: number;
+    refundPublicKey: string;
+    serverLockAmount?: number;
+    userLockAmount?: number;
+    referralId?: string;
+};
+
+type CreateChainSwapResponseDetails = {
+    swapTree: {
+        claimLeaf: {
+            version: 0;
+            output: string;
+        };
+        refundLeaf: {
+            version: 0;
+            output: string;
+        };
+    };
+    lockupAddress: string;
+    serverPublicKey: string;
+    timeoutBlockHeights: {
+        refund: number;
+        unilateralClaim: number;
+        unilateralRefund: number;
+        unilateralRefundWithoutReceiver: number;
+    };
+    amount: 0;
+    refundAddress: string;
+    bip21: string;
+};
+
+const isCreateChainSwapResponseDetails = (
+    data: any
+): data is CreateChainSwapResponseDetails => {
+    return (
+        data &&
+        typeof data === "object" &&
+        typeof data.swapTree === "object" &&
+        typeof data.swapTree.claimLeaf === "object" &&
+        typeof data.swapTree.claimLeaf.version === "number" &&
+        typeof data.swapTree.claimLeaf.output === "string" &&
+        typeof data.swapTree.refundLeaf === "object" &&
+        typeof data.swapTree.refundLeaf.version === "number" &&
+        typeof data.swapTree.refundLeaf.output === "string" &&
+        typeof data.lockupAddress === "string" &&
+        typeof data.serverPublicKey === "string" &&
+        typeof data.timeoutBlockHeight === "number" &&
+        typeof data.amount === "number" &&
+        typeof data.refundAddress === "string" &&
+        typeof data.bip21 === "string"
+    );
+};
+
+export type CreateChainSwapResponse = {
+    id: string;
+    referralId: string;
+    claimDetails: CreateChainSwapResponseDetails;
+    lockupDetails: CreateChainSwapResponseDetails;
+};
+
+const isCreateChainSwapResponse = (
+    data: any
+): data is CreateChainSwapResponse => {
+    return (
+        data &&
+        typeof data === "object" &&
+        typeof data.id === "string" &&
+        typeof data.referralId === "string" &&
+        data.claimDetails &&
+        isCreateChainSwapResponseDetails(data.claimDetails) &&
+        data.lockupDetails &&
+        isCreateChainSwapResponseDetails(data.lockupDetails)
+    );
+};
+
+export type GetChainClaimDetailsResponse = {
+    pubNonce: string;
+    publicKey: string;
+    transactionHash: string;
+};
+
+const isGetChainClaimDetailsResponse = (
+    data: any
+): data is GetChainClaimDetailsResponse => {
+    return (
+        data &&
+        typeof data === "object" &&
+        typeof data.pubNonce === "string" &&
+        typeof data.publicKey === "string" &&
+        typeof data.transactionHash === "string"
+    );
+};
+
+export type PostChainClaimDetailsRequest = {
+    preimage: string;
+    signature: {
+        partialSignature: string;
+        pubNonce: string;
+    };
+    toSign: {
+        index: number;
+        transaction: string;
+        pubNonce: string;
+    };
+};
+
+export type PostChainClaimDetailsResponse = {
+    pubNonce: string;
+    partialSignature: string;
+};
+
+const isPostChainClaimDetailsResponse = (
+    data: any
+): data is PostChainClaimDetailsResponse => {
+    return (
+        data &&
+        typeof data === "object" &&
+        typeof data.pubNonce === "string" &&
+        typeof data.partialSignature === "string"
     );
 };
 
@@ -571,6 +792,83 @@ export class BoltzSwapProvider {
         return response;
     }
 
+    async createChainSwap({
+        to,
+        from,
+        preimageHash,
+        feeSatsPerByte,
+        claimPublicKey,
+        refundPublicKey,
+        serverLockAmount,
+        userLockAmount,
+    }: CreateChainSwapRequest): Promise<CreateChainSwapResponse> {
+        // validate direction
+        if (["BTC", "ARK"].indexOf(to) === -1)
+            throw new SwapError({ message: "Invalid 'to' chain" });
+        if (["BTC", "ARK"].indexOf(from) === -1)
+            throw new SwapError({ message: "Invalid 'from' chain" });
+        if (to === from)
+            throw new SwapError({ message: "Invalid swap direction" });
+
+        // validate preimage hash
+        if (!preimageHash || preimageHash.length != 64)
+            throw new SwapError({ message: "Invalid preimageHash" });
+
+        // validate fee
+        if (feeSatsPerByte <= 0)
+            throw new SwapError({ message: "Invalid feeSatsPerByte" });
+
+        // validate lock amounts
+        if (!serverLockAmount && !userLockAmount)
+            throw new SwapError({
+                message:
+                    "Either serverLockAmount or userLockAmount must be provided",
+            });
+        if (!serverLockAmount && userLockAmount && userLockAmount <= 0)
+            throw new SwapError({ message: "Invalid userLockAmount" });
+        if (!userLockAmount && serverLockAmount && serverLockAmount <= 0)
+            throw new SwapError({ message: "Invalid serverLockAmount" });
+
+        // claimPublicKey must be in compressed version (33 bytes / 66 hex chars)
+        if (claimPublicKey.length != 66) {
+            throw new SwapError({
+                message: "claimPublicKey must be a compressed public key",
+            });
+        }
+
+        // refundPublicKey must be in compressed version (33 bytes / 66 hex chars)
+        if (refundPublicKey.length != 66) {
+            throw new SwapError({
+                message: "refundPublicKey must be a compressed public key",
+            });
+        }
+
+        // make reverse swap request
+        const requestBody: CreateChainSwapRequest = {
+            to,
+            from,
+            preimageHash,
+            feeSatsPerByte,
+            claimPublicKey,
+            refundPublicKey,
+            serverLockAmount,
+            userLockAmount,
+            referralId: this.referralId || "",
+        };
+
+        const response = await this.request<CreateChainSwapResponse>(
+            "/v2/swap/chain",
+            "POST",
+            requestBody
+        );
+
+        // validate response
+        if (!isCreateChainSwapResponse(response))
+            throw new SchemaError({ message: "Error creating chain swap" });
+
+        return response;
+    }
+
     async refundSubmarineSwap(
         swapId: string,
         transaction: Transaction,
@@ -670,6 +968,60 @@ export class BoltzSwapProvider {
                 }
             };
         });
+    }
+
+    async getChainFees(from: Chain, to: Chain): Promise<ChainFeesResponse> {
+        const response = await this.request<GetChainPairsResponse>(
+            "/v2/swap/chain",
+            "GET"
+        );
+        if (!isGetChainPairsResponse(response))
+            throw new SchemaError({ message: "error fetching fees" });
+        return response[from][to].fees;
+    }
+
+    async getChainLimits(from: Chain, to: Chain): Promise<LimitsResponse> {
+        const response = await this.request<GetChainPairsResponse>(
+            "/v2/swap/chain",
+            "GET"
+        );
+        if (!isGetChainPairsResponse(response))
+            throw new SchemaError({ message: "error fetching limits" });
+        return {
+            min: response[from][to].limits.minimal,
+            max: response[from][to].limits.maximal,
+        };
+    }
+
+    async getChainClaimDetails(
+        swapId: string
+    ): Promise<GetChainClaimDetailsResponse> {
+        const response = await this.request<GetChainClaimDetailsResponse>(
+            `/v2/swap/chain/${swapId}/claim`,
+            "GET"
+        );
+        if (!isGetChainClaimDetailsResponse(response))
+            throw new SchemaError({
+                message: `error fetching claim details for swap: ${swapId}`,
+            });
+        return response;
+    }
+
+    async postChainClaimDetails(
+        swapId: string,
+        request: PostChainClaimDetailsRequest
+    ): Promise<PostChainClaimDetailsResponse> {
+        const requestBody = request;
+        const response = await this.request<PostChainClaimDetailsResponse>(
+            `/v2/swap/chain/${swapId}/claim`,
+            "POST",
+            requestBody
+        );
+        if (!isPostChainClaimDetailsResponse(response))
+            throw new SchemaError({
+                message: `error fetching claim details for swap: ${swapId}`,
+            });
+        return response;
     }
 
     private async request<T>(

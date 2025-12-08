@@ -12,6 +12,8 @@ import {
     CreateReverseSwapRequest,
     CreateSubmarineSwapRequest,
     BoltzSwapStatus,
+    CreateChainSwapRequest,
+    CreateChainSwapResponse,
 } from "./boltz-swap-provider";
 
 // TODO: replace with better data structure
@@ -28,6 +30,8 @@ export interface Vtxo {
 }
 
 export type Network = NetworkName;
+
+export type Chain = "ARK" | "BTC";
 
 export interface CreateLightningInvoiceRequest {
     amount: number;
@@ -71,6 +75,18 @@ export interface PendingSubmarineSwap {
     status: BoltzSwapStatus;
     request: CreateSubmarineSwapRequest;
     response: CreateSubmarineSwapResponse;
+}
+
+export interface PendingChainSwap {
+    id: string;
+    type: "chain";
+    preimage: string;
+    createdAt: number;
+    ephemeralKey: string;
+    feeSatsPerByte: number;
+    status: BoltzSwapStatus;
+    request: CreateChainSwapRequest;
+    response: CreateChainSwapResponse;
 }
 
 export interface RefundHandler {
@@ -139,6 +155,17 @@ export interface FeesResponse {
         minerFees: {
             lockup: number;
             claim: number;
+        };
+    };
+}
+
+export interface ChainFeesResponse {
+    percentage: number;
+    minerFees: {
+        server: number;
+        user: {
+            claim: number;
+            lockup: number;
         };
     };
 }
