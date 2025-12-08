@@ -50,24 +50,6 @@ const arkadeLightning = new ArkadeLightning({
 });
 ```
 
-### Create your Wallet
-
-```typescript
-import { Wallet } from '@arkade-os/sdk';
-
-const wallet = await Wallet.create({
-  identity,
-  arkServerUrl: 'https://mutinynet.arkade.sh',
-  // storage defaults to in-memory
-});
-
-// Wallet may have built-in providers
-const arkadeLightning = new ArkadeLightning({
-  wallet,
-  swapProvider
-});
-```
-
 ### ServiceWorkerWallet with IndexDB
 
 ```typescript
