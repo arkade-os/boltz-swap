@@ -13,6 +13,7 @@ import {
     CreateSubmarineSwapRequest,
     BoltzSwapStatus,
 } from "./boltz-swap-provider";
+import { SwapManagerConfig } from "./swap-manager";
 
 // TODO: replace with better data structure
 export interface Vtxo {
@@ -86,6 +87,13 @@ export interface ArkadeLightningConfig {
     refundHandler?: RefundHandler;
     timeoutConfig?: Partial<TimeoutConfig>;
     retryConfig?: Partial<RetryConfig>;
+    /**
+     * Enable background swap monitoring and autonomous actions.
+     * - `false` or `undefined`: SwapManager disabled
+     * - `true`: SwapManager enabled with default configuration
+     * - `SwapManagerConfig` object: SwapManager enabled with custom configuration
+     */
+    swapManager?: boolean | (SwapManagerConfig & { autoStart?: boolean });
 }
 
 export interface TimeoutConfig {

@@ -26,6 +26,13 @@ export {
     getInvoiceSatoshis,
 } from "./utils/decoding";
 export { verifySignatures } from "./utils/signatures";
+export {
+    saveSwap,
+    updateReverseSwapStatus,
+    updateSubmarineSwapStatus,
+} from "./utils/swap-helpers";
+export type { SwapSaver } from "./utils/swap-helpers";
+export { SwapManager } from "./swap-manager";
 export type {
     CreateLightningInvoiceResponse,
     SendLightningPaymentResponse,
@@ -44,3 +51,4 @@ export type {
     Network,
     Vtxo,
 } from "./types";
+export type { SwapManagerConfig, SwapManagerEvents } from "./swap-manager";

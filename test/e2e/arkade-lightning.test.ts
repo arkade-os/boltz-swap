@@ -28,6 +28,19 @@ import { randomBytes } from "crypto";
 // Scaffolding test file for ArkadeLightning
 // This file will be updated when implementing features from README.md
 
+// Helper to check if regtest environment is running
+async function isRegtestAvailable(): Promise<boolean> {
+    try {
+        const response = await fetch("http://localhost:9069/version");
+        return response.ok;
+    } catch {
+        return false;
+    }
+}
+
+// Check if regtest is available before running tests
+const skipE2E = !(await isRegtestAvailable());
+
 describe("ArkadeLightning", () => {
     let indexerProvider: RestIndexerProvider;
     let swapProvider: BoltzSwapProvider;
@@ -222,7 +235,7 @@ describe("ArkadeLightning", () => {
         });
     });
 
-    describe("Create Lightning Invoice", () => {
+    describe.skipIf(skipE2E)("Create Lightning Invoice", () => {
         it("should throw if amount is not > 0", async () => {
             // act & assert
             await expect(
