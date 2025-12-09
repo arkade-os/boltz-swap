@@ -386,6 +386,153 @@ export const isRefundSubmarineSwapResponse = (
     );
 };
 
+export type Leaf = {
+    version: number;
+    output: string;
+};
+
+const isLeaf = (data: any): data is Leaf => {
+    return (
+        data &&
+        typeof data === "object" &&
+        typeof data.version === "number" &&
+        typeof data.output === "string"
+    );
+};
+
+export type Tree = {
+    claimLeaf: Leaf;
+    refundLeaf: Leaf;
+    refundWithoutBoltzLeaf: Leaf;
+    unilateralClaimLeaf: Leaf;
+    unilateralRefundLeaf: Leaf;
+    unilateralRefundWithoutBoltzLeaf: Leaf;
+};
+
+export const isTree = (data: any): data is Tree => {
+    return (
+        data &&
+        typeof data === "object" &&
+        isLeaf(data.claimLeaf) &&
+        isLeaf(data.refundLeaf) &&
+        isLeaf(data.refundWithoutBoltzLeaf) &&
+        isLeaf(data.unilateralClaimLeaf) &&
+        isLeaf(data.unilateralRefundLeaf) &&
+        isLeaf(data.unilateralRefundWithoutBoltzLeaf)
+    );
+};
+
+export type Details = {
+    tree: Tree;
+    amount?: number;
+    keyIndex: number;
+    transaction?: {
+        id: string;
+        vout: number;
+    };
+    lockupAddress: string;
+    serverPublicKey: string;
+    timeoutBlockHeight: number;
+    preimageHash?: string;
+};
+
+export const isDetails = (data: any): data is Details => {
+    return (
+        data &&
+        typeof data === "object" &&
+        isTree(data.tree) &&
+        (data.amount === undefined || typeof data.amount === "number") &&
+        typeof data.keyIndex === "number" &&
+        (data.transaction === undefined ||
+            (data.transaction &&
+                typeof data.transaction === "object" &&
+                typeof data.transaction.id === "string" &&
+                typeof data.transaction.vout === "number")) &&
+        typeof data.lockupAddress === "string" &&
+        typeof data.serverPublicKey === "string" &&
+        typeof data.timeoutBlockHeight === "number" &&
+        (data.preimageHash === undefined ||
+            typeof data.preimageHash === "string")
+    );
+};
+
+export type RestoredSubmarineSwap = {
+    to: "ARK";
+    id: string;
+    from: "BTC";
+    type: "reverse";
+    createdAt: number;
+    preimageHash: string;
+    status: BoltzSwapStatus;
+    refundDetails: Details;
+};
+
+export const isRestoredSubmarineSwap = (
+    data: any
+): data is RestoredSubmarineSwap => {
+    return (
+        data &&
+        typeof data === "object" &&
+        data.to === "ARK" &&
+        typeof data.id === "string" &&
+        data.from === "BTC" &&
+        data.type === "submarine" &&
+        typeof data.createdAt === "number" &&
+        typeof data.preimageHash === "string" &&
+        typeof data.status === "string" &&
+        isDetails(data.refundDetails)
+    );
+};
+
+export type RestoredReverseSwap = {
+    to: "ARK";
+    id: string;
+    from: "BTC";
+    type: "reverse";
+    createdAt: number;
+    preimageHash: string;
+    status: BoltzSwapStatus;
+    claimDetails: Details;
+};
+
+export const isRestoredReverseSwap = (
+    data: any
+): data is RestoredReverseSwap => {
+    return (
+        data &&
+        typeof data === "object" &&
+        data.to === "ARK" &&
+        typeof data.id === "string" &&
+        data.from === "BTC" &&
+        data.type === "reverse" &&
+        typeof data.createdAt === "number" &&
+        typeof data.preimageHash === "string" &&
+        typeof data.status === "string" &&
+        isDetails(data.claimDetails)
+    );
+};
+
+export type CreateSwapsRestoreRequest = {
+    publicKey: string;
+};
+
+export type CreateSwapsRestoreResponse = (
+    | RestoredReverseSwap
+    | RestoredSubmarineSwap
+)[];
+
+export const isCreateSwapsRestoreResponse = (
+    data: any
+): data is CreateSwapsRestoreResponse => {
+    return (
+        Array.isArray(data) &&
+        data.every(
+            (item) =>
+                isRestoredReverseSwap(item) || isRestoredSubmarineSwap(item)
+        )
+    );
+};
+
 const BASE_URLS: Partial<Record<Network, string>> = {
     mutinynet: "https://api.boltz.mutinynet.arkade.sh",
     regtest: "http://localhost:9069",
@@ -587,10 +734,12 @@ export class BoltzSwapProvider {
             "POST",
             requestBody
         );
+
         if (!isRefundSubmarineSwapResponse(response))
             throw new SchemaError({
                 message: "Error refunding submarine swap",
             });
+
         return {
             transaction: Transaction.fromPSBT(
                 base64.decode(response.transaction)
@@ -670,6 +819,23 @@ export class BoltzSwapProvider {
                 }
             };
         });
+    }
+
+    async restoreSwaps(publicKey: string): Promise<CreateSwapsRestoreResponse> {
+        const requestBody: CreateSwapsRestoreRequest = {
+            publicKey,
+        };
+
+        const response = await this.request<CreateSwapsRestoreResponse>(
+            "/v2/swaps/restore",
+            "POST",
+            requestBody
+        );
+
+        if (!isCreateSwapsRestoreResponse(response))
+            throw new SchemaError({ message: "Error restoring swaps" });
+
+        return response;
     }
 
     private async request<T>(
