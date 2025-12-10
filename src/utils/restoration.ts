@@ -1,4 +1,5 @@
 import { hex } from "@scure/base";
+import { FeesResponse } from "../types";
 
 /**
  * Extracts and calculates the relative timelock (sequence value) from a Bitcoin script hex string
@@ -50,18 +51,12 @@ export function extractTimeLockFromLeafOutput(someHex: string): number {
     return isTime ? value * 512 : value;
 }
 
-// Extracts boltz public key from a recovered reverse swap refund leaf output script
-export function extractRefundPublicKeyFromLeafOutput(someHex: string): string {
-    // OP_PUSHBYTES_32 <boltz> OP_CHECKSIGVERIFY
-    // OP_PUSHBYTES_32 <wallet> OP_CHECKSIGVERIFY
-    // OP_PUSHBYTES_32 <server> OP_CHECKSIG
-    return someHex.substring(2, 66);
-}
-
-// Extracts boltz public key from a recovered submarine swap refund leaf output script
-export function extractClaimPublicKeyFromLeafOutput(someHex: string): string {
-    // OP_PUSHBYTES_32 <wallet> OP_CHECKSIGVERIFY
-    // OP_PUSHBYTES_32 <boltz> OP_CHECKSIGVERIFY
-    // OP_PUSHBYTES_32 <server> OP_CHECKSIG
-    return someHex.substring(70, 134);
+export function extractInvoiceAmount(
+    amountSats: number | undefined,
+    fees: FeesResponse
+): number {
+    if (!amountSats) return 0;
+    const { percentage, minerFees } = fees.reverse;
+    const miner = minerFees.lockup + minerFees.claim;
+    return Math.ceil((amountSats - miner) / (1 - percentage / 100));
 }

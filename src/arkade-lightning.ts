@@ -52,8 +52,7 @@ import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
 import { verifySignatures } from "./utils/signatures";
 import {
-    extractClaimPublicKeyFromLeafOutput,
-    extractRefundPublicKeyFromLeafOutput,
+    extractInvoiceAmount,
     extractTimeLockFromLeafOutput,
 } from "./utils/restoration";
 
@@ -858,8 +857,10 @@ export class ArkadeLightning {
 
     /**
      * Restore swaps from boltz api
+     * @param boltzFees - Optional fees response to use for restoration.
+     * @returns An object containing arrays of restored reverse and submarine swaps.
      */
-    async restoreSwaps(): Promise<{
+    async restoreSwaps(boltzFees?: FeesResponse): Promise<{
         reverseSwaps: PendingReverseSwap[];
         submarineSwaps: PendingSubmarineSwap[];
     }> {
@@ -868,6 +869,9 @@ export class ArkadeLightning {
             await this.wallet.identity.compressedPublicKey()
         );
         if (!publicKey) throw new Error("Failed to get public key from wallet");
+
+        // get fees
+        const fees = boltzFees ?? (await this.swapProvider.getFees());
 
         const reverseSwaps: PendingReverseSwap[] = [];
         const submarineSwaps: PendingSubmarineSwap[] = [];
@@ -878,14 +882,19 @@ export class ArkadeLightning {
         for (const swap of restoredSwaps) {
             const { id, createdAt, status } = swap;
             if (isRestoredReverseSwap(swap)) {
-                const { amount, lockupAddress, preimageHash, tree } =
-                    swap.claimDetails;
+                const {
+                    amount,
+                    lockupAddress,
+                    preimageHash,
+                    serverPublicKey,
+                    tree,
+                } = swap.claimDetails;
                 reverseSwaps.push({
                     id,
                     createdAt,
                     request: {
+                        invoiceAmount: extractInvoiceAmount(amount, fees),
                         claimPublicKey: publicKey,
-                        invoiceAmount: amount,
                         preimageHash,
                     },
                     response: {
@@ -893,9 +902,7 @@ export class ArkadeLightning {
                         invoice: "", // TODO check if we can get the invoice from boltz
                         onchainAmount: amount,
                         lockupAddress,
-                        refundPublicKey: extractRefundPublicKeyFromLeafOutput(
-                            tree.refundLeaf.output
-                        ),
+                        refundPublicKey: serverPublicKey,
                         timeoutBlockHeights: {
                             refund: extractTimeLockFromLeafOutput(
                                 tree.refundWithoutBoltzLeaf.output
@@ -917,7 +924,8 @@ export class ArkadeLightning {
                     preimage: "",
                 } as PendingReverseSwap);
             } else if (isRestoredSubmarineSwap(swap)) {
-                const { amount, lockupAddress, tree } = swap.refundDetails;
+                const { amount, lockupAddress, serverPublicKey, tree } =
+                    swap.refundDetails;
                 submarineSwaps.push({
                     id,
                     type: "submarine",
@@ -931,9 +939,7 @@ export class ArkadeLightning {
                         id,
                         address: lockupAddress,
                         expectedAmount: amount,
-                        claimPublicKey: extractClaimPublicKeyFromLeafOutput(
-                            tree.refundLeaf.output
-                        ),
+                        claimPublicKey: serverPublicKey,
                         timeoutBlockHeights: {
                             refund: extractTimeLockFromLeafOutput(
                                 tree.refundWithoutBoltzLeaf.output
