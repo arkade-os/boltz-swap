@@ -1,54 +1,39 @@
 import { hex } from "@scure/base";
 import { FeesResponse } from "../types";
+import { script } from "bitcoinjs-lib";
+// @ts-ignore
+import bip68 from "bip68";
 
 /**
- * Extracts and calculates the relative timelock (sequence value) from a Bitcoin script hex string
- * based on BIP 68 (OP_CHECKSEQUENCEVERIFY).
+ * Extracts and calculates the relative timelock from a Bitcoin script
  * @param scriptHex The Bitcoin script in hexadecimal format.
  * @returns The timelock value in blocks or seconds.
  */
 export function extractTimeLockFromLeafOutput(someHex: string): number {
-    // remove P2SH wrapper if present (total 24 bytes)
-    // OP_HASH160 OP_PUSHBYTES_20 <20 bytes> OP_EQUAL OP_VERIFY
-    const scriptHex = someHex.startsWith("a914")
-        ? someHex.substring(48)
-        : someHex;
+    // split the script into opcodes
+    const opcodes = script.toASM(hex.decode(someHex)).split(" ");
 
-    // extract the number of bytes pushed onto the stack
-    const pushBytes = parseInt(scriptHex.substring(0, 2), 16);
+    // look for OP_NOP2 (CLTV - OP_CHECKLOCKTIMEVERIFY)
+    const hasCLTV = opcodes.findIndex((op) => op === "OP_NOP2");
 
-    // extract the data bytes and the opcode
-    const lastByteIndex = 2 + pushBytes * 2;
-    const dataBytesHex = scriptHex.substring(2, lastByteIndex);
-    const opcodeHex = scriptHex.substring(lastByteIndex, lastByteIndex + 2);
-
-    // check if the opcode is OP_CHECKLOCKTIMEVERIFY (0xb1) or OP_CHECKSEQUENCEVERIFY (0xb2)
-    if (opcodeHex !== "b1" && opcodeHex !== "b2") {
-        throw new Error(
-            "Script does not end with OP_CHECKLOCKTIMEVERIFY or OP_CHECKSEQUENCEVERIFY"
-        );
+    if (hasCLTV !== -1) {
+        const dataHex = opcodes[hasCLTV - 1];
+        const dataBytes = hex.decode(dataHex).reverse(); // reverse for little-endian
+        return parseInt(hex.encode(dataBytes), 16);
     }
 
-    // compute the sequence value
-    const dataBytes = hex.decode(dataBytesHex).reverse(); // Reverse for little-endian
-    const sequenceValue = parseInt(hex.encode(dataBytes), 16);
+    // look for OP_NOP3 (CSV - OP_CHECKSEQUENCEVERIFY)
+    const hasCSV = opcodes.findIndex((op) => op === "OP_NOP3");
 
-    // return immediatelly if OP_CHECKLOCKTIMEVERIFY
-    if (opcodeHex === "b1") return sequenceValue;
+    if (hasCSV !== -1) {
+        const dataHex = opcodes[hasCSV - 1];
+        const dataBytes = hex.decode(dataHex).reverse(); // reverse for little-endian
+        const { blocks, seconds }: { blocks?: number; seconds?: number } =
+            bip68.decode(parseInt(hex.encode(dataBytes), 16));
+        return blocks ? blocks : seconds ? seconds : 0;
+    }
 
-    // Bit 22 flag: 1 << 22 = 0x400000 (Signals Time units)
-    const SEQUENCE_LOCKTIME_TYPE_FLAG = 1 << 22;
-
-    // Lower 16 bits mask: 0x0000ffff (The actual timelock value)
-    const SEQUENCE_LOCKTIME_MASK = 0x0000ffff;
-
-    // Check if the Time Flag (Bit 22) is set
-    const isTime = (sequenceValue & SEQUENCE_LOCKTIME_TYPE_FLAG) !== 0;
-
-    // Extract the relative timelock value (lower 16 bits)
-    const value = sequenceValue & SEQUENCE_LOCKTIME_MASK;
-
-    return isTime ? value * 512 : value;
+    return 0;
 }
 
 export function extractInvoiceAmount(
