@@ -460,7 +460,7 @@ export type RestoredSubmarineSwap = {
     to: "BTC";
     id: string;
     from: "ARK";
-    type: "reverse";
+    type: "submarine";
     createdAt: number;
     preimageHash: string;
     status: BoltzSwapStatus;
