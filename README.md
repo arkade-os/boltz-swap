@@ -164,7 +164,7 @@ const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
   // OR custom configuration
   swapManager: {
     enableAutoActions: true,        // Auto claim/refund (default: true)
-    autostart: true,                // Auto-start on init (default: true)
+    autoStart: true,                // Auto-start on init (default: true)
     pollInterval: 30000,            // Failsafe poll every 30s when WS active (default)
     reconnectDelayMs: 1000,         // Initial WS reconnect delay (default)
     maxReconnectDelayMs: 60000,     // Max WS reconnect delay (default)
