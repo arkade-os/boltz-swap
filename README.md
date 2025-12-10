@@ -260,7 +260,7 @@ await arkadeLightning.dispose(); // Stops SwapManager and cleans up
   await using arkadeLightning = new ArkadeLightning({
     wallet,
     swapProvider,
-    swapManager: { autostart: true },
+    swapManager: { autoStart: true },
   });
 
   // Use arkadeLightning...
