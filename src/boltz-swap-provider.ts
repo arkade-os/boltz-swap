@@ -457,9 +457,9 @@ export const isDetails = (data: any): data is Details => {
 };
 
 export type RestoredSubmarineSwap = {
-    to: "ARK";
+    to: "BTC";
     id: string;
-    from: "BTC";
+    from: "ARK";
     type: "reverse";
     createdAt: number;
     preimageHash: string;
@@ -473,9 +473,9 @@ export const isRestoredSubmarineSwap = (
     return (
         data &&
         typeof data === "object" &&
-        data.to === "ARK" &&
+        data.to === "BTC" &&
         typeof data.id === "string" &&
-        data.from === "BTC" &&
+        data.from === "ARK" &&
         data.type === "submarine" &&
         typeof data.createdAt === "number" &&
         typeof data.preimageHash === "string" &&
@@ -827,13 +827,15 @@ export class BoltzSwapProvider {
         };
 
         const response = await this.request<CreateSwapsRestoreResponse>(
-            "/v2/swaps/restore",
+            "/v2/swap/restore",
             "POST",
             requestBody
         );
 
         if (!isCreateSwapsRestoreResponse(response))
-            throw new SchemaError({ message: "Error restoring swaps" });
+            throw new SchemaError({
+                message: "Invalid schema in response for swap restoration",
+            });
 
         return response;
     }
