@@ -121,7 +121,7 @@ const arkadeLightning = new ArkadeLightning({
   wallet,
   swapProvider,
   swapManager: {
-    autostart: false, // Set to false to manually call startSwapManager() later
+    autoStart: false, // Set to false to manually call startSwapManager() later
     // Events for UI updates (optional, can also use on/off methods)
     events: {
       onSwapCompleted: (swap) => {
