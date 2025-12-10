@@ -52,3 +52,5 @@ export type {
     Vtxo,
 } from "./types";
 export type { SwapManagerConfig, SwapManagerEvents } from "./swap-manager";
+export { logger, setLogger } from "./logger";
+export type { Logger } from "./logger";

@@ -55,6 +55,7 @@ import {
     updateReverseSwapStatus,
     updateSubmarineSwapStatus,
 } from "./utils/swap-helpers";
+import { logger } from "./logger";
 
 function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
@@ -147,7 +148,7 @@ export class ArkadeLightning {
             if (shouldAutostart) {
                 // Start in background without blocking constructor
                 this.startSwapManager().catch((error) => {
-                    console.error("Failed to autostart SwapManager:", error);
+                    logger.error("Failed to autostart SwapManager:", error);
                 });
             }
         }
@@ -420,18 +421,9 @@ export class ArkadeLightning {
 
     /**
      * Claims the VHTLC for a pending reverse swap.
-     * Checks for race conditions with SwapManager if enabled.
      * @param pendingSwap - The pending reverse swap to claim the VHTLC.
      */
     async claimVHTLC(pendingSwap: PendingReverseSwap): Promise<void> {
-        // Check if SwapManager is already processing this swap
-        if (this.swapManager && this.swapManager.isProcessing(pendingSwap.id)) {
-            console.log(
-                `Swap ${pendingSwap.id} is already being processed by SwapManager`
-            );
-            return;
-        }
-
         const preimage = hex.decode(pendingSwap.preimage);
         const aspInfo = await this.arkProvider.getInfo();
         const address = await this.wallet.getAddress();
@@ -572,18 +564,9 @@ export class ArkadeLightning {
 
     /**
      * Claims the VHTLC for a pending submarine swap (aka refund).
-     * Checks for race conditions with SwapManager if enabled.
      * @param pendingSwap - The pending submarine swap to refund the VHTLC.
      */
     async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
-        // Check if SwapManager is already processing this swap
-        if (this.swapManager && this.swapManager.isProcessing(pendingSwap.id)) {
-            console.log(
-                `Swap ${pendingSwap.id} is already being processed by SwapManager`
-            );
-            return;
-        }
-
         const vhtlcPkScript = ArkAddress.decode(
             pendingSwap.response.address
         ).pkScript;
@@ -1171,7 +1154,7 @@ export class ArkadeLightning {
                     );
                 })
                 .catch((error) => {
-                    console.error(
+                    logger.error(
                         `Failed to refresh swap status for ${swap.id}:`,
                         error
                     );
@@ -1188,7 +1171,7 @@ export class ArkadeLightning {
                     );
                 })
                 .catch((error) => {
-                    console.error(
+                    logger.error(
                         `Failed to refresh swap status for ${swap.id}:`,
                         error
                     );

@@ -10,6 +10,7 @@ import {
 } from "./boltz-swap-provider";
 import { PendingReverseSwap, PendingSubmarineSwap } from "./types";
 import { NetworkError } from "./errors";
+import { logger } from "./logger";
 
 export interface SwapManagerConfig {
     /** Auto claim/refund swaps (default: true) */
@@ -276,7 +277,7 @@ export class SwapManager {
      */
     async start(pendingSwaps: PendingSwap[]): Promise<void> {
         if (this.isRunning) {
-            console.warn("SwapManager is already running");
+            logger.warn("SwapManager is already running");
             return;
         }
 
@@ -295,7 +296,7 @@ export class SwapManager {
             }
         }
 
-        console.log(
+        logger.log(
             `SwapManager started with ${this.monitoredSwaps.size} pending swaps`
         );
 
@@ -332,7 +333,7 @@ export class SwapManager {
             this.reconnectTimer = null;
         }
 
-        console.log("SwapManager stopped");
+        logger.log("SwapManager stopped");
     }
 
     /**
@@ -346,7 +347,7 @@ export class SwapManager {
             this.subscribeToSwap(swap.id);
         }
 
-        console.log(`Added swap ${swap.id} to monitoring`);
+        logger.log(`Added swap ${swap.id} to monitoring`);
     }
 
     /**
@@ -355,7 +356,7 @@ export class SwapManager {
     removeSwap(swapId: string): void {
         this.monitoredSwaps.delete(swapId);
         this.swapSubscriptions.delete(swapId);
-        console.log(`Removed swap ${swapId} from monitoring`);
+        logger.log(`Removed swap ${swapId} from monitoring`);
     }
 
     /**
@@ -492,20 +493,20 @@ export class SwapManager {
 
             // Connection timeout
             const connectionTimeout = setTimeout(() => {
-                console.error("WebSocket connection timeout");
+                logger.error("WebSocket connection timeout");
                 this.websocket?.close();
                 this.handleWebSocketFailure();
             }, 10000);
 
             this.websocket.onerror = (error) => {
                 clearTimeout(connectionTimeout);
-                console.error("WebSocket error:", error);
+                logger.error("WebSocket error:", error);
                 this.handleWebSocketFailure();
             };
 
             this.websocket.onopen = () => {
                 clearTimeout(connectionTimeout);
-                console.log("WebSocket connected");
+                logger.log("WebSocket connected");
 
                 // Reset reconnect delay on successful connection
                 this.currentReconnectDelay = this.config.reconnectDelayMs!;
@@ -530,7 +531,7 @@ export class SwapManager {
 
             this.websocket.onclose = () => {
                 clearTimeout(connectionTimeout);
-                console.log("WebSocket disconnected");
+                logger.log("WebSocket disconnected");
 
                 this.websocket = null;
 
@@ -547,7 +548,7 @@ export class SwapManager {
                 await this.handleWebSocketMessage(rawMsg);
             };
         } catch (error) {
-            console.error("Failed to create WebSocket:", error);
+            logger.error("Failed to create WebSocket:", error);
             this.handleWebSocketFailure();
         }
     }
@@ -561,7 +562,7 @@ export class SwapManager {
         this.websocket = null;
         this.usePollingFallback = true;
 
-        console.warn(
+        logger.warn(
             "WebSocket unavailable, using polling fallback with increasing interval"
         );
 
@@ -579,7 +580,7 @@ export class SwapManager {
     private scheduleReconnect(): void {
         if (this.reconnectTimer) return;
 
-        console.log(
+        logger.log(
             `Scheduling WebSocket reconnect in ${this.currentReconnectDelay}ms`
         );
 
@@ -630,7 +631,7 @@ export class SwapManager {
 
             // Handle error from Boltz
             if (msg.args[0].error) {
-                console.error(`Swap ${swapId} error:`, msg.args[0].error);
+                logger.error(`Swap ${swapId} error:`, msg.args[0].error);
                 const error = new Error(msg.args[0].error);
                 this.swapFailedListeners.forEach((listener) =>
                     listener(swap, error)
@@ -641,7 +642,7 @@ export class SwapManager {
             const newStatus = msg.args[0].status as BoltzSwapStatus;
             await this.handleSwapStatusUpdate(swap, newStatus);
         } catch (error) {
-            console.error("Error handling WebSocket message:", error);
+            logger.error("Error handling WebSocket message:", error);
         }
     }
 
@@ -661,7 +662,7 @@ export class SwapManager {
         // Update swap status
         swap.status = newStatus;
 
-        console.log(`Swap ${swap.id} status: ${oldStatus} → ${newStatus}`);
+        logger.log(`Swap ${swap.id} status: ${oldStatus} → ${newStatus}`);
 
         // Emit update event to all listeners
         this.swapUpdateListeners.forEach((listener) =>
@@ -675,7 +676,7 @@ export class SwapManager {
                 try {
                     callback(swap, oldStatus);
                 } catch (error) {
-                    console.error(
+                    logger.error(
                         `Error in swap subscription callback for ${swap.id}:`,
                         error
                     );
@@ -697,7 +698,7 @@ export class SwapManager {
             this.swapSubscriptions.delete(swap.id);
             // Emit completed event to all listeners
             this.swapCompletedListeners.forEach((listener) => listener(swap));
-            console.log(`Swap ${swap.id} completed with status: ${newStatus}`);
+            logger.log(`Swap ${swap.id} completed with status: ${newStatus}`);
         }
     }
 
@@ -708,7 +709,7 @@ export class SwapManager {
     private async executeAutonomousAction(swap: PendingSwap): Promise<void> {
         // Skip if already processing this swap
         if (this.swapsInProgress.has(swap.id)) {
-            console.log(
+            logger.log(
                 `Swap ${swap.id} is already being processed, skipping autonomous action`
             );
             return;
@@ -721,7 +722,7 @@ export class SwapManager {
             if (isPendingReverseSwap(swap)) {
                 // Claim reverse swap if status is claimable
                 if (isReverseClaimableStatus(swap.status)) {
-                    console.log(`Auto-claiming reverse swap ${swap.id}`);
+                    logger.log(`Auto-claiming reverse swap ${swap.id}`);
                     await this.executeClaimAction(swap);
                     // Emit action executed event to all listeners
                     this.actionExecutedListeners.forEach((listener) =>
@@ -731,7 +732,7 @@ export class SwapManager {
             } else if (isPendingSubmarineSwap(swap)) {
                 // Refund submarine swap if status is refundable
                 if (isSubmarineRefundableStatus(swap.status)) {
-                    console.log(`Auto-refunding submarine swap ${swap.id}`);
+                    logger.log(`Auto-refunding submarine swap ${swap.id}`);
                     await this.executeRefundAction(swap);
                     // Emit action executed event to all listeners
                     this.actionExecutedListeners.forEach((listener) =>
@@ -740,7 +741,7 @@ export class SwapManager {
                 }
             }
         } catch (error) {
-            console.error(
+            logger.error(
                 `Failed to execute autonomous action for swap ${swap.id}:`,
                 error
             );
@@ -759,7 +760,7 @@ export class SwapManager {
      */
     private async executeClaimAction(swap: PendingReverseSwap): Promise<void> {
         if (!this.claimCallback) {
-            console.error("Claim callback not set");
+            logger.error("Claim callback not set");
             return;
         }
 
@@ -773,7 +774,7 @@ export class SwapManager {
         swap: PendingSubmarineSwap
     ): Promise<void> {
         if (!this.refundCallback) {
-            console.error("Refund callback not set");
+            logger.error("Refund callback not set");
             return;
         }
 
@@ -785,7 +786,7 @@ export class SwapManager {
      */
     private async saveSwap(swap: PendingSwap): Promise<void> {
         if (!this.saveSwapCallback) {
-            console.error("Save swap callback not set");
+            logger.error("Save swap callback not set");
             return;
         }
 
@@ -802,7 +803,7 @@ export class SwapManager {
             return;
         }
 
-        console.log("Resuming actionable swaps...");
+        logger.log("Resuming actionable swaps...");
 
         for (const swap of this.monitoredSwaps.values()) {
             try {
@@ -811,17 +812,17 @@ export class SwapManager {
                     isPendingReverseSwap(swap) &&
                     isReverseClaimableStatus(swap.status)
                 ) {
-                    console.log(`Resuming claim for swap ${swap.id}`);
+                    logger.log(`Resuming claim for swap ${swap.id}`);
                     await this.executeAutonomousAction(swap);
                 } else if (
                     isPendingSubmarineSwap(swap) &&
                     isSubmarineRefundableStatus(swap.status)
                 ) {
-                    console.log(`Resuming refund for swap ${swap.id}`);
+                    logger.log(`Resuming refund for swap ${swap.id}`);
                     await this.executeAutonomousAction(swap);
                 }
             } catch (error) {
-                console.error(`Failed to resume swap ${swap.id}:`, error);
+                logger.error(`Failed to resume swap ${swap.id}:`, error);
             }
         }
     }
@@ -871,7 +872,7 @@ export class SwapManager {
             }
         }, this.currentPollRetryDelay);
 
-        console.log(`Next polling fallback in ${this.currentPollRetryDelay}ms`);
+        logger.log(`Next polling fallback in ${this.currentPollRetryDelay}ms`);
     }
 
     /**
@@ -885,7 +886,7 @@ export class SwapManager {
     private async pollAllSwaps(): Promise<void> {
         if (this.monitoredSwaps.size === 0) return;
 
-        console.log(`Polling ${this.monitoredSwaps.size} swaps...`);
+        logger.log(`Polling ${this.monitoredSwaps.size} swaps...`);
 
         const pollPromises = Array.from(this.monitoredSwaps.values()).map(
             async (swap) => {
@@ -900,7 +901,7 @@ export class SwapManager {
                         );
                     }
                 } catch (error) {
-                    console.error(`Failed to poll swap ${swap.id}:`, error);
+                    logger.error(`Failed to poll swap ${swap.id}:`, error);
                 }
             }
         );
