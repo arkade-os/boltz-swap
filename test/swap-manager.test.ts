@@ -1,10 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SwapManager } from "../src/swap-manager";
 import { BoltzSwapProvider } from "../src/boltz-swap-provider";
-import {
-    PendingReverseSwap,
-    PendingSubmarineSwap,
-} from "../src/types";
+import { PendingReverseSwap, PendingSubmarineSwap } from "../src/types";
 
 describe("SwapManager", () => {
     let swapProvider: BoltzSwapProvider;
@@ -718,7 +715,10 @@ describe("SwapManager", () => {
 
         it("should subscribe to swap updates", async () => {
             // Create a fresh copy to avoid mutations from other tests
-            const freshSwap = { ...mockSubmarineSwap, status: "invoice.set" as const };
+            const freshSwap = {
+                ...mockSubmarineSwap,
+                status: "invoice.set" as const,
+            };
             await swapManager.start([freshSwap]);
 
             // Subscribe to swap updates
@@ -745,7 +745,10 @@ describe("SwapManager", () => {
 
         it("should support multiple subscribers for same swap", async () => {
             // Create a fresh copy to avoid mutations from other tests
-            const freshSwap = { ...mockSubmarineSwap, status: "invoice.set" as const };
+            const freshSwap = {
+                ...mockSubmarineSwap,
+                status: "invoice.set" as const,
+            };
             await swapManager.start([freshSwap]);
 
             // Subscribe two callbacks to the same swap
@@ -797,20 +800,25 @@ describe("SwapManager", () => {
                 saveSwap: vi.fn().mockResolvedValue(undefined),
             });
 
-            const claimableSwap = { ...mockReverseSwap, status: "transaction.confirmed" as const };
+            const claimableSwap = {
+                ...mockReverseSwap,
+                status: "transaction.confirmed" as const,
+            };
             await swapManager.start([claimableSwap]);
 
             // Check swap is not being processed initially
             expect(swapManager.isProcessing("reverse-swap-1")).toBe(false);
 
             // Trigger first autonomous action (will start processing)
-            const promise1 = swapManager["executeAutonomousAction"](claimableSwap);
+            const promise1 =
+                swapManager["executeAutonomousAction"](claimableSwap);
 
             // Check swap is now being processed
             expect(swapManager.isProcessing("reverse-swap-1")).toBe(true);
 
             // Trigger second autonomous action (should be skipped)
-            const promise2 = swapManager["executeAutonomousAction"](claimableSwap);
+            const promise2 =
+                swapManager["executeAutonomousAction"](claimableSwap);
 
             await Promise.all([promise1, promise2]);
 
@@ -831,7 +839,10 @@ describe("SwapManager", () => {
             });
 
             // Create a fresh copy to avoid mutations from other tests
-            const freshSwap = { ...mockReverseSwap, status: "swap.created" as const };
+            const freshSwap = {
+                ...mockReverseSwap,
+                status: "swap.created" as const,
+            };
             await swapManager.start([freshSwap]);
 
             expect(swapManager.hasSwap("reverse-swap-1")).toBe(true);
@@ -842,7 +853,15 @@ describe("SwapManager", () => {
     });
 
     describe("Wait for Completion", () => {
+        const mockTxId = "abc123def456";
+
         beforeEach(() => {
+            // Mock getReverseSwapTxId to return a mock txid
+            vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
+                id: mockTxId,
+                hex: "0200000001...",
+            });
+
             swapManager = new SwapManager(swapProvider);
             swapManager.setCallbacks({
                 claim: vi.fn().mockResolvedValue(undefined),
@@ -852,11 +871,15 @@ describe("SwapManager", () => {
         });
 
         it("should wait for reverse swap completion", async () => {
-            const confirmedSwap = { ...mockReverseSwap, status: "transaction.confirmed" as const };
+            const confirmedSwap = {
+                ...mockReverseSwap,
+                status: "transaction.confirmed" as const,
+            };
             await swapManager.start([confirmedSwap]);
 
             // Start waiting for completion
-            const waitPromise = swapManager.waitForSwapCompletion("reverse-swap-1");
+            const waitPromise =
+                swapManager.waitForSwapCompletion("reverse-swap-1");
 
             // Simulate status update to final status
             setTimeout(async () => {
@@ -868,7 +891,10 @@ describe("SwapManager", () => {
 
             // Should resolve when swap reaches final status
             const result = await waitPromise;
-            expect(result.txid).toBe("reverse-swap-1");
+            expect(result.txid).toBe(mockTxId);
+            expect(swapProvider.getReverseSwapTxId).toHaveBeenCalledWith(
+                "reverse-swap-1"
+            );
 
             await swapManager.stop();
         });
@@ -884,12 +910,37 @@ describe("SwapManager", () => {
         });
 
         it("should resolve immediately if swap already completed", async () => {
-            const completedSwap = { ...mockReverseSwap, status: "invoice.settled" as const };
+            const completedSwap = {
+                ...mockReverseSwap,
+                status: "invoice.settled" as const,
+            };
             await swapManager.start([completedSwap]);
 
             // Should resolve immediately since swap is already in final status
-            const result = await swapManager.waitForSwapCompletion("reverse-swap-1");
-            expect(result.txid).toBe("reverse-swap-1");
+            const result =
+                await swapManager.waitForSwapCompletion("reverse-swap-1");
+            expect(result.txid).toBe(mockTxId);
+            expect(swapProvider.getReverseSwapTxId).toHaveBeenCalledWith(
+                "reverse-swap-1"
+            );
+
+            await swapManager.stop();
+        });
+
+        it("should reject if getReverseSwapTxId fails", async () => {
+            vi.spyOn(swapProvider, "getReverseSwapTxId").mockRejectedValue(
+                new Error("Failed to fetch txid")
+            );
+
+            const completedSwap = {
+                ...mockReverseSwap,
+                status: "invoice.settled" as const,
+            };
+            await swapManager.start([completedSwap]);
+
+            await expect(
+                swapManager.waitForSwapCompletion("reverse-swap-1")
+            ).rejects.toThrow("Failed to fetch txid");
 
             await swapManager.stop();
         });
@@ -926,8 +977,14 @@ describe("SwapManager", () => {
             expect(stats1.websocketConnected).toBe(false);
 
             // Create fresh copies to avoid mutations from other tests
-            const freshReverseSwap = { ...mockReverseSwap, status: "swap.created" as const };
-            const freshSubmarineSwap = { ...mockSubmarineSwap, status: "invoice.set" as const };
+            const freshReverseSwap = {
+                ...mockReverseSwap,
+                status: "swap.created" as const,
+            };
+            const freshSubmarineSwap = {
+                ...mockSubmarineSwap,
+                status: "invoice.set" as const,
+            };
             await swapManager.start([freshReverseSwap, freshSubmarineSwap]);
 
             // Trigger onopen callback

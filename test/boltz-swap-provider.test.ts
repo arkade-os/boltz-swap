@@ -329,9 +329,9 @@ describe("BoltzSwapProvider", () => {
                 vi.fn(() => createFetchResponse({ invalid: "response" }))
             );
             // act & assert
-            await expect(
-                provider.getSwapPreimage("mock-id")
-            ).rejects.toThrow(SchemaError);
+            await expect(provider.getSwapPreimage("mock-id")).rejects.toThrow(
+                SchemaError
+            );
         });
     });
 
@@ -563,7 +563,10 @@ describe("BoltzSwapProvider", () => {
                 checkpoint: validPsbtBase64,
             };
 
-            vi.stubGlobal("fetch", vi.fn(() => createFetchResponse(mockResponse)));
+            vi.stubGlobal(
+                "fetch",
+                vi.fn(() => createFetchResponse(mockResponse))
+            );
 
             // act
             const result = await provider.refundSubmarineSwap(
@@ -600,7 +603,10 @@ describe("BoltzSwapProvider", () => {
                 toPSBT: vi.fn(() => Buffer.from(validPsbtBase64, "base64")),
             };
 
-            vi.stubGlobal("fetch", vi.fn(() => createFetchResponse({ invalid: "response" })));
+            vi.stubGlobal(
+                "fetch",
+                vi.fn(() => createFetchResponse({ invalid: "response" }))
+            );
 
             // act & assert
             await expect(
@@ -627,9 +633,12 @@ describe("BoltzSwapProvider", () => {
             };
 
             // Mock WebSocket constructor
-            vi.stubGlobal("WebSocket", vi.fn(() => {
-                return mockWebSocket;
-            }));
+            vi.stubGlobal(
+                "WebSocket",
+                vi.fn(() => {
+                    return mockWebSocket;
+                })
+            );
         });
 
         it("should monitor swap updates via WebSocket", async () => {
@@ -651,7 +660,9 @@ describe("BoltzSwapProvider", () => {
                     mockWebSocket.onmessage({
                         data: JSON.stringify({
                             event: "update",
-                            args: [{ id: swapId, status: "transaction.mempool" }],
+                            args: [
+                                { id: swapId, status: "transaction.mempool" },
+                            ],
                         }),
                     });
                     // Send terminal status update
@@ -669,7 +680,9 @@ describe("BoltzSwapProvider", () => {
             await provider.monitorSwap(swapId, updateCallback);
 
             // assert
-            expect(globalThis.WebSocket).toHaveBeenCalledWith("ws://localhost:9090/v2/ws");
+            expect(globalThis.WebSocket).toHaveBeenCalledWith(
+                "ws://localhost:9090/v2/ws"
+            );
             expect(mockWebSocket.send).toHaveBeenCalledWith(
                 JSON.stringify({
                     op: "subscribe",
@@ -697,7 +710,12 @@ describe("BoltzSwapProvider", () => {
                     mockWebSocket.onmessage({
                         data: JSON.stringify({
                             event: "update",
-                            args: [{ id: "different-swap-id", status: "transaction.mempool" }],
+                            args: [
+                                {
+                                    id: "different-swap-id",
+                                    status: "transaction.mempool",
+                                },
+                            ],
                         }),
                     });
                     // Send terminal status for our swap
@@ -731,9 +749,9 @@ describe("BoltzSwapProvider", () => {
             }, 0);
 
             // act & assert
-            await expect(provider.monitorSwap(swapId, updateCallback)).rejects.toThrow(
-                NetworkError
-            );
+            await expect(
+                provider.monitorSwap(swapId, updateCallback)
+            ).rejects.toThrow(NetworkError);
         });
 
         it("should close WebSocket and reject on swap error message", async () => {
@@ -750,14 +768,21 @@ describe("BoltzSwapProvider", () => {
                     mockWebSocket.onmessage({
                         data: JSON.stringify({
                             event: "update",
-                            args: [{ id: swapId, error: "Swap failed due to insufficient funds" }],
+                            args: [
+                                {
+                                    id: swapId,
+                                    error: "Swap failed due to insufficient funds",
+                                },
+                            ],
                         }),
                     });
                 }
             }, 10);
 
             // act & assert
-            await expect(provider.monitorSwap(swapId, updateCallback)).rejects.toThrow();
+            await expect(
+                provider.monitorSwap(swapId, updateCallback)
+            ).rejects.toThrow();
             expect(mockWebSocket.close).toHaveBeenCalled();
         });
 

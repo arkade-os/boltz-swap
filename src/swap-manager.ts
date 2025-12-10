@@ -51,7 +51,9 @@ type SwapUpdateListener = (
     swap: PendingReverseSwap | PendingSubmarineSwap,
     oldStatus: BoltzSwapStatus
 ) => void;
-type SwapCompletedListener = (swap: PendingReverseSwap | PendingSubmarineSwap) => void;
+type SwapCompletedListener = (
+    swap: PendingReverseSwap | PendingSubmarineSwap
+) => void;
 type SwapFailedListener = (
     swap: PendingReverseSwap | PendingSubmarineSwap,
     error: Error
@@ -70,12 +72,9 @@ type SwapUpdateCallback = (
     oldStatus: BoltzSwapStatus
 ) => void;
 
-// Internal config type (excludes autostart which is only used by ArkadeLightning)
-type SwapManagerInternalConfig = Omit<Required<SwapManagerConfig>, 'autostart'>;
-
 export class SwapManager {
     private readonly swapProvider: BoltzSwapProvider;
-    private readonly config: SwapManagerInternalConfig;
+    private readonly config: SwapManagerConfig;
 
     // Event listeners storage (supports multiple listeners per event)
     private swapUpdateListeners = new Set<SwapUpdateListener>();
@@ -110,9 +109,8 @@ export class SwapManager {
     private refundCallback:
         | ((swap: PendingSubmarineSwap) => Promise<void>)
         | null = null;
-    private saveSwapCallback:
-        | ((swap: PendingSwap) => Promise<void>)
-        | null = null;
+    private saveSwapCallback: ((swap: PendingSwap) => Promise<void>) | null =
+        null;
 
     constructor(
         swapProvider: BoltzSwapProvider,
@@ -147,11 +145,13 @@ export class SwapManager {
             this.wsConnectedListeners.add(config.events.onWebSocketConnected);
         }
         if (config.events?.onWebSocketDisconnected) {
-            this.wsDisconnectedListeners.add(config.events.onWebSocketDisconnected);
+            this.wsDisconnectedListeners.add(
+                config.events.onWebSocketDisconnected
+            );
         }
 
-        this.currentReconnectDelay = this.config.reconnectDelayMs;
-        this.currentPollRetryDelay = this.config.pollRetryDelayMs;
+        this.currentReconnectDelay = this.config.reconnectDelayMs!;
+        this.currentPollRetryDelay = this.config.pollRetryDelayMs!;
     }
 
     /**
@@ -217,7 +217,9 @@ export class SwapManager {
      * Add an event listener for WebSocket disconnection
      * @returns Unsubscribe function
      */
-    onWebSocketDisconnected(listener: WebSocketDisconnectedListener): () => void {
+    onWebSocketDisconnected(
+        listener: WebSocketDisconnectedListener
+    ): () => void {
         this.wsDisconnectedListeners.add(listener);
         return () => this.wsDisconnectedListeners.delete(listener);
     }
@@ -340,10 +342,7 @@ export class SwapManager {
         this.monitoredSwaps.set(swap.id, swap);
 
         // Subscribe to this swap if WebSocket is connected
-        if (
-            this.websocket &&
-            this.websocket.readyState === WebSocket.OPEN
-        ) {
+        if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
             this.subscribeToSwap(swap.id);
         }
 
@@ -412,7 +411,10 @@ export class SwapManager {
             // Check if already in final status
             if (this.isFinalStatus(swap.status)) {
                 if (isPendingReverseSwap(swap)) {
-                    resolve({ txid: swap.id });
+                    this.swapProvider
+                        .getReverseSwapTxId(swap.id)
+                        .then((response) => resolve({ txid: response.id }))
+                        .catch((error) => reject(error));
                 } else {
                     reject(new Error("Submarine swap already completed"));
                 }
@@ -430,7 +432,12 @@ export class SwapManager {
                         if (isPendingReverseSwap(updatedSwap)) {
                             // Check if successfully claimed
                             if (updatedSwap.status === "invoice.settled") {
-                                resolve({ txid: updatedSwap.id });
+                                this.swapProvider
+                                    .getReverseSwapTxId(updatedSwap.id)
+                                    .then((response) =>
+                                        resolve({ txid: response.id })
+                                    )
+                                    .catch((error) => reject(error));
                             } else {
                                 reject(
                                     new Error(
@@ -501,7 +508,7 @@ export class SwapManager {
                 console.log("WebSocket connected");
 
                 // Reset reconnect delay on successful connection
-                this.currentReconnectDelay = this.config.reconnectDelayMs;
+                this.currentReconnectDelay = this.config.reconnectDelayMs!;
                 this.usePollingFallback = false;
                 this.isReconnecting = false;
 
@@ -585,7 +592,7 @@ export class SwapManager {
         // Exponential backoff for reconnection
         this.currentReconnectDelay = Math.min(
             this.currentReconnectDelay * 2,
-            this.config.maxReconnectDelayMs
+            this.config.maxReconnectDelayMs!
         );
     }
 
@@ -625,7 +632,9 @@ export class SwapManager {
             if (msg.args[0].error) {
                 console.error(`Swap ${swapId} error:`, msg.args[0].error);
                 const error = new Error(msg.args[0].error);
-                this.swapFailedListeners.forEach((listener) => listener(swap, error));
+                this.swapFailedListeners.forEach((listener) =>
+                    listener(swap, error)
+                );
                 return;
             }
 
@@ -655,7 +664,9 @@ export class SwapManager {
         console.log(`Swap ${swap.id} status: ${oldStatus} → ${newStatus}`);
 
         // Emit update event to all listeners
-        this.swapUpdateListeners.forEach((listener) => listener(swap, oldStatus));
+        this.swapUpdateListeners.forEach((listener) =>
+            listener(swap, oldStatus)
+        );
 
         // Notify per-swap subscribers
         const subscribers = this.swapSubscriptions.get(swap.id);
@@ -713,7 +724,9 @@ export class SwapManager {
                     console.log(`Auto-claiming reverse swap ${swap.id}`);
                     await this.executeClaimAction(swap);
                     // Emit action executed event to all listeners
-                    this.actionExecutedListeners.forEach((listener) => listener(swap, "claim"));
+                    this.actionExecutedListeners.forEach((listener) =>
+                        listener(swap, "claim")
+                    );
                 }
             } else if (isPendingSubmarineSwap(swap)) {
                 // Refund submarine swap if status is refundable
@@ -721,7 +734,9 @@ export class SwapManager {
                     console.log(`Auto-refunding submarine swap ${swap.id}`);
                     await this.executeRefundAction(swap);
                     // Emit action executed event to all listeners
-                    this.actionExecutedListeners.forEach((listener) => listener(swap, "refund"));
+                    this.actionExecutedListeners.forEach((listener) =>
+                        listener(swap, "refund")
+                    );
                 }
             }
         } catch (error) {
@@ -730,7 +745,9 @@ export class SwapManager {
                 error
             );
             // Emit swap failed event to all listeners
-            this.swapFailedListeners.forEach((listener) => listener(swap, error as Error));
+            this.swapFailedListeners.forEach((listener) =>
+                listener(swap, error as Error)
+            );
         } finally {
             // Always release the lock
             this.swapsInProgress.delete(swap.id);
@@ -804,10 +821,7 @@ export class SwapManager {
                     await this.executeAutonomousAction(swap);
                 }
             } catch (error) {
-                console.error(
-                    `Failed to resume swap ${swap.id}:`,
-                    error
-                );
+                console.error(`Failed to resume swap ${swap.id}:`, error);
             }
         }
     }
@@ -848,7 +862,7 @@ export class SwapManager {
             // Increase poll retry delay with exponential backoff
             this.currentPollRetryDelay = Math.min(
                 this.currentPollRetryDelay * 2,
-                this.config.maxPollRetryDelayMs
+                this.config.maxPollRetryDelayMs!
             );
 
             // Reschedule if manager is still running and still in fallback mode
@@ -857,9 +871,7 @@ export class SwapManager {
             }
         }, this.currentPollRetryDelay);
 
-        console.log(
-            `Next polling fallback in ${this.currentPollRetryDelay}ms`
-        );
+        console.log(`Next polling fallback in ${this.currentPollRetryDelay}ms`);
     }
 
     /**
@@ -888,10 +900,7 @@ export class SwapManager {
                         );
                     }
                 } catch (error) {
-                    console.error(
-                        `Failed to poll swap ${swap.id}:`,
-                        error
-                    );
+                    console.error(`Failed to poll swap ${swap.id}:`, error);
                 }
             }
         );

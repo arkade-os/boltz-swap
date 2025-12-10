@@ -113,7 +113,7 @@ export class ArkadeLightning {
         // - false/undefined: disabled
         if (config.swapManager) {
             const swapManagerConfig =
-                config.swapManager === true ? { } : config.swapManager;
+                config.swapManager === true ? {} : config.swapManager;
 
             // Extract autostart (defaults to true) before passing to SwapManager
             // SwapManager doesn't need it - only ArkadeLightning uses it
@@ -802,7 +802,9 @@ export class ArkadeLightning {
         return new Promise<{ txid: string }>((resolve, reject) => {
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
             const onStatusUpdate = async (status: BoltzSwapStatus) => {
-                const saveStatus = (additionalFields?: Partial<PendingReverseSwap>) =>
+                const saveStatus = (
+                    additionalFields?: Partial<PendingReverseSwap>
+                ) =>
                     updateReverseSwapStatus(
                         pendingSwap,
                         status,
@@ -887,7 +889,9 @@ export class ArkadeLightning {
             const onStatusUpdate = async (status: BoltzSwapStatus) => {
                 if (isResolved) return; // Prevent multiple resolutions
 
-                const saveStatus = (additionalFields?: Partial<PendingSubmarineSwap>) =>
+                const saveStatus = (
+                    additionalFields?: Partial<PendingSubmarineSwap>
+                ) =>
                     updateSubmarineSwapStatus(
                         pendingSwap,
                         status,

@@ -921,14 +921,18 @@ describe("ArkadeLightning", () => {
                 expect(manager!.hasSwap).toBeInstanceOf(Function);
                 expect(manager!.isProcessing).toBeInstanceOf(Function);
                 expect(manager!.getStats).toBeInstanceOf(Function);
-                expect(manager!.subscribeToSwapUpdates).toBeInstanceOf(Function);
+                expect(manager!.subscribeToSwapUpdates).toBeInstanceOf(
+                    Function
+                );
                 expect(manager!.waitForSwapCompletion).toBeInstanceOf(Function);
                 expect(manager!.onSwapUpdate).toBeInstanceOf(Function);
                 expect(manager!.onSwapCompleted).toBeInstanceOf(Function);
                 expect(manager!.onSwapFailed).toBeInstanceOf(Function);
                 expect(manager!.onActionExecuted).toBeInstanceOf(Function);
                 expect(manager!.onWebSocketConnected).toBeInstanceOf(Function);
-                expect(manager!.onWebSocketDisconnected).toBeInstanceOf(Function);
+                expect(manager!.onWebSocketDisconnected).toBeInstanceOf(
+                    Function
+                );
             });
         });
 
@@ -969,7 +973,9 @@ describe("ArkadeLightning", () => {
 
             it("should not throw when stopping disabled swap manager", async () => {
                 // act & assert
-                await expect(lightning.stopSwapManager()).resolves.toBeUndefined();
+                await expect(
+                    lightning.stopSwapManager()
+                ).resolves.toBeUndefined();
             });
         });
 
@@ -1038,7 +1044,9 @@ describe("ArkadeLightning", () => {
                 expect(manager.hasSwap(mockReverseSwap.id)).toBe(true);
                 expect(manager.getStats().monitoredSwaps).toBe(1);
                 expect(manager.getPendingSwaps()).toHaveLength(1);
-                expect(manager.getPendingSwaps()[0].id).toBe(mockReverseSwap.id);
+                expect(manager.getPendingSwaps()[0].id).toBe(
+                    mockReverseSwap.id
+                );
             });
 
             it("should remove swap from monitoring", async () => {
@@ -1507,7 +1515,9 @@ describe("ArkadeLightning", () => {
 
         it("should warn when starting already running manager", async () => {
             // arrange
-            const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const consoleWarnSpy = vi
+                .spyOn(console, "warn")
+                .mockImplementation(() => {});
             await manager.start([]);
 
             // act
