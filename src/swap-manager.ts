@@ -71,7 +71,7 @@ type SwapUpdateCallback = (
 ) => void;
 
 // Internal config type (excludes autostart which is only used by ArkadeLightning)
-type SwapManagerInternalConfig = Omit<Required<SwapManagerConfig>, 'autostart'>;
+type SwapManagerInternalConfig = Omit<Required<SwapManagerConfig>, 'autoStart'>;
 
 export class SwapManager {
     private readonly swapProvider: BoltzSwapProvider;
