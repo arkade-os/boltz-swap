@@ -121,7 +121,7 @@ const arkadeLightning = new ArkadeLightning({
   wallet,
   swapProvider,
   swapManager: {
-    autostart: false, // Set to false to manually call startSwapManager() later
+    autoStart: false, // Set to false to manually call startSwapManager() later
     // Events for UI updates (optional, can also use on/off methods)
     events: {
       onSwapCompleted: (swap) => {
@@ -164,7 +164,7 @@ const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
   // OR custom configuration
   swapManager: {
     enableAutoActions: true,        // Auto claim/refund (default: true)
-    autostart: true,                // Auto-start on init (default: true)
+    autoStart: true,                // Auto-start on init (default: true)
     pollInterval: 30000,            // Failsafe poll every 30s when WS active (default)
     reconnectDelayMs: 1000,         // Initial WS reconnect delay (default)
     maxReconnectDelayMs: 60000,     // Max WS reconnect delay (default)
@@ -260,7 +260,7 @@ await arkadeLightning.dispose(); // Stops SwapManager and cleans up
   await using arkadeLightning = new ArkadeLightning({
     wallet,
     swapProvider,
-    swapManager: { autostart: true },
+    swapManager: { autoStart: true },
   });
 
   // Use arkadeLightning...
