@@ -327,6 +327,10 @@ export class ArkadeLightning {
      * @param pendingSwap - The pending reverse swap to claim the VHTLC.
      */
     async claimVHTLC(pendingSwap: PendingReverseSwap): Promise<void> {
+        // restored swaps may not have preimage
+        if (!pendingSwap.preimage)
+            throw new Error("Preimage is required to claim VHTLC");
+
         const preimage = hex.decode(pendingSwap.preimage);
         const aspInfo = await this.arkProvider.getInfo();
         const address = await this.wallet.getAddress();
@@ -469,6 +473,9 @@ export class ArkadeLightning {
      * @param pendingSwap - The pending submarine swap to refund the VHTLC.
      */
     async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
+        if (!pendingSwap.request.invoice)
+            throw new Error("Invoice is required to refund VHTLC");
+
         const vhtlcPkScript = ArkAddress.decode(
             pendingSwap.response.address
         ).pkScript;
@@ -926,10 +933,14 @@ export class ArkadeLightning {
             } else if (isRestoredSubmarineSwap(swap)) {
                 const { amount, lockupAddress, serverPublicKey, tree } =
                     swap.refundDetails;
+                const { preimage } = await this.swapProvider.getSwapPreimage(
+                    swap.id
+                );
                 submarineSwaps.push({
                     id,
                     type: "submarine",
                     createdAt,
+                    preimage,
                     status,
                     request: {
                         invoice: "", // TODO check if we can get the invoice from boltz

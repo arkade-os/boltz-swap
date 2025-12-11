@@ -48,6 +48,7 @@ export function extractInvoiceAmount(
     amountSats: number | undefined,
     fees: FeesResponse
 ): number {
+    // validate inputs
     if (!amountSats) return 0;
     const { percentage, minerFees } = fees.reverse;
     const miner = minerFees.lockup + minerFees.claim;
