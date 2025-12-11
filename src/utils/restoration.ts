@@ -9,13 +9,13 @@ import bip68 from "bip68";
  * @param scriptHex The Bitcoin script in hexadecimal format.
  * @returns The timelock value in blocks or seconds.
  */
-export function extractTimeLockFromLeafOutput(someHex: string): number {
+export function extractTimeLockFromLeafOutput(scriptHex: string): number {
     // return 0 if no script provided
-    if (!someHex) return 0;
+    if (!scriptHex) return 0;
 
     try {
         // split the script into opcodes
-        const opcodes = script.toASM(hex.decode(someHex)).split(" ");
+        const opcodes = script.toASM(hex.decode(scriptHex)).split(" ");
 
         // look for OP_NOP2 (CLTV - OP_CHECKLOCKTIMEVERIFY)
         const hasCLTV = opcodes.findIndex((op) => op === "OP_NOP2");
