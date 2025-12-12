@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { BoltzSwapProvider } from "../src/boltz-swap-provider";
 import { SchemaError, NetworkError } from "../src/errors";
+import {
+    extractInvoiceAmount,
+    extractTimeLockFromLeafOutput,
+} from "../src/utils/restoration";
+import { FeesResponse } from "../src/types";
 
 // Scaffolding test file for BoltzSwapProvider
 // This file will be updated when implementing features from README.md
@@ -544,6 +549,160 @@ describe("BoltzSwapProvider", () => {
         });
     });
 
+    describe("Swap restoration", () => {
+        describe("Time lock extraction from script", () => {
+            it("reverse swaps", () => {
+                const expected = {
+                    refund: 1765366349,
+                    unilateralClaim: 9728,
+                    unilateralRefund: 19456,
+                    unilateralRefundWithoutReceiver: 38400,
+                };
+
+                const tree = {
+                    claimLeaf: {
+                        version: 0,
+                        output: "a914709b098708fed95c0d8c19fda64f630887f4f4988769200da6a9cbcebd245df8ac2f7e6520f2fd46e2da3990a74f701db1df92ffe3a9daad20e35799157be4b37565bb5afe4d04e6a0fa0a4b6a4f4e48b0d904685d253cdbdbac",
+                    },
+                    refundLeaf: {
+                        version: 0,
+                        output: "20c432d8c2f7191f2ffe380cdcd995d53492aa1af60a92f1be6698971c03ee5d6dad200da6a9cbcebd245df8ac2f7e6520f2fd46e2da3990a74f701db1df92ffe3a9daad20e35799157be4b37565bb5afe4d04e6a0fa0a4b6a4f4e48b0d904685d253cdbdbac",
+                    },
+                    refundWithoutBoltzLeaf: {
+                        version: 0,
+                        output: "044d5a3969b17520c432d8c2f7191f2ffe380cdcd995d53492aa1af60a92f1be6698971c03ee5d6dad20e35799157be4b37565bb5afe4d04e6a0fa0a4b6a4f4e48b0d904685d253cdbdbac",
+                    },
+                    unilateralClaimLeaf: {
+                        version: 0,
+                        output: "a914709b098708fed95c0d8c19fda64f630887f4f498876903130040b275200da6a9cbcebd245df8ac2f7e6520f2fd46e2da3990a74f701db1df92ffe3a9daac",
+                    },
+                    unilateralRefundLeaf: {
+                        version: 0,
+                        output: "03260040b27520c432d8c2f7191f2ffe380cdcd995d53492aa1af60a92f1be6698971c03ee5d6dad200da6a9cbcebd245df8ac2f7e6520f2fd46e2da3990a74f701db1df92ffe3a9daac",
+                    },
+                    unilateralRefundWithoutBoltzLeaf: {
+                        version: 0,
+                        output: "034b0040b27520c432d8c2f7191f2ffe380cdcd995d53492aa1af60a92f1be6698971c03ee5d6dac",
+                    },
+                };
+
+                expect(
+                    extractTimeLockFromLeafOutput(
+                        tree.refundWithoutBoltzLeaf.output
+                    )
+                ).toBe(expected.refund);
+
+                expect(
+                    extractTimeLockFromLeafOutput(
+                        tree.unilateralClaimLeaf.output
+                    )
+                ).toBe(expected.unilateralClaim);
+
+                expect(
+                    extractTimeLockFromLeafOutput(
+                        tree.unilateralRefundLeaf.output
+                    )
+                ).toBe(expected.unilateralRefund);
+
+                expect(
+                    extractTimeLockFromLeafOutput(
+                        tree.unilateralRefundWithoutBoltzLeaf.output
+                    )
+                ).toBe(expected.unilateralRefundWithoutReceiver);
+            });
+
+            it("submarine swaps", () => {
+                const expected = {
+                    refund: 1765885005,
+                    unilateralClaim: 9728,
+                    unilateralRefund: 19456,
+                    unilateralRefundWithoutReceiver: 38400,
+                };
+
+                const tree = {
+                    claimLeaf: {
+                        version: 0,
+                        output: "a914685ba29acce5320ab1ed90cd24e6a125b88835ce876920c432d8c2f7191f2ffe380cdcd995d53492aa1af60a92f1be6698971c03ee5d6dad20e35799157be4b37565bb5afe4d04e6a0fa0a4b6a4f4e48b0d904685d253cdbdbac",
+                    },
+                    refundLeaf: {
+                        version: 0,
+                        output: "200da6a9cbcebd245df8ac2f7e6520f2fd46e2da3990a74f701db1df92ffe3a9daad20c432d8c2f7191f2ffe380cdcd995d53492aa1af60a92f1be6698971c03ee5d6dad20e35799157be4b37565bb5afe4d04e6a0fa0a4b6a4f4e48b0d904685d253cdbdbac",
+                    },
+                    refundWithoutBoltzLeaf: {
+                        version: 0,
+                        output: "044d444169b175200da6a9cbcebd245df8ac2f7e6520f2fd46e2da3990a74f701db1df92ffe3a9daad20e35799157be4b37565bb5afe4d04e6a0fa0a4b6a4f4e48b0d904685d253cdbdbac",
+                    },
+                    unilateralClaimLeaf: {
+                        version: 0,
+                        output: "a914685ba29acce5320ab1ed90cd24e6a125b88835ce876903130040b27520c432d8c2f7191f2ffe380cdcd995d53492aa1af60a92f1be6698971c03ee5d6dac",
+                    },
+                    unilateralRefundLeaf: {
+                        version: 0,
+                        output: "03260040b275200da6a9cbcebd245df8ac2f7e6520f2fd46e2da3990a74f701db1df92ffe3a9daad20c432d8c2f7191f2ffe380cdcd995d53492aa1af60a92f1be6698971c03ee5d6dac",
+                    },
+                    unilateralRefundWithoutBoltzLeaf: {
+                        version: 0,
+                        output: "034b0040b275200da6a9cbcebd245df8ac2f7e6520f2fd46e2da3990a74f701db1df92ffe3a9daac",
+                    },
+                };
+
+                expect(
+                    extractTimeLockFromLeafOutput(
+                        tree.refundWithoutBoltzLeaf.output
+                    )
+                ).toBe(expected.refund);
+
+                expect(
+                    extractTimeLockFromLeafOutput(
+                        tree.unilateralClaimLeaf.output
+                    )
+                ).toBe(expected.unilateralClaim);
+
+                expect(
+                    extractTimeLockFromLeafOutput(
+                        tree.unilateralRefundLeaf.output
+                    )
+                ).toBe(expected.unilateralRefund);
+
+                expect(
+                    extractTimeLockFromLeafOutput(
+                        tree.unilateralRefundWithoutBoltzLeaf.output
+                    )
+                ).toBe(expected.unilateralRefundWithoutReceiver);
+            });
+        });
+
+        describe("Amount extraction", () => {
+            it("invoice amount extraction", () => {
+                const fees: FeesResponse = {
+                    submarine: {
+                        percentage: 0.1,
+                        minerFees: 0,
+                    },
+                    reverse: {
+                        percentage: 0.4,
+                        minerFees: {
+                            claim: 0,
+                            lockup: 0,
+                        },
+                    },
+                };
+
+                expect(extractInvoiceAmount(1000, fees)).toBe(1005);
+                expect(extractInvoiceAmount(1992, fees)).toBe(2000);
+                expect(extractInvoiceAmount(2091, fees)).toBe(2100);
+            });
+        });
+    });
+
+    // TODO: Implement tests for features shown in README.md
+    // Basic operations:
+    // - Creating submarine swaps
+    // - Creating reverse submarine swaps
+    // - Getting swap status
+    // - Getting trading pairs
+    // - Fee estimation
+    // - Invoice validation
     describe("refundSubmarineSwap", () => {
         it("should refund a submarine swap with signed transactions", async () => {
             // arrange

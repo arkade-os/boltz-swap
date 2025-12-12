@@ -43,12 +43,18 @@ import {
     GetSwapStatusResponse,
     isSubmarineFinalStatus,
     isReverseFinalStatus,
+    isRestoredReverseSwap,
+    isRestoredSubmarineSwap,
 } from "./boltz-swap-provider";
 import { Transaction } from "@scure/btc-signer";
 import { TransactionInput } from "@scure/btc-signer/psbt.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
 import { verifySignatures } from "./utils/signatures";
+import {
+    extractInvoiceAmount,
+    extractTimeLockFromLeafOutput,
+} from "./utils/restoration";
 import { SwapManager } from "./swap-manager";
 import {
     saveSwap,
@@ -424,6 +430,10 @@ export class ArkadeLightning {
      * @param pendingSwap - The pending reverse swap to claim the VHTLC.
      */
     async claimVHTLC(pendingSwap: PendingReverseSwap): Promise<void> {
+        // restored swaps may not have preimage
+        if (!pendingSwap.preimage)
+            throw new Error("Preimage is required to claim VHTLC");
+
         const preimage = hex.decode(pendingSwap.preimage);
         const aspInfo = await this.arkProvider.getInfo();
         const address = await this.wallet.getAddress();
@@ -567,6 +577,10 @@ export class ArkadeLightning {
      * @param pendingSwap - The pending submarine swap to refund the VHTLC.
      */
     async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
+        // restored swaps may not have invoice
+        if (!pendingSwap.request.invoice)
+            throw new Error("Invoice is required to refund VHTLC");
+
         const vhtlcPkScript = ArkAddress.decode(
             pendingSwap.response.address
         ).pkScript;
@@ -939,6 +953,130 @@ export class ArkadeLightning {
                     }
                 });
         });
+    }
+
+    /**
+     * Restore swaps from boltz api
+     * @param boltzFees - Optional fees response to use for restoration.
+     * @returns An object containing arrays of restored reverse and submarine swaps.
+     */
+    async restoreSwaps(boltzFees?: FeesResponse): Promise<{
+        reverseSwaps: PendingReverseSwap[];
+        submarineSwaps: PendingSubmarineSwap[];
+    }> {
+        // get public key from wallet
+        const publicKey = hex.encode(
+            await this.wallet.identity.compressedPublicKey()
+        );
+        if (!publicKey) throw new Error("Failed to get public key from wallet");
+
+        // get fees
+        const fees = boltzFees ?? (await this.swapProvider.getFees());
+
+        const reverseSwaps: PendingReverseSwap[] = [];
+        const submarineSwaps: PendingSubmarineSwap[] = [];
+
+        // get restored swaps from swap provider
+        const restoredSwaps = await this.swapProvider.restoreSwaps(publicKey);
+
+        for (const swap of restoredSwaps) {
+            const { id, createdAt, status } = swap;
+            if (isRestoredReverseSwap(swap)) {
+                // destructure claim details
+                const {
+                    amount,
+                    lockupAddress,
+                    preimageHash,
+                    serverPublicKey,
+                    tree,
+                } = swap.claimDetails;
+
+                // build pending reverse swap object
+                reverseSwaps.push({
+                    id,
+                    createdAt,
+                    request: {
+                        invoiceAmount: extractInvoiceAmount(amount, fees),
+                        claimPublicKey: publicKey,
+                        preimageHash,
+                    },
+                    response: {
+                        id,
+                        invoice: "", // TODO check if we can get the invoice from boltz
+                        onchainAmount: amount,
+                        lockupAddress,
+                        refundPublicKey: serverPublicKey,
+                        timeoutBlockHeights: {
+                            refund: extractTimeLockFromLeafOutput(
+                                tree.refundWithoutBoltzLeaf.output
+                            ),
+                            unilateralClaim: extractTimeLockFromLeafOutput(
+                                tree.unilateralClaimLeaf.output
+                            ),
+                            unilateralRefund: extractTimeLockFromLeafOutput(
+                                tree.unilateralRefundLeaf.output
+                            ),
+                            unilateralRefundWithoutReceiver:
+                                extractTimeLockFromLeafOutput(
+                                    tree.unilateralRefundWithoutBoltzLeaf.output
+                                ),
+                        },
+                    },
+                    status,
+                    type: "reverse",
+                    preimage: "",
+                } as PendingReverseSwap);
+            } else if (isRestoredSubmarineSwap(swap)) {
+                // destructure refund details
+                const { amount, lockupAddress, serverPublicKey, tree } =
+                    swap.refundDetails;
+
+                // fetch preimage if available
+                let preimage = "";
+                try {
+                    const data = await this.swapProvider.getSwapPreimage(
+                        swap.id
+                    );
+                    preimage = data.preimage;
+                } catch {}
+
+                // build pending submarine swap object
+                submarineSwaps.push({
+                    id,
+                    type: "submarine",
+                    createdAt,
+                    preimage,
+                    status,
+                    request: {
+                        invoice: "", // TODO check if we can get the invoice from boltz
+                        refundPublicKey: publicKey,
+                    },
+                    response: {
+                        id,
+                        address: lockupAddress,
+                        expectedAmount: amount,
+                        claimPublicKey: serverPublicKey,
+                        timeoutBlockHeights: {
+                            refund: extractTimeLockFromLeafOutput(
+                                tree.refundWithoutBoltzLeaf.output
+                            ),
+                            unilateralClaim: extractTimeLockFromLeafOutput(
+                                tree.unilateralClaimLeaf.output
+                            ),
+                            unilateralRefund: extractTimeLockFromLeafOutput(
+                                tree.unilateralRefundLeaf.output
+                            ),
+                            unilateralRefundWithoutReceiver:
+                                extractTimeLockFromLeafOutput(
+                                    tree.unilateralRefundWithoutBoltzLeaf.output
+                                ),
+                        },
+                    },
+                } as PendingSubmarineSwap);
+            }
+        }
+
+        return { reverseSwaps, submarineSwaps };
     }
 
     // validators
