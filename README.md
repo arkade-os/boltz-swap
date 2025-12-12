@@ -47,6 +47,8 @@ const swapProvider = new BoltzSwapProvider({
 const arkadeLightning = new ArkadeLightning({
   wallet,
   swapProvider,
+  // Optional: enable SwapManager with defaults
+  // swapManager: true,
 });
 ```
 
@@ -99,6 +101,245 @@ const arkadeLightning = new ArkadeLightning({
 ```
 
 **Storage Adapters**: The Arkade SDK provides various storage adapters for different environments. For ServiceWorker environments, use `IndexedDBStorageAdapter`. For more storage options and adapters, see the [Arkade SDK storage adapters documentation](https://github.com/arkade-os/ts-sdk).
+
+## Background Swap Monitoring (SwapManager)
+
+By default, you must manually monitor each swap and act on their state. **SwapManager** enables autonomous background processing - swaps complete automatically while the app is running. When the app reopens, it automatically resumes pending swaps.
+
+### Enable SwapManager
+
+```typescript
+// Option 1: Enable with defaults
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+  swapManager: true, // Simple boolean to enable with defaults
+});
+
+// Option 2: Enable with custom config
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+  swapManager: {
+    autoStart: false, // Set to false to manually call startSwapManager() later
+    // Events for UI updates (optional, can also use on/off methods)
+    events: {
+      onSwapCompleted: (swap) => {
+        console.log(`Swap ${swap.id} completed!`);
+      },
+      onSwapUpdate: (swap, oldStatus) => {
+        console.log(`${swap.id}: ${oldStatus} → ${swap.status}`);
+      },
+    },
+  },
+});
+
+// If autostart is false, manually start monitoring
+// (autostart is true by default, so this is only needed if you set it to false)
+if (config.swapManager?.autostart === false) {
+  await arkadeLightning.startSwapManager();
+}
+
+// Create swaps - they're automatically monitored!
+const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
+// User can navigate to other pages - swap completes in background
+```
+
+### How It Works
+
+- **Single WebSocket** monitors all swaps (not one per swap)
+- **Automatic polling** after WebSocket connects/reconnects
+- **Fallback polling** with exponential backoff if WebSocket fails
+- **Auto-claim/refund** executes when status allows
+- **Resumes on app reopen** - loads pending swaps, polls latest status, executes refunds if expired
+- **⚠️ Requires app running** - stops when app closes (service worker support planned)
+  - If swaps expire while app is closed, refunds execute automatically on next app launch
+
+### Configuration Options
+
+```typescript
+  // Simple boolean to enable with defaults
+  swapManager: true,
+
+  // OR custom configuration
+  swapManager: {
+    enableAutoActions: true,        // Auto claim/refund (default: true)
+    autoStart: true,                // Auto-start on init (default: true)
+    pollInterval: 30000,            // Failsafe poll every 30s when WS active (default)
+    reconnectDelayMs: 1000,         // Initial WS reconnect delay (default)
+    maxReconnectDelayMs: 60000,     // Max WS reconnect delay (default)
+    pollRetryDelayMs: 5000,         // Initial fallback poll delay (default)
+    maxPollRetryDelayMs: 300000,    // Max fallback poll delay (default)
+
+    // Optional: provide event listeners in config
+    // (can also use on/off methods dynamically - see Event Subscription section)
+    events: {
+      onSwapUpdate: (swap, oldStatus) => {},
+      onSwapCompleted: (swap) => {},
+      onSwapFailed: (swap, error) => {},
+      onActionExecuted: (swap, action) => {},  // 'claim' or 'refund'
+      onWebSocketConnected: () => {},
+      onWebSocketDisconnected: (error?) => {},
+    }
+  }
+```
+
+### Event Subscription
+
+SwapManager supports flexible event subscription - you can add/remove listeners dynamically instead of just providing them in config:
+
+```typescript
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+  swapManager: true,
+});
+
+const manager = arkadeLightning.getSwapManager();
+
+// Subscribe to events using on* methods (returns unsubscribe function)
+const unsubscribe = manager.onSwapUpdate((swap, oldStatus) => {
+  console.log(`Swap ${swap.id}: ${oldStatus} → ${swap.status}`);
+  // Update UI based on swap status
+});
+
+// Subscribe to completed events
+manager.onSwapCompleted((swap) => {
+  console.log(`Swap ${swap.id} completed!`);
+  showNotification(`Payment completed!`);
+});
+
+// Subscribe to failures
+manager.onSwapFailed((swap, error) => {
+  console.error(`Swap ${swap.id} failed:`, error);
+  showErrorDialog(error.message);
+});
+
+// Subscribe to actions (claim/refund)
+manager.onActionExecuted((swap, action) => {
+  console.log(`Executed ${action} for swap ${swap.id}`);
+});
+
+// WebSocket events
+manager.onWebSocketConnected(() => {
+  console.log('Connected to swap updates');
+});
+
+manager.onWebSocketDisconnected((error) => {
+  console.log('Disconnected from swap updates', error);
+});
+
+// Unsubscribe when no longer needed (e.g., component unmount)
+// unsubscribe();
+
+// Or use off* methods to remove specific listeners
+const listener = (swap) => console.log('completed', swap.id);
+manager.onSwapCompleted(listener);
+// Later...
+manager.offSwapCompleted(listener);
+```
+
+**Benefits of dynamic event subscription:**
+- Add/remove listeners at any time
+- Multiple listeners per event type
+- Easy cleanup when components unmount
+- No need to restart SwapManager to change handlers
+
+### Cleanup (Disposable Pattern)
+
+ArkadeLightning implements the Disposable pattern for automatic cleanup:
+
+```typescript
+// Option 1: Manual cleanup
+const arkadeLightning = new ArkadeLightning({ wallet, swapProvider });
+// ... use it
+await arkadeLightning.dispose(); // Stops SwapManager and cleans up
+
+// Option 2: Automatic cleanup with `await using` (TypeScript 5.2+)
+{
+  await using arkadeLightning = new ArkadeLightning({
+    wallet,
+    swapProvider,
+    swapManager: { autoStart: true },
+  });
+
+  // Use arkadeLightning...
+
+} // SwapManager automatically stopped when scope exits
+```
+
+### Manual Control
+
+```typescript
+// Stop background monitoring
+await arkadeLightning.stopSwapManager();
+
+// Check manager stats
+const manager = arkadeLightning.getSwapManager();
+const stats = manager?.getStats();
+console.log(`Monitoring ${stats.monitoredSwaps} swaps`);
+console.log(`WebSocket connected: ${stats.websocketConnected}`);
+```
+
+### Per-Swap UI Hooks
+
+When SwapManager is enabled, you can subscribe to updates for specific swaps to show progress in your UI:
+
+```typescript
+const result = await arkadeLightning.createLightningInvoice({ amount: 50000 });
+
+// Subscribe to this specific swap's updates
+const manager = arkadeLightning.getSwapManager();
+const unsubscribe = manager.subscribeToSwapUpdates(
+  result.pendingSwap.id,
+  (swap, oldStatus) => {
+    console.log(`Swap ${swap.id}: ${oldStatus} → ${swap.status}`);
+    // Update UI based on status
+    if (swap.status === 'transaction.mempool') {
+      showNotification('Payment detected in mempool!');
+    } else if (swap.status === 'invoice.settled') {
+      showNotification('Payment received!');
+    }
+  }
+);
+
+// Clean up when component unmounts
+// unsubscribe();
+```
+
+### Blocking with SwapManager
+
+Even with SwapManager enabled, you can still wait for specific swaps to complete:
+
+```typescript
+const result = await arkadeLightning.createLightningInvoice({ amount: 50000 });
+
+// This blocks until the swap completes, but SwapManager handles the monitoring
+try {
+  const { txid } = await arkadeLightning.waitAndClaim(result.pendingSwap);
+  console.log('Payment claimed successfully:', txid);
+} catch (error) {
+  console.error('Payment failed:', error);
+}
+
+// Benefits of delegating to SwapManager:
+// No race conditions - manager coordinates with manual calls
+// User can navigate away - swap completes in background
+// Automatic refund on failure - no manual error handling needed
+```
+
+### Without SwapManager (Manual Mode)
+
+If SwapManager is not enabled, you must manually monitor swaps:
+
+```typescript
+// Create invoice
+const result = await arkadeLightning.createLightningInvoice({ amount: 50000 });
+
+// MUST manually monitor - blocks until complete
+await arkadeLightning.waitAndClaim(result.pendingSwap);
+// User must stay on this page - navigating away stops monitoring
+```
 
 ## Checking Swap Limits
 
@@ -176,8 +417,11 @@ const calcReverseSwapFee = (satoshis: number): number => {
 };
 ```
 
-## Checking swap status
+## Checking Swap Status
 
+**With SwapManager:** Status updates are automatic via events - no manual checking needed.
+
+**Without SwapManager (manual mode):**
 ```typescript
 const response = await arkadeLightning.getSwapStatus('swap_id');
 console.log('swap status = ', response.status);
@@ -224,46 +468,61 @@ console.log('Preimage', result.preimage);
 
 ### Monitoring Incoming Lightning Payments
 
-You must monitor the status of incoming Lightning payments.
-It will automatically claim the payment when it's available.
-
+**With SwapManager (recommended):**
 ```typescript
-// Monitor the payment, it will resolve when the payment is received
+// SwapManager handles monitoring and claiming automatically
+// Just listen to events for UI updates
+const result = await arkadeLightning.createLightningInvoice({ amount: 50000 });
+// Payment will be claimed automatically when received 
+```
+
+**Without SwapManager (manual mode):**
+```typescript
+// You must manually monitor - blocks until payment is received
 const receivalResult = await arkadeLightning.waitAndClaim(result.pendingSwap);
 console.log('Receival successful!');
 console.log('Transaction ID:', receivalResult.txid);
+// ⚠️ User must stay on this page - navigating away stops monitoring
 ```
 
 ## Sending Lightning Payments
 
-To send a payment from your Arkade wallet to a Lightning invoice:
-
+**With SwapManager (recommended):**
 ```typescript
 import { decodeInvoice } from '@arkade-os/boltz-swap';
 
-// Parse a Lightning invoice
-const invoiceDetails = decodeInvoice(
-  'lnbc500u1pj...' // Lightning invoice string
-);
-
+// Validate invoice first
+const invoiceDetails = decodeInvoice('lnbc500u1pj...');
 console.log('Invoice amount:', invoiceDetails.amountSats, 'sats');
-console.log('Description:', invoiceDetails.description);
-console.log('Payment Hash:', invoiceDetails.paymentHash);
 
-// Pay the Lightning invoice from your Arkade wallet
+// Send payment - returns immediately after creating swap
 const paymentResult = await arkadeLightning.sendLightningPayment({
-  invoice: 'lnbc500u1pj...', // Lightning invoice string
+  invoice: 'lnbc500u1pj...',
+});
+
+console.log('Payment initiated:', paymentResult.txid);
+// SwapManager monitors in background and handles refunds if payment fails
+```
+
+**Without SwapManager (manual mode):**
+```typescript
+// Blocks until payment completes or fails
+const paymentResult = await arkadeLightning.sendLightningPayment({
+  invoice: 'lnbc500u1pj...',
 });
 
 console.log('Payment successful!');
 console.log('Amount:', paymentResult.amount);
 console.log('Preimage:', paymentResult.preimage);
 console.log('Transaction ID:', paymentResult.txid);
+// ⚠️ If payment fails, you must manually handle refund (see Error Handling)
 ```
 
 ## Error Handling
 
-The library provides detailed error types to help you handle different failure scenarios:
+**With SwapManager:** Refunds are handled automatically - listen to `onSwapFailed` event for notifications.
+
+**Without SwapManager (manual mode):** You must handle errors and execute refunds manually:
 
 ```typescript
 import {
@@ -285,7 +544,7 @@ try {
   if (error instanceof InvoiceExpiredError) {
     console.error('The invoice has expired. Please request a new one.');
   } else if (error instanceof InvoiceFailedToPayError) {
-    console.error('The provider failed to pay the invoice. Please request a new one.');
+    console.error('The provider failed to pay the invoice.');
   } else if (error instanceof InsufficientFundsError) {
     console.error('Not enough funds available:', error.message);
   } else if (error instanceof NetworkError) {
@@ -293,16 +552,14 @@ try {
   } else if (error instanceof SchemaError) {
     console.error('Invalid response from API. Please try again later.');
   } else if (error instanceof SwapExpiredError) {
-    console.error('The swap has expired. Please request a new invoice.');
-  } else if (error instanceof SwapError) {
-    console.error('Swap failed:', error.message);
+    console.error('The swap has expired.');
   } else if (error instanceof TransactionFailedError) {
     console.error('Transaction failed. Please try again later');
   } else {
     console.error('Unknown error:', error);
   }
 
-  // You might be able to claim a refund
+  // Manual refund (only needed without SwapManager)
   if (error.isRefundable && error.pendingSwap) {
     const refundResult = await arkadeLightning.refundVHTLC(error.pendingSwap);
     console.log('Refund claimed:', refundResult.txid);
