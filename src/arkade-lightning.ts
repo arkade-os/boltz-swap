@@ -982,6 +982,7 @@ export class ArkadeLightning {
         for (const swap of restoredSwaps) {
             const { id, createdAt, status } = swap;
             if (isRestoredReverseSwap(swap)) {
+                // destructure claim details
                 const {
                     amount,
                     lockupAddress,
@@ -989,6 +990,8 @@ export class ArkadeLightning {
                     serverPublicKey,
                     tree,
                 } = swap.claimDetails;
+
+                // build pending reverse swap object
                 reverseSwaps.push({
                     id,
                     createdAt,
@@ -1024,11 +1027,20 @@ export class ArkadeLightning {
                     preimage: "",
                 } as PendingReverseSwap);
             } else if (isRestoredSubmarineSwap(swap)) {
+                // destructure refund details
                 const { amount, lockupAddress, serverPublicKey, tree } =
                     swap.refundDetails;
-                const { preimage } = await this.swapProvider.getSwapPreimage(
-                    swap.id
-                );
+
+                // fetch preimage if available
+                let preimage = "";
+                try {
+                    const data = await this.swapProvider.getSwapPreimage(
+                        swap.id
+                    );
+                    preimage = data.preimage;
+                } catch {}
+
+                // build pending submarine swap object
                 submarineSwaps.push({
                     id,
                     type: "submarine",
