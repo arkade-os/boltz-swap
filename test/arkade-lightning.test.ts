@@ -240,10 +240,10 @@ describe("ArkadeLightning", () => {
     };
 
     const mockFeeInfo = {
-        txFeeRate: 0n,
+        txFeeRate: "",
         intentFee: {
-            offchainInput: 0n,
-            offchainOutput: 0n,
+            offchainInput: "",
+            offchainOutput: "",
             onchainInput: 0n,
             onchainOutput: 0n,
         },
