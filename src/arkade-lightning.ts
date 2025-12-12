@@ -12,14 +12,22 @@ import {
     ArkProvider,
     IndexerProvider,
     buildOffchainTx,
-    ConditionWitness,
     CSVMultisigTapscript,
-    setArkPsbtField,
     TapLeafScript,
     Wallet,
     VHTLC,
     ServiceWorkerWallet,
     combineTapscriptSigs,
+    Intent,
+    VtxoScript,
+    ArkTxInput,
+    Identity,
+    Batch,
+    ArkInfo,
+    networks,
+    isRecoverable,
+    VtxoTaprootTree,
+    getSequence,
 } from "@arkade-os/sdk";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { base64, hex } from "@scure/base";
@@ -44,8 +52,8 @@ import {
     isSubmarineFinalStatus,
     isReverseFinalStatus,
 } from "./boltz-swap-provider";
-import { Transaction } from "@scure/btc-signer";
-import { TransactionInput } from "@scure/btc-signer/psbt.js";
+import { Address, OutScript, Transaction } from "@scure/btc-signer";
+import { TransactionInput, TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
 import { verifySignatures } from "./utils/signatures";
@@ -56,26 +64,8 @@ import {
     updateSubmarineSwapStatus,
 } from "./utils/swap-helpers";
 import { logger } from "./logger";
-
-function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
-    const signerSession = wallet.identity.signerSession;
-
-    // If signerSession is a function (factory), call it to get the actual session
-    if (typeof signerSession === "function") {
-        return signerSession();
-    }
-
-    // Otherwise return it directly (could be the session object or undefined)
-    return signerSession;
-}
-
-async function signTransaction(
-    wallet: Wallet | ServiceWorkerWallet,
-    tx: Transaction,
-    inputIndexes?: number[]
-): Promise<Transaction> {
-    return wallet.identity.sign(tx, inputIndexes);
-}
+import { claimVHTLCIdentity } from "./utils/identity";
+import { createVHTLCBatchHandler } from "./batch";
 
 export class ArkadeLightning {
     private readonly wallet: Wallet | ServiceWorkerWallet;
@@ -421,6 +411,7 @@ export class ArkadeLightning {
 
     /**
      * Claims the VHTLC for a pending reverse swap.
+     * If the VHTLC is recoverable, it joins a batch to spend the vtxo via commitment transaction.
      * @param pendingSwap - The pending reverse swap to claim the VHTLC.
      */
     async claimVHTLC(pendingSwap: PendingReverseSwap): Promise<void> {
@@ -465,36 +456,43 @@ export class ArkadeLightning {
             throw new Error("Boltz is trying to scam us");
 
         // get spendable VTXOs from the lockup address
-        const spendableVtxos = await this.indexerProvider.getVtxos({
+        const { vtxos } = await this.indexerProvider.getVtxos({
             scripts: [hex.encode(vhtlcScript.pkScript)],
-            spendableOnly: true,
         });
-        if (spendableVtxos.vtxos.length === 0)
+        if (vtxos.length === 0)
             throw new Error("No spendable virtual coins found");
 
         // vtxo with the htlc to claim
-        const vtxo = spendableVtxos.vtxos[0];
+        const vtxo = vtxos[0];
+
+        if (vtxo.isSpent) {
+            throw new Error("VHTLC is already spent");
+        }
+
+        const input = {
+            ...vtxo,
+            tapLeafScript: vhtlcScript.claim(),
+            tapTree: vhtlcScript.encode(),
+        };
+
+        const output = {
+            amount: BigInt(vtxo.value),
+            script: ArkAddress.decode(address).pkScript,
+        };
 
         // signing a VTHLC needs an extra witness element to be added to the PSBT input
         // reveal the secret in the PSBT, thus the server can verify the claim script
         // this witness must satisfy the preimageHash condition
-        const vhtlcIdentity = {
-            sign: async (tx: any, inputIndexes?: number[]) => {
-                const cpy = tx.clone();
-                let signedTx = await signTransaction(
-                    this.wallet,
-                    cpy,
-                    inputIndexes
-                );
-                signedTx = Transaction.fromPSBT(signedTx.toPSBT(), {
-                    allowUnknown: true,
-                });
-                setArkPsbtField(signedTx, 0, ConditionWitness, [preimage]);
-                return signedTx;
-            },
-            xOnlyPublicKey: ourXOnlyPublicKey,
-            signerSession: getSignerSession(this.wallet),
-        };
+        const vhtlcIdentity = claimVHTLCIdentity(
+            this.wallet.identity,
+            preimage
+        );
+
+        // if the vtxo is recoverable, we need to claim in batch
+        if (isRecoverable(vtxo)) {
+            await this.joinBatch(vhtlcIdentity, input, output, aspInfo);
+            return;
+        }
 
         // create the server unroll script for checkpoint transactions
         const rawCheckpointTapscript = hex.decode(aspInfo.checkpointTapscript);
@@ -504,19 +502,8 @@ export class ArkadeLightning {
 
         // create the offchain transaction to claim the VHTLC
         const { arkTx, checkpoints } = buildOffchainTx(
-            [
-                {
-                    ...spendableVtxos.vtxos[0],
-                    tapLeafScript: vhtlcScript.claim(),
-                    tapTree: vhtlcScript.encode(),
-                },
-            ],
-            [
-                {
-                    amount: BigInt(vtxo.value),
-                    script: ArkAddress.decode(address).pkScript,
-                },
-            ],
+            [input],
+            [output],
             serverUnrollScript
         );
 
@@ -564,6 +551,7 @@ export class ArkadeLightning {
 
     /**
      * Claims the VHTLC for a pending submarine swap (aka refund).
+     * If the VHTLC is recoverable, it joins a batch to spend the vtxo via commitment transaction.
      * @param pendingSwap - The pending submarine swap to refund the VHTLC.
      */
     async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
@@ -572,14 +560,19 @@ export class ArkadeLightning {
         ).pkScript;
 
         // get spendable VTXOs from the lockup address
-        const spendableVtxos = await this.indexerProvider.getVtxos({
+        const { vtxos } = await this.indexerProvider.getVtxos({
             scripts: [hex.encode(vhtlcPkScript)],
-            spendableOnly: true,
         });
-        if (spendableVtxos.vtxos.length === 0) {
+        if (vtxos.length === 0) {
             throw new Error(
                 `VHTLC not found for address ${pendingSwap.response.address}`
             );
+        }
+
+        const vtxo = vtxos[0];
+
+        if (vtxo.isSpent) {
+            throw new Error("VHTLC is already spent");
         }
 
         // prepare variables for claiming the VHTLC
@@ -622,24 +615,25 @@ export class ArkadeLightning {
         if (!vhtlcScript)
             throw new Error("Failed to create VHTLC script for reverse swap");
 
-        // signing a VTHLC needs an extra witness element to be added to the PSBT input
-        // reveal the secret in the PSBT, thus the server can verify the claim script
-        // this witness must satisfy the preimageHash condition
-        const vhtlcIdentity = {
-            sign: async (tx: any, inputIndexes?: number[]) => {
-                const cpy = tx.clone();
-                let signedTx = await signTransaction(
-                    this.wallet,
-                    cpy,
-                    inputIndexes
-                );
-                return Transaction.fromPSBT(signedTx.toPSBT(), {
-                    allowUnknown: true,
-                });
-            },
-            xOnlyPublicKey: ourXOnlyPublicKey,
-            signerSession: getSignerSession(this.wallet),
+        const isRecoverableVtxo = isRecoverable(vtxo);
+
+        const input = {
+            ...vtxo,
+            tapLeafScript: isRecoverableVtxo
+                ? vhtlcScript.refundWithoutReceiver()
+                : vhtlcScript.refund(),
+            tapTree: vhtlcScript.encode(),
         };
+
+        const output = {
+            amount: BigInt(vtxo.value),
+            script: ArkAddress.decode(address).pkScript,
+        };
+
+        if (isRecoverableVtxo) {
+            await this.joinBatch(this.wallet.identity, input, output, aspInfo);
+            return;
+        }
 
         // create the server unroll script for checkpoint transactions
         const rawCheckpointTapscript = hex.decode(aspInfo.checkpointTapscript);
@@ -649,22 +643,7 @@ export class ArkadeLightning {
 
         // create the virtual transaction to claim the VHTLC
         const { arkTx: unsignedRefundTx, checkpoints: checkpointPtxs } =
-            buildOffchainTx(
-                [
-                    {
-                        ...spendableVtxos.vtxos[0],
-                        tapLeafScript: vhtlcScript.refund(),
-                        tapTree: vhtlcScript.encode(),
-                    },
-                ],
-                [
-                    {
-                        amount: BigInt(spendableVtxos.vtxos[0].value),
-                        script: ArkAddress.decode(address).pkScript,
-                    },
-                ],
-                serverUnrollScript
-            );
+            buildOffchainTx([input], [output], serverUnrollScript);
 
         // validate we have one checkpoint transaction
         if (checkpointPtxs.length !== 1)
@@ -702,9 +681,10 @@ export class ArkadeLightning {
         }
 
         // sign our part
-        const signedRefundTx = await vhtlcIdentity.sign(unsignedRefundTx);
+        const signedRefundTx =
+            await this.wallet.identity.sign(unsignedRefundTx);
         const signedCheckpointTx =
-            await vhtlcIdentity.sign(unsignedCheckpointTx);
+            await this.wallet.identity.sign(unsignedCheckpointTx);
 
         // combine transactions
         const combinedSignedRefundTx = combineTapscriptSigs(
@@ -765,6 +745,121 @@ export class ArkadeLightning {
             this.savePendingSubmarineSwap.bind(this),
             { refundable: true, refunded: true }
         );
+    }
+
+    /**
+     * Joins a batch to spend the vtxo via commitment transaction
+     * @param identity - The identity to use for signing the forfeit transaction.
+     * @param input - The input vtxo.
+     * @param output - The output script.
+     * @param forfeitPublicKey - The forfeit public key.
+     * @returns The commitment transaction ID.
+     */
+    async joinBatch(
+        identity: Identity,
+        input: ArkTxInput,
+        output: TransactionOutput,
+        {
+            forfeitPubkey,
+            forfeitAddress,
+            network,
+        }: Pick<ArkInfo, "forfeitPubkey" | "forfeitAddress" | "network">,
+        isRecoverable = true
+    ): Promise<string> {
+        const signerSession = identity.signerSession();
+        const signerPublicKey = await signerSession.getPublicKey();
+
+        const intentMessage: Intent.RegisterMessage = {
+            type: "register",
+            onchain_output_indexes: [],
+            valid_at: 0,
+            expire_at: 0,
+            cosigners_public_keys: [hex.encode(signerPublicKey)],
+        };
+
+        const deleteMessage: Intent.DeleteMessage = {
+            type: "delete",
+            expire_at: 0,
+        };
+
+        const intentInput: TransactionInput = {
+            txid: hex.decode(input.txid),
+            index: input.vout,
+            witnessUtxo: {
+                amount: BigInt(input.value),
+                script: VtxoScript.decode(input.tapTree).pkScript,
+            },
+            tapLeafScript: [input.tapLeafScript],
+            unknown: [VtxoTaprootTree.encode(input.tapTree)],
+            sequence: getSequence(input.tapLeafScript),
+        };
+
+        const registerIntent = Intent.create(
+            intentMessage,
+            [intentInput],
+            [output]
+        );
+        const deleteIntent = Intent.create(deleteMessage, [intentInput]);
+
+        const [signedRegisterIntent, signedDeleteIntent] = await Promise.all([
+            identity.sign(registerIntent),
+            identity.sign(deleteIntent),
+        ]);
+
+        const abortController = new AbortController();
+
+        const intentId = await this.arkProvider.registerIntent({
+            message: intentMessage,
+            proof: base64.encode(signedRegisterIntent.toPSBT()),
+        });
+
+        const decodedAddress = Address(
+            network in networks
+                ? networks[network as keyof typeof networks]
+                : networks.bitcoin
+        ).decode(forfeitAddress);
+
+        try {
+            const handler = createVHTLCBatchHandler(
+                intentId,
+                input,
+                this.arkProvider,
+                identity,
+                signerSession,
+                hex.decode(forfeitPubkey).slice(1),
+                isRecoverable ? undefined : OutScript.encode(decodedAddress)
+            );
+
+            const topics = [
+                hex.encode(signerPublicKey),
+                `${input.txid}:${input.vout}`,
+            ];
+            const eventStream = this.arkProvider.getEventStream(
+                abortController.signal,
+                topics
+            );
+
+            const commitmentTxid = await Batch.join(eventStream, handler, {
+                abortController,
+            });
+            logger.log(
+                "Batch joined with commitment transaction:",
+                commitmentTxid
+            );
+            return commitmentTxid;
+        } catch (error) {
+            abortController.abort();
+            logger.error("Failed to join batch:", error);
+            try {
+                await this.arkProvider.deleteIntent({
+                    message: deleteMessage,
+                    proof: base64.encode(signedDeleteIntent.toPSBT()),
+                });
+            } catch (error) {
+                logger.error("Failed to delete intent:", error);
+            }
+            throw error;
+        }
     }
 
     /**
