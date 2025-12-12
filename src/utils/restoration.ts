@@ -5,7 +5,8 @@ import { script } from "bitcoinjs-lib";
 import bip68 from "bip68";
 
 /**
- * Extracts and calculates the relative timelock from a Bitcoin script
+ * Extracts and calculates the timelock (relative or absolute) from a Bitcoin script.
+ * Handles both relative timelocks (CSV/OP_NOP3) and absolute timelocks (CLTV/OP_NOP2).
  * @param scriptHex The Bitcoin script in hexadecimal format.
  * @returns The timelock value in blocks or seconds.
  */
@@ -44,6 +45,12 @@ export function extractTimeLockFromLeafOutput(scriptHex: string): number {
     return 0;
 }
 
+/**
+ * In a reverse swap, finds the invoice amount before fees were applied.
+ * @param amountSats amount in sats received after fees
+ * @param fees fees structure (we need reverse fees)
+ * @returns invoice amount in sats before fees
+ */
 export function extractInvoiceAmount(
     amountSats: number | undefined,
     fees: FeesResponse

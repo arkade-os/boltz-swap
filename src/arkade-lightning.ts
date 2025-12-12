@@ -473,6 +473,7 @@ export class ArkadeLightning {
      * @param pendingSwap - The pending submarine swap to refund the VHTLC.
      */
     async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
+        // restored swaps may not have invoice
         if (!pendingSwap.request.invoice)
             throw new Error("Invoice is required to refund VHTLC");
 
