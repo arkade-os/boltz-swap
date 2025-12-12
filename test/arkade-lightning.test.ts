@@ -244,8 +244,8 @@ describe("ArkadeLightning", () => {
         intentFee: {
             offchainInput: "",
             offchainOutput: "",
-            onchainInput: BigInt(0),
-            onchainOutput: BigInt(0),
+            onchainInput: 0n,
+            onchainOutput: 0n,
         },
     };
 

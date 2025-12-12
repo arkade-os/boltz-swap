@@ -55,6 +55,13 @@ import {
     extractInvoiceAmount,
     extractTimeLockFromLeafOutput,
 } from "./utils/restoration";
+import { SwapManager } from "./swap-manager";
+import {
+    saveSwap,
+    updateReverseSwapStatus,
+    updateSubmarineSwapStatus,
+} from "./utils/swap-helpers";
+import { logger } from "./logger";
 
 function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
@@ -81,6 +88,7 @@ export class ArkadeLightning {
     private readonly arkProvider: ArkProvider;
     private readonly swapProvider: BoltzSwapProvider;
     private readonly indexerProvider: IndexerProvider;
+    private readonly swapManager: SwapManager | null = null;
 
     constructor(config: ArkadeLightningConfig) {
         if (!config.wallet) throw new Error("Wallet is required.");
@@ -105,6 +113,51 @@ export class ArkadeLightning {
         this.indexerProvider = indexerProvider;
 
         this.swapProvider = config.swapProvider;
+
+        // Initialize SwapManager if config is provided
+        // - true: use defaults
+        // - object: use provided config
+        // - false/undefined: disabled
+        if (config.swapManager) {
+            const swapManagerConfig =
+                config.swapManager === true ? {} : config.swapManager;
+
+            // Extract autostart (defaults to true) before passing to SwapManager
+            // SwapManager doesn't need it - only ArkadeLightning uses it
+            const shouldAutostart = swapManagerConfig.autoStart ?? true;
+
+            this.swapManager = new SwapManager(
+                this.swapProvider,
+                swapManagerConfig
+            );
+
+            // Set up callbacks for claim, refund, and save operations
+            this.swapManager.setCallbacks({
+                claim: async (swap: PendingReverseSwap) => {
+                    await this.claimVHTLC(swap);
+                },
+                refund: async (swap: PendingSubmarineSwap) => {
+                    await this.refundVHTLC(swap);
+                },
+                saveSwap: async (
+                    swap: PendingReverseSwap | PendingSubmarineSwap
+                ) => {
+                    await saveSwap(swap, {
+                        saveReverseSwap: this.savePendingReverseSwap.bind(this),
+                        saveSubmarineSwap:
+                            this.savePendingSubmarineSwap.bind(this),
+                    });
+                },
+            });
+
+            // Autostart if configured (defaults to true)
+            if (shouldAutostart) {
+                // Start in background without blocking constructor
+                this.startSwapManager().catch((error) => {
+                    logger.error("Failed to autostart SwapManager:", error);
+                });
+            }
+        }
     }
 
     // Storage helper methods using contract repository
@@ -142,6 +195,45 @@ export class ArkadeLightning {
         return (await this.wallet.contractRepository.getContractCollection(
             "submarineSwaps"
         )) as PendingSubmarineSwap[];
+    }
+
+    // SwapManager methods
+
+    /**
+     * Start the background swap manager
+     * This will load all pending swaps and begin monitoring them
+     * Automatically called when SwapManager is enabled
+     */
+    async startSwapManager(): Promise<void> {
+        if (!this.swapManager) {
+            throw new Error(
+                "SwapManager is not enabled. Provide 'swapManager' config in ArkadeLightningConfig."
+            );
+        }
+
+        // Load all pending swaps from storage
+        const reverseSwaps = await this.getPendingReverseSwapsFromStorage();
+        const submarineSwaps = await this.getPendingSubmarineSwapsFromStorage();
+        const allSwaps = [...reverseSwaps, ...submarineSwaps];
+
+        // Start the manager with all pending swaps
+        await this.swapManager.start(allSwaps);
+    }
+
+    /**
+     * Stop the background swap manager
+     */
+    async stopSwapManager(): Promise<void> {
+        if (!this.swapManager) return;
+        await this.swapManager.stop();
+    }
+
+    /**
+     * Get the SwapManager instance
+     * Useful for accessing manager stats or manually controlling swaps
+     */
+    getSwapManager(): SwapManager | null {
+        return this.swapManager;
     }
 
     // receive from lightning = reverse submarine swap
@@ -213,10 +305,11 @@ export class ArkadeLightning {
             if (error.isRefundable) {
                 await this.refundVHTLC(pendingSwap);
                 const finalStatus = await this.getSwapStatus(pendingSwap.id);
-                await this.savePendingSubmarineSwap({
-                    ...pendingSwap,
-                    status: finalStatus.status,
-                });
+                await updateSubmarineSwapStatus(
+                    pendingSwap,
+                    finalStatus.status,
+                    this.savePendingSubmarineSwap.bind(this)
+                );
             }
             throw new TransactionFailedError();
         }
@@ -262,6 +355,11 @@ export class ArkadeLightning {
 
         // save pending swap to storage if available
         await this.savePendingSubmarineSwap(pendingSwap);
+
+        // Add to swap manager if enabled
+        if (this.swapManager) {
+            this.swapManager.addSwap(pendingSwap);
+        }
 
         return pendingSwap;
     }
@@ -318,6 +416,11 @@ export class ArkadeLightning {
 
         // save pending swap to storage if available
         await this.savePendingReverseSwap(pendingSwap);
+
+        // Add to swap manager if enabled
+        if (this.swapManager) {
+            this.swapManager.addSwap(pendingSwap);
+        }
 
         return pendingSwap;
     }
@@ -462,10 +565,11 @@ export class ArkadeLightning {
 
         // update the pending swap on storage if available
         const finalStatus = await this.getSwapStatus(pendingSwap.id);
-        await this.savePendingReverseSwap({
-            ...pendingSwap,
-            status: finalStatus.status,
-        });
+        await updateReverseSwapStatus(
+            pendingSwap,
+            finalStatus.status,
+            this.savePendingReverseSwap.bind(this)
+        );
     }
 
     /**
@@ -669,38 +773,50 @@ export class ArkadeLightning {
         ]);
 
         // update the pending swap on storage if available
-        await this.savePendingSubmarineSwap({
-            ...pendingSwap,
-            refundable: true,
-            refunded: true,
-        });
+        await updateSubmarineSwapStatus(
+            pendingSwap,
+            pendingSwap.status, // Keep current status
+            this.savePendingSubmarineSwap.bind(this),
+            { refundable: true, refunded: true }
+        );
     }
 
     /**
      * Waits for the swap to be confirmed and claims the VHTLC.
+     * If SwapManager is enabled, this delegates to the manager for coordinated processing.
      * @param pendingSwap - The pending reverse swap.
      * @returns The transaction ID of the claimed VHTLC.
      */
     async waitAndClaim(
         pendingSwap: PendingReverseSwap
     ): Promise<{ txid: string }> {
+        // If SwapManager is enabled and has this swap, delegate to it
+        if (this.swapManager && this.swapManager.hasSwap(pendingSwap.id)) {
+            return this.swapManager.waitForSwapCompletion(pendingSwap.id);
+        }
+
+        // Otherwise use manual monitoring
         return new Promise<{ txid: string }>((resolve, reject) => {
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
             const onStatusUpdate = async (status: BoltzSwapStatus) => {
+                const saveStatus = (
+                    additionalFields?: Partial<PendingReverseSwap>
+                ) =>
+                    updateReverseSwapStatus(
+                        pendingSwap,
+                        status,
+                        this.savePendingReverseSwap.bind(this),
+                        additionalFields
+                    );
+
                 switch (status) {
                     case "transaction.mempool":
                     case "transaction.confirmed":
-                        await this.savePendingReverseSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await saveStatus();
                         this.claimVHTLC(pendingSwap).catch(reject);
                         break;
                     case "invoice.settled": {
-                        await this.savePendingReverseSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await saveStatus();
                         const swapStatus =
                             await this.swapProvider.getReverseSwapTxId(
                                 pendingSwap.id
@@ -720,10 +836,7 @@ export class ArkadeLightning {
                         break;
                     }
                     case "invoice.expired":
-                        await this.savePendingReverseSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await saveStatus();
                         reject(
                             new InvoiceExpiredError({
                                 isRefundable: true,
@@ -732,10 +845,7 @@ export class ArkadeLightning {
                         );
                         break;
                     case "swap.expired":
-                        await this.savePendingReverseSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await saveStatus();
                         reject(
                             new SwapExpiredError({
                                 isRefundable: true,
@@ -744,24 +854,15 @@ export class ArkadeLightning {
                         );
                         break;
                     case "transaction.failed":
-                        await this.savePendingReverseSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await saveStatus();
                         reject(new TransactionFailedError());
                         break;
                     case "transaction.refunded":
-                        await this.savePendingReverseSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await saveStatus();
                         reject(new TransactionRefundedError());
                         break;
                     default:
-                        await this.savePendingReverseSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await saveStatus();
                         break;
                 }
             };
@@ -785,14 +886,20 @@ export class ArkadeLightning {
             const onStatusUpdate = async (status: BoltzSwapStatus) => {
                 if (isResolved) return; // Prevent multiple resolutions
 
+                const saveStatus = (
+                    additionalFields?: Partial<PendingSubmarineSwap>
+                ) =>
+                    updateSubmarineSwapStatus(
+                        pendingSwap,
+                        status,
+                        this.savePendingSubmarineSwap.bind(this),
+                        additionalFields
+                    );
+
                 switch (status) {
                     case "swap.expired":
                         isResolved = true;
-                        await this.savePendingSubmarineSwap({
-                            ...pendingSwap,
-                            refundable: true,
-                            status,
-                        });
+                        await saveStatus({ refundable: true });
                         reject(
                             new SwapExpiredError({
                                 isRefundable: true,
@@ -802,11 +909,7 @@ export class ArkadeLightning {
                         break;
                     case "invoice.failedToPay":
                         isResolved = true;
-                        await this.savePendingSubmarineSwap({
-                            ...pendingSwap,
-                            refundable: true,
-                            status,
-                        });
+                        await saveStatus({ refundable: true });
                         reject(
                             new InvoiceFailedToPayError({
                                 isRefundable: true,
@@ -816,11 +919,7 @@ export class ArkadeLightning {
                         break;
                     case "transaction.lockupFailed":
                         isResolved = true;
-                        await this.savePendingSubmarineSwap({
-                            ...pendingSwap,
-                            refundable: true,
-                            status,
-                        });
+                        await saveStatus({ refundable: true });
                         reject(
                             new TransactionLockupFailedError({
                                 isRefundable: true,
@@ -834,19 +933,12 @@ export class ArkadeLightning {
                             await this.swapProvider.getSwapPreimage(
                                 pendingSwap.id
                             );
-                        await this.savePendingSubmarineSwap({
-                            ...pendingSwap,
-                            preimage,
-                            status,
-                        });
+                        await saveStatus({ preimage });
                         resolve({ preimage });
                         break;
                     }
                     default:
-                        await this.savePendingSubmarineSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await saveStatus();
                         break;
                 }
             };
@@ -1181,10 +1273,14 @@ export class ArkadeLightning {
             if (isReverseFinalStatus(swap.status)) continue;
             this.getSwapStatus(swap.id)
                 .then(({ status }) => {
-                    this.savePendingReverseSwap({ ...swap, status });
+                    updateReverseSwapStatus(
+                        swap,
+                        status,
+                        this.savePendingReverseSwap.bind(this)
+                    );
                 })
                 .catch((error) => {
-                    console.error(
+                    logger.error(
                         `Failed to refresh swap status for ${swap.id}:`,
                         error
                     );
@@ -1194,10 +1290,14 @@ export class ArkadeLightning {
             if (isSubmarineFinalStatus(swap.status)) continue;
             this.getSwapStatus(swap.id)
                 .then(({ status }) => {
-                    this.savePendingSubmarineSwap({ ...swap, status });
+                    updateSubmarineSwapStatus(
+                        swap,
+                        status,
+                        this.savePendingSubmarineSwap.bind(this)
+                    );
                 })
                 .catch((error) => {
-                    console.error(
+                    logger.error(
                         `Failed to refresh swap status for ${swap.id}:`,
                         error
                     );
@@ -1226,5 +1326,27 @@ export class ArkadeLightning {
             );
         }
         return publicKey;
+    }
+
+    /**
+     * Dispose of resources (stops SwapManager and cleans up)
+     * Can be called manually or automatically with `await using` syntax (TypeScript 5.2+)
+     */
+    async dispose(): Promise<void> {
+        if (this.swapManager) {
+            await this.stopSwapManager();
+        }
+    }
+
+    /**
+     * Symbol.asyncDispose for automatic cleanup with `await using` syntax
+     * Example:
+     * ```typescript
+     * await using arkadeLightning = new ArkadeLightning({ ... });
+     * // SwapManager automatically stopped when scope exits
+     * ```
+     */
+    async [Symbol.asyncDispose](): Promise<void> {
+        await this.dispose();
     }
 }
