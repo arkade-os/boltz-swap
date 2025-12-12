@@ -15,7 +15,6 @@ import {
     ConditionWitness,
     CSVMultisigTapscript,
     setArkPsbtField,
-    TapLeafScript,
     Wallet,
     VHTLC,
     ServiceWorkerWallet,
@@ -529,13 +528,7 @@ export class ArkadeLightning {
             );
 
         // verify the server signed the transaction with correct key
-        if (
-            !this.validFinalArkTx(
-                finalArkTx,
-                serverXOnlyPublicKey,
-                vhtlcScript.leaves
-            )
-        ) {
+        if (!this.validFinalArkTx(finalArkTx)) {
             throw new Error("Invalid final Ark transaction");
         }
 
@@ -628,7 +621,7 @@ export class ArkadeLightning {
         const vhtlcIdentity = {
             sign: async (tx: any, inputIndexes?: number[]) => {
                 const cpy = tx.clone();
-                let signedTx = await signTransaction(
+                const signedTx = await signTransaction(
                     this.wallet,
                     cpy,
                     inputIndexes
@@ -949,15 +942,9 @@ export class ArkadeLightning {
      * and the signature is correct for the given tapscript leaf
      * TODO: This is a simplified check, we should verify the actual signatures
      * @param finalArkTx The final Ark transaction in PSBT format.
-     * @param _pubkey The public key of the user.
-     * @param _tapLeaves The taproot script leaves.
      * @returns True if the final Ark transaction is valid, false otherwise.
      */
-    private validFinalArkTx = (
-        finalArkTx: string,
-        _pubkey: Uint8Array,
-        _tapLeaves: TapLeafScript[]
-    ): boolean => {
+    private validFinalArkTx = (finalArkTx: string): boolean => {
         // decode the final Ark transaction
         const tx = Transaction.fromPSBT(base64.decode(finalArkTx), {
             allowUnknown: true,
