@@ -9,7 +9,7 @@ export const verifySignatures = (
     try {
         verifyTapscriptSignatures(tx, inputIndex, requiredSigners);
         return true;
-    } catch (_) {
+    } catch {
         return false;
     }
 };

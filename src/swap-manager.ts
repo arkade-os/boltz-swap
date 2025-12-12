@@ -425,7 +425,7 @@ export class SwapManager {
             // Subscribe to swap updates
             const unsubscribe = this.subscribeToSwapUpdates(
                 swapId,
-                (updatedSwap, _oldStatus) => {
+                (updatedSwap) => {
                     // Check if swap reached final status
                     if (this.isFinalStatus(updatedSwap.status)) {
                         unsubscribe();
