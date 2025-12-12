@@ -31,7 +31,12 @@
         "test:down": "test/setupRegtestEnv.sh down",
         "release": "bash scripts/release.sh",
         "release:dry-run": "bash scripts/release.sh --dry-run",
-        "release:cleanup": "bash scripts/release.sh --cleanup"
+        "release:cleanup": "bash scripts/release.sh --cleanup",
+        "regtest": "pnpm regtest:down && pnpm regtest:build && pnpm regtest:up && pnpm regtest:setup",
+        "regtest:build": "docker compose -f test.docker-compose.yml build",
+        "regtest:up": "docker compose -f test.docker-compose.yml up arkd arkd-wallet nbxplorer pgnbxplorer -d",
+        "regtest:down": "docker compose -f test.docker-compose.yml down -v",
+        "regtest:setup": "node test/e2e/setup.mjs"
     },
     "keywords": [
         "arkade",
@@ -43,7 +48,7 @@
     "author": "Arkade-OS",
     "license": "MIT",
     "dependencies": {
-        "@arkade-os/sdk": "0.3.8",
+        "@arkade-os/sdk": "file:../ts-sdk",
         "@noble/hashes": "2.0.1",
         "@scure/base": "2.0.0",
         "@scure/btc-signer": "2.0.1",
@@ -57,6 +62,7 @@
         "@typescript-eslint/eslint-plugin": "^8.43.0",
         "@typescript-eslint/parser": "^8.43.0",
         "eslint": "^9.35.0",
+        "eventsource": "^4.1.0",
         "prettier": "3.6.2",
         "tsup": "^8.5.0",
         "typescript": "^5.9.2",
