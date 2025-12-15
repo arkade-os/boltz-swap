@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@arkade-os/sdk':
-        specifier: file:../ts-sdk
-        version: file:../ts-sdk
+        specifier: 0.3.9
+        version: 0.3.9
       '@noble/hashes':
         specifier: 2.0.1
         version: 2.0.1
@@ -66,8 +66,8 @@ importers:
 
 packages:
 
-  '@arkade-os/sdk@file:../ts-sdk':
-    resolution: {directory: ../ts-sdk, type: directory}
+  '@arkade-os/sdk@0.3.9':
+    resolution: {integrity: sha512-n9yQrhrgcZh4xxgJAyr11RiOjCGkil3WLqEBuSu6o1dNX9utyscvRduXgr6E+qmyi8If1wxKI91Ks0PRGnf+2A==}
     engines: {node: '>=20.0.0'}
 
   '@esbuild/aix-ppc64@0.25.9':
@@ -1360,7 +1360,7 @@ packages:
 
 snapshots:
 
-  '@arkade-os/sdk@file:../ts-sdk':
+  '@arkade-os/sdk@0.3.9':
     dependencies:
       '@noble/curves': 2.0.0
       '@noble/secp256k1': 3.0.0
