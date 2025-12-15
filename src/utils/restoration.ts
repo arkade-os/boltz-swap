@@ -1,7 +1,6 @@
 import { hex } from "@scure/base";
 import { Script } from "@scure/btc-signer";
 import { FeesResponse } from "../types";
-// @ts-ignore
 import bip68 from "bip68";
 
 /**
