@@ -463,6 +463,7 @@ export class ArkadeLightning {
             throw new Error("No spendable virtual coins found");
 
         // vtxo with the htlc to claim
+       // TODO: handle multiple VTXOs
         const vtxo = vtxos[0];
 
         if (vtxo.isSpent) {
