@@ -489,63 +489,28 @@ export class ArkadeLightning {
             preimage
         );
 
+        var finalStatus: BoltzSwapStatus | undefined;
+
         // if the vtxo is recoverable, we need to claim in batch
         if (isRecoverable(vtxo)) {
             await this.joinBatch(vhtlcIdentity, input, output, aspInfo);
-            return;
-        }
-
-        // create the server unroll script for checkpoint transactions
-        const rawCheckpointTapscript = hex.decode(aspInfo.checkpointTapscript);
-        const serverUnrollScript = CSVMultisigTapscript.decode(
-            rawCheckpointTapscript
-        );
-
-        // create the offchain transaction to claim the VHTLC
-        const { arkTx, checkpoints } = buildOffchainTx(
-            [input],
-            [output],
-            serverUnrollScript
-        );
-
-        // sign and submit the virtual transaction
-        const signedArkTx = await vhtlcIdentity.sign(arkTx);
-        const { arkTxid, finalArkTx, signedCheckpointTxs } =
-            await this.arkProvider.submitTx(
-                base64.encode(signedArkTx.toPSBT()),
-                checkpoints.map((c) => base64.encode(c.toPSBT()))
-            );
-
-        // verify the server signed the transaction with correct key
-        if (
-            !this.validFinalArkTx(
-                finalArkTx,
+            finalStatus = "transaction.claimed";
+        } else {
+            await this.claimVHTLCwithOffchainTx(
+                vhtlcIdentity,
+                vhtlcScript,
                 serverXOnlyPublicKey,
-                vhtlcScript.leaves
-            )
-        ) {
-            throw new Error("Invalid final Ark transaction");
+                input,
+                output,
+                aspInfo
+            );
+            finalStatus = (await this.getSwapStatus(pendingSwap.id)).status;
         }
-
-        // sign the checkpoint transactions pre signed by the server
-        const finalCheckpoints = await Promise.all(
-            signedCheckpointTxs.map(async (c) => {
-                const tx = Transaction.fromPSBT(base64.decode(c), {
-                    allowUnknown: true,
-                });
-                const signedCheckpoint = await vhtlcIdentity.sign(tx, [0]);
-                return base64.encode(signedCheckpoint.toPSBT());
-            })
-        );
-
-        // submit the final transaction to the Ark provider
-        await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
 
         // update the pending swap on storage if available
-        const finalStatus = await this.getSwapStatus(pendingSwap.id);
         await updateReverseSwapStatus(
             pendingSwap,
-            finalStatus.status,
+            finalStatus,
             this.savePendingReverseSwap.bind(this)
         );
     }
@@ -633,111 +598,17 @@ export class ArkadeLightning {
 
         if (isRecoverableVtxo) {
             await this.joinBatch(this.wallet.identity, input, output, aspInfo);
-            return;
-        }
-
-        // create the server unroll script for checkpoint transactions
-        const rawCheckpointTapscript = hex.decode(aspInfo.checkpointTapscript);
-        const serverUnrollScript = CSVMultisigTapscript.decode(
-            rawCheckpointTapscript
-        );
-
-        // create the virtual transaction to claim the VHTLC
-        const { arkTx: unsignedRefundTx, checkpoints: checkpointPtxs } =
-            buildOffchainTx([input], [output], serverUnrollScript);
-
-        // validate we have one checkpoint transaction
-        if (checkpointPtxs.length !== 1)
-            throw new Error(
-                `Expected one checkpoint transaction, got ${checkpointPtxs.length}`
-            );
-
-        const unsignedCheckpointTx = checkpointPtxs[0];
-
-        // get Boltz to sign its part
-        const {
-            transaction: boltzSignedRefundTx,
-            checkpoint: boltzSignedCheckpointTx,
-        } = await this.swapProvider.refundSubmarineSwap(
-            pendingSwap.id,
-            unsignedRefundTx,
-            unsignedCheckpointTx
-        );
-
-        // Verify Boltz signatures before combining
-        const boltzXOnlyPublicKeyHex = hex.encode(boltzXOnlyPublicKey);
-        if (
-            !verifySignatures(boltzSignedRefundTx, 0, [boltzXOnlyPublicKeyHex])
-        ) {
-            throw new Error("Invalid Boltz signature in refund transaction");
-        }
-        if (
-            !verifySignatures(boltzSignedCheckpointTx, 0, [
-                boltzXOnlyPublicKeyHex,
-            ])
-        ) {
-            throw new Error(
-                "Invalid Boltz signature in checkpoint transaction"
+        } else {
+            await this.refundVHTLCwithOffchainTx(
+                pendingSwap,
+                boltzXOnlyPublicKey,
+                ourXOnlyPublicKey,
+                serverXOnlyPublicKey,
+                input,
+                output,
+                aspInfo
             );
         }
-
-        // sign our part
-        const signedRefundTx =
-            await this.wallet.identity.sign(unsignedRefundTx);
-        const signedCheckpointTx =
-            await this.wallet.identity.sign(unsignedCheckpointTx);
-
-        // combine transactions
-        const combinedSignedRefundTx = combineTapscriptSigs(
-            boltzSignedRefundTx,
-            signedRefundTx
-        );
-        const combinedSignedCheckpointTx = combineTapscriptSigs(
-            boltzSignedCheckpointTx,
-            signedCheckpointTx
-        );
-
-        // get server to sign its part of the combined transaction
-        const { arkTxid, finalArkTx, signedCheckpointTxs } =
-            await this.arkProvider.submitTx(
-                base64.encode(combinedSignedRefundTx.toPSBT()),
-                [base64.encode(unsignedCheckpointTx.toPSBT())]
-            );
-
-        // verify the final tx is properly signed
-        const tx = Transaction.fromPSBT(base64.decode(finalArkTx));
-        const inputIndex = 0;
-        const requiredSigners = [
-            hex.encode(ourXOnlyPublicKey),
-            hex.encode(boltzXOnlyPublicKey),
-            hex.encode(serverXOnlyPublicKey),
-        ];
-
-        if (!verifySignatures(tx, inputIndex, requiredSigners)) {
-            throw new Error("Invalid refund transaction");
-        }
-
-        // validate we received exactly one checkpoint transaction
-        if (signedCheckpointTxs.length !== 1) {
-            throw new Error(
-                `Expected one signed checkpoint transaction, got ${signedCheckpointTxs.length}`
-            );
-        }
-
-        // combine the checkpoint signatures
-        const serverSignedCheckpointTx = Transaction.fromPSBT(
-            base64.decode(signedCheckpointTxs[0])
-        );
-
-        const finalCheckpointTx = combineTapscriptSigs(
-            combinedSignedCheckpointTx,
-            serverSignedCheckpointTx
-        );
-
-        // finalize the transaction
-        await this.arkProvider.finalizeTx(arkTxid, [
-            base64.encode(finalCheckpointTx.toPSBT()),
-        ]);
 
         // update the pending swap on storage if available
         await updateSubmarineSwapStatus(
@@ -1035,6 +906,174 @@ export class ArkadeLightning {
                     }
                 });
         });
+    }
+
+    private async claimVHTLCwithOffchainTx(
+        vhtlcIdentity: Identity,
+        vhtlcScript: VHTLC.Script,
+        serverXOnlyPublicKey: Uint8Array,
+        input: ArkTxInput,
+        output: TransactionOutput,
+        arkInfos: Pick<ArkInfo, "checkpointTapscript">
+    ): Promise<void> {
+        // create the server unroll script for checkpoint transactions
+        const rawCheckpointTapscript = hex.decode(arkInfos.checkpointTapscript);
+        const serverUnrollScript = CSVMultisigTapscript.decode(
+            rawCheckpointTapscript
+        );
+
+        // create the offchain transaction to claim the VHTLC
+        const { arkTx, checkpoints } = buildOffchainTx(
+            [input],
+            [output],
+            serverUnrollScript
+        );
+
+        // sign and submit the virtual transaction
+        const signedArkTx = await vhtlcIdentity.sign(arkTx);
+        const { arkTxid, finalArkTx, signedCheckpointTxs } =
+            await this.arkProvider.submitTx(
+                base64.encode(signedArkTx.toPSBT()),
+                checkpoints.map((c) => base64.encode(c.toPSBT()))
+            );
+
+        // verify the server signed the transaction with correct key
+        if (
+            !this.validFinalArkTx(
+                finalArkTx,
+                serverXOnlyPublicKey,
+                vhtlcScript.leaves
+            )
+        ) {
+            throw new Error("Invalid final Ark transaction");
+        }
+
+        // sign the checkpoint transactions pre signed by the server
+        const finalCheckpoints = await Promise.all(
+            signedCheckpointTxs.map(async (c) => {
+                const tx = Transaction.fromPSBT(base64.decode(c), {
+                    allowUnknown: true,
+                });
+                const signedCheckpoint = await vhtlcIdentity.sign(tx, [0]);
+                return base64.encode(signedCheckpoint.toPSBT());
+            })
+        );
+
+        // submit the final transaction to the Ark provider
+        await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
+    }
+
+    private async refundVHTLCwithOffchainTx(
+        pendingSwap: PendingSubmarineSwap,
+        boltzXOnlyPublicKey: Uint8Array,
+        ourXOnlyPublicKey: Uint8Array,
+        serverXOnlyPublicKey: Uint8Array,
+        input: ArkTxInput,
+        output: TransactionOutput,
+        arkInfos: Pick<ArkInfo, "checkpointTapscript">
+    ): Promise<void> {
+        // create the server unroll script for checkpoint transactions
+        const rawCheckpointTapscript = hex.decode(arkInfos.checkpointTapscript);
+        const serverUnrollScript = CSVMultisigTapscript.decode(
+            rawCheckpointTapscript
+        );
+
+        // create the virtual transaction to claim the VHTLC
+        const { arkTx: unsignedRefundTx, checkpoints: checkpointPtxs } =
+            buildOffchainTx([input], [output], serverUnrollScript);
+
+        // validate we have one checkpoint transaction
+        if (checkpointPtxs.length !== 1)
+            throw new Error(
+                `Expected one checkpoint transaction, got ${checkpointPtxs.length}`
+            );
+
+        const unsignedCheckpointTx = checkpointPtxs[0];
+
+        // get Boltz to sign its part
+        const {
+            transaction: boltzSignedRefundTx,
+            checkpoint: boltzSignedCheckpointTx,
+        } = await this.swapProvider.refundSubmarineSwap(
+            pendingSwap.id,
+            unsignedRefundTx,
+            unsignedCheckpointTx
+        );
+
+        // Verify Boltz signatures before combining
+        const boltzXOnlyPublicKeyHex = hex.encode(boltzXOnlyPublicKey);
+        if (
+            !verifySignatures(boltzSignedRefundTx, 0, [boltzXOnlyPublicKeyHex])
+        ) {
+            throw new Error("Invalid Boltz signature in refund transaction");
+        }
+        if (
+            !verifySignatures(boltzSignedCheckpointTx, 0, [
+                boltzXOnlyPublicKeyHex,
+            ])
+        ) {
+            throw new Error(
+                "Invalid Boltz signature in checkpoint transaction"
+            );
+        }
+
+        // sign our part
+        const signedRefundTx =
+            await this.wallet.identity.sign(unsignedRefundTx);
+        const signedCheckpointTx =
+            await this.wallet.identity.sign(unsignedCheckpointTx);
+
+        // combine transactions
+        const combinedSignedRefundTx = combineTapscriptSigs(
+            boltzSignedRefundTx,
+            signedRefundTx
+        );
+        const combinedSignedCheckpointTx = combineTapscriptSigs(
+            boltzSignedCheckpointTx,
+            signedCheckpointTx
+        );
+
+        // get server to sign its part of the combined transaction
+        const { arkTxid, finalArkTx, signedCheckpointTxs } =
+            await this.arkProvider.submitTx(
+                base64.encode(combinedSignedRefundTx.toPSBT()),
+                [base64.encode(unsignedCheckpointTx.toPSBT())]
+            );
+
+        // verify the final tx is properly signed
+        const tx = Transaction.fromPSBT(base64.decode(finalArkTx));
+        const inputIndex = 0;
+        const requiredSigners = [
+            hex.encode(ourXOnlyPublicKey),
+            hex.encode(boltzXOnlyPublicKey),
+            hex.encode(serverXOnlyPublicKey),
+        ];
+
+        if (!verifySignatures(tx, inputIndex, requiredSigners)) {
+            throw new Error("Invalid refund transaction");
+        }
+
+        // validate we received exactly one checkpoint transaction
+        if (signedCheckpointTxs.length !== 1) {
+            throw new Error(
+                `Expected one signed checkpoint transaction, got ${signedCheckpointTxs.length}`
+            );
+        }
+
+        // combine the checkpoint signatures
+        const serverSignedCheckpointTx = Transaction.fromPSBT(
+            base64.decode(signedCheckpointTxs[0])
+        );
+
+        const finalCheckpointTx = combineTapscriptSigs(
+            combinedSignedCheckpointTx,
+            serverSignedCheckpointTx
+        );
+
+        // finalize the transaction
+        await this.arkProvider.finalizeTx(arkTxid, [
+            base64.encode(finalCheckpointTx.toPSBT()),
+        ]);
     }
 
     // validators
