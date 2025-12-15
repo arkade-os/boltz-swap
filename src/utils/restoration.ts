@@ -1,6 +1,6 @@
 import { hex } from "@scure/base";
+import { Script } from "@scure/btc-signer";
 import { FeesResponse } from "../types";
-import { script } from "bitcoinjs-lib";
 // @ts-ignore
 import bip68 from "bip68";
 
@@ -15,27 +15,31 @@ export function extractTimeLockFromLeafOutput(scriptHex: string): number {
     if (!scriptHex) return 0;
 
     try {
-        // split the script into opcodes
-        const opcodes = script.toASM(hex.decode(scriptHex)).split(" ");
+        // decode the script into opcodes using @scure/btc-signer
+        const opcodes = Script.decode(hex.decode(scriptHex));
 
-        // look for OP_NOP2 (CLTV - OP_CHECKLOCKTIMEVERIFY)
-        const hasCLTV = opcodes.findIndex((op) => op === "OP_NOP2");
+        // look for CHECKLOCKTIMEVERIFY (CLTV)
+        const hasCLTV = opcodes.findIndex((op) => op === "CHECKLOCKTIMEVERIFY");
 
         if (hasCLTV > 0) {
-            const dataHex = opcodes[hasCLTV - 1];
-            const dataBytes = hex.decode(dataHex).reverse(); // reverse for little-endian
-            return parseInt(hex.encode(dataBytes), 16);
+            const data = opcodes[hasCLTV - 1];
+            if (data instanceof Uint8Array) {
+                const dataBytes = new Uint8Array(data).reverse(); // reverse for little-endian
+                return parseInt(hex.encode(dataBytes), 16);
+            }
         }
 
-        // look for OP_NOP3 (CSV - OP_CHECKSEQUENCEVERIFY)
-        const hasCSV = opcodes.findIndex((op) => op === "OP_NOP3");
+        // look for CHECKSEQUENCEVERIFY (CSV)
+        const hasCSV = opcodes.findIndex((op) => op === "CHECKSEQUENCEVERIFY");
 
         if (hasCSV > 0) {
-            const dataHex = opcodes[hasCSV - 1];
-            const dataBytes = hex.decode(dataHex).reverse(); // reverse for little-endian
-            const { blocks, seconds }: { blocks?: number; seconds?: number } =
-                bip68.decode(parseInt(hex.encode(dataBytes), 16));
-            return blocks ?? seconds ?? 0;
+            const data = opcodes[hasCSV - 1];
+            if (data instanceof Uint8Array) {
+                const dataBytes = new Uint8Array(data).reverse(); // reverse for little-endian
+                const { blocks, seconds }: { blocks?: number; seconds?: number } =
+                    bip68.decode(parseInt(hex.encode(dataBytes), 16));
+                return blocks ?? seconds ?? 0;
+            }
         }
     } catch (error) {
         // Return 0 for malformed scripts

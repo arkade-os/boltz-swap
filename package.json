@@ -48,7 +48,6 @@
         "@scure/base": "2.0.0",
         "@scure/btc-signer": "2.0.1",
         "bip68": "^1.0.4",
-        "bitcoinjs-lib": "^7.0.0",
         "light-bolt11-decoder": "3.2.0"
     },
     "devDependencies": {
