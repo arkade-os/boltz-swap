@@ -150,6 +150,10 @@ else
     # Push the tag to trigger GitHub release
     git push origin "v$NEW_VERSION"
 
+    # Build the project before publishing
+    echo "Building project..."
+    pnpm build
+
     # Publish to npm with appropriate tag
     echo "Publishing to npm..."
     if [[ "$NEW_VERSION" == *-* ]]; then
