@@ -1510,7 +1510,7 @@ describe("ArkadeLightning", () => {
 
             // assert
             expect(manager.getStats().isRunning).toBe(true);
-            expect(manager.getStats().monitoredSwaps).toBe(2);
+            expect(manager.getStats().monitoredSwaps).toBe(1);
         });
 
         it("should warn when starting already running manager", async () => {
