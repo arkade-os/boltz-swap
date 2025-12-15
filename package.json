@@ -29,7 +29,7 @@
         "test:setup": "test/setupRegtestEnv.sh",
         "test:integration": "vitest run test/e2e/**",
         "test:down": "test/setupRegtestEnv.sh down",
-        "release": "bash scripts/release.sh",
+        "release": "pnpm run build && bash scripts/release.sh",
         "release:dry-run": "bash scripts/release.sh --dry-run",
         "release:cleanup": "bash scripts/release.sh --cleanup",
         "regtest": "pnpm regtest:down && pnpm regtest:build && pnpm regtest:up && pnpm regtest:setup",
