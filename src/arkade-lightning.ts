@@ -923,7 +923,14 @@ export class ArkadeLightning {
     }
 
     /**
-     * Restore swaps from boltz api
+     * Restore swaps from Boltz API.
+     *
+     * Note: restored swaps may lack local-only data such as the original
+     * Lightning invoice or preimage. They are intended primarily for
+     * display/monitoring and are not automatically wired into the SwapManager.
+     * Do not call `claimVHTLC` / `refundVHTLC` on them unless you have
+     * enriched the objects with the missing fields.
+     *
      * @param boltzFees - Optional fees response to use for restoration.
      * @returns An object containing arrays of restored reverse and submarine swaps.
      */
@@ -1005,7 +1012,12 @@ export class ArkadeLightning {
                         swap.id
                     );
                     preimage = data.preimage;
-                } catch {}
+                } catch (error) {
+                    logger.warn(
+                        `Failed to restore preimage for submarine swap ${id}`,
+                        error
+                    );
+                }
 
                 // build pending submarine swap object
                 submarineSwaps.push({
@@ -1045,6 +1057,69 @@ export class ArkadeLightning {
 
         return { reverseSwaps, submarineSwaps };
     }
+
+    // Swap enrichment and validation helpers
+
+    /**
+     * Enrich a restored reverse swap with its preimage.
+     * This makes the swap claimable via `claimVHTLC`.
+     * Validates that the preimage hash matches the swap's expected preimageHash.
+     *
+     * @param swap - The restored reverse swap to enrich.
+     * @param preimage - The preimage (hex-encoded) for the swap.
+     * @returns The enriched swap object (same reference, mutated).
+     * @throws Error if the preimage does not match the swap's preimageHash.
+     */
+    enrichReverseSwapPreimage(
+        swap: PendingReverseSwap,
+        preimage: string
+    ): PendingReverseSwap {
+        // Validate preimage matches the expected hash
+        const computedHash = hex.encode(sha256(hex.decode(preimage)));
+        if (computedHash !== swap.request.preimageHash) {
+            throw new Error(
+                `Preimage does not match swap: expected hash ${swap.request.preimageHash}, got ${computedHash}`
+            );
+        }
+        swap.preimage = preimage;
+        return swap;
+    }
+
+    /**
+     * Enrich a restored submarine swap with its invoice.
+     * This makes the swap refundable via `refundVHTLC`.
+     * Validates that the invoice is well-formed and its payment hash can be extracted.
+     *
+     * Note: Full validation against the swap's preimageHash is not possible because
+     * the PendingSubmarineSwap structure doesn't preserve the original preimageHash
+     * from the Boltz restore API.
+     *
+     * @param swap - The restored submarine swap to enrich.
+     * @param invoice - The Lightning invoice for the swap.
+     * @returns The enriched swap object (same reference, mutated).
+     * @throws Error if the invoice is invalid or cannot be decoded.
+     */
+    enrichSubmarineSwapInvoice(
+        swap: PendingSubmarineSwap,
+        invoice: string
+    ): PendingSubmarineSwap {
+        // Validate invoice is well-formed and has a payment hash
+        try {
+            const decoded = decodeInvoice(invoice);
+            if (!decoded.paymentHash) {
+                throw new Error("Invoice missing payment hash");
+            }
+        } catch (error) {
+            if (error instanceof Error) {
+                throw new Error(`Invalid Lightning invoice: ${error.message}`);
+            }
+            throw new Error(`Invalid Lightning invoice format`);
+        }
+
+        swap.request.invoice = invoice;
+        return swap;
+    }
+
     private async claimVHTLCwithOffchainTx(
         vhtlcIdentity: Identity,
         vhtlcScript: VHTLC.Script,
