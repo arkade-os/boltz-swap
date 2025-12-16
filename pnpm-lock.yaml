@@ -20,6 +20,9 @@ importers:
       '@scure/btc-signer':
         specifier: 2.0.1
         version: 2.0.1
+      bip68:
+        specifier: ^1.0.4
+        version: 1.0.4
       light-bolt11-decoder:
         specifier: 3.2.0
         version: 3.2.0

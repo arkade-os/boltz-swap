@@ -720,6 +720,13 @@ export class SwapManager {
             this.swapsInProgress.add(swap.id);
 
             if (isPendingReverseSwap(swap)) {
+                // Skip restored swaps without preimage (cannot claim without it)
+                if (!swap.preimage || swap.preimage.length === 0) {
+                    logger.log(
+                        `Skipping claim for swap ${swap.id}: missing preimage (restored swap)`
+                    );
+                    return;
+                }
                 // Claim reverse swap if status is claimable
                 if (isReverseClaimableStatus(swap.status)) {
                     logger.log(`Auto-claiming reverse swap ${swap.id}`);
@@ -730,6 +737,16 @@ export class SwapManager {
                     );
                 }
             } else if (isPendingSubmarineSwap(swap)) {
+                // Skip restored swaps without invoice (cannot refund without it)
+                if (
+                    !swap.request?.invoice ||
+                    swap.request.invoice.length === 0
+                ) {
+                    logger.log(
+                        `Skipping refund for swap ${swap.id}: missing invoice (restored swap)`
+                    );
+                    return;
+                }
                 // Refund submarine swap if status is refundable
                 if (isSubmarineRefundableStatus(swap.status)) {
                     logger.log(`Auto-refunding submarine swap ${swap.id}`);

@@ -51,12 +51,18 @@ import {
     GetSwapStatusResponse,
     isSubmarineFinalStatus,
     isReverseFinalStatus,
+    isRestoredReverseSwap,
+    isRestoredSubmarineSwap,
 } from "./boltz-swap-provider";
 import { Address, OutScript, Transaction } from "@scure/btc-signer";
 import { TransactionInput, TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
 import { verifySignatures } from "./utils/signatures";
+import {
+    extractInvoiceAmount,
+    extractTimeLockFromLeafOutput,
+} from "./utils/restoration";
 import { SwapManager } from "./swap-manager";
 import {
     saveSwap,
@@ -415,6 +421,10 @@ export class ArkadeLightning {
      * @param pendingSwap - The pending reverse swap to claim the VHTLC.
      */
     async claimVHTLC(pendingSwap: PendingReverseSwap): Promise<void> {
+        // restored swaps may not have preimage
+        if (!pendingSwap.preimage)
+            throw new Error("Preimage is required to claim VHTLC");
+
         const preimage = hex.decode(pendingSwap.preimage);
         const aspInfo = await this.arkProvider.getInfo();
         const address = await this.wallet.getAddress();
@@ -521,6 +531,10 @@ export class ArkadeLightning {
      * @param pendingSwap - The pending submarine swap to refund the VHTLC.
      */
     async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
+        // restored swaps may not have invoice
+        if (!pendingSwap.request.invoice)
+            throw new Error("Invoice is required to refund VHTLC");
+
         const vhtlcPkScript = ArkAddress.decode(
             pendingSwap.response.address
         ).pkScript;
@@ -906,6 +920,212 @@ export class ArkadeLightning {
                     }
                 });
         });
+    }
+
+    /**
+     * Restore swaps from Boltz API.
+     *
+     * Note: restored swaps may lack local-only data such as the original
+     * Lightning invoice or preimage. They are intended primarily for
+     * display/monitoring and are not automatically wired into the SwapManager.
+     * Do not call `claimVHTLC` / `refundVHTLC` on them unless you have
+     * enriched the objects with the missing fields.
+     *
+     * @param boltzFees - Optional fees response to use for restoration.
+     * @returns An object containing arrays of restored reverse and submarine swaps.
+     */
+    async restoreSwaps(boltzFees?: FeesResponse): Promise<{
+        reverseSwaps: PendingReverseSwap[];
+        submarineSwaps: PendingSubmarineSwap[];
+    }> {
+        // get public key from wallet
+        const publicKey = hex.encode(
+            await this.wallet.identity.compressedPublicKey()
+        );
+        if (!publicKey) throw new Error("Failed to get public key from wallet");
+
+        // get fees
+        const fees = boltzFees ?? (await this.swapProvider.getFees());
+
+        const reverseSwaps: PendingReverseSwap[] = [];
+        const submarineSwaps: PendingSubmarineSwap[] = [];
+
+        // get restored swaps from swap provider
+        const restoredSwaps = await this.swapProvider.restoreSwaps(publicKey);
+
+        for (const swap of restoredSwaps) {
+            const { id, createdAt, status } = swap;
+            if (isRestoredReverseSwap(swap)) {
+                // destructure claim details
+                const {
+                    amount,
+                    lockupAddress,
+                    preimageHash,
+                    serverPublicKey,
+                    tree,
+                } = swap.claimDetails;
+
+                // build pending reverse swap object
+                reverseSwaps.push({
+                    id,
+                    createdAt,
+                    request: {
+                        invoiceAmount: extractInvoiceAmount(amount, fees),
+                        claimPublicKey: publicKey,
+                        preimageHash,
+                    },
+                    response: {
+                        id,
+                        invoice: "", // TODO check if we can get the invoice from boltz
+                        onchainAmount: amount,
+                        lockupAddress,
+                        refundPublicKey: serverPublicKey,
+                        timeoutBlockHeights: {
+                            refund: extractTimeLockFromLeafOutput(
+                                tree.refundWithoutBoltzLeaf.output
+                            ),
+                            unilateralClaim: extractTimeLockFromLeafOutput(
+                                tree.unilateralClaimLeaf.output
+                            ),
+                            unilateralRefund: extractTimeLockFromLeafOutput(
+                                tree.unilateralRefundLeaf.output
+                            ),
+                            unilateralRefundWithoutReceiver:
+                                extractTimeLockFromLeafOutput(
+                                    tree.unilateralRefundWithoutBoltzLeaf.output
+                                ),
+                        },
+                    },
+                    status,
+                    type: "reverse",
+                    preimage: "",
+                } as PendingReverseSwap);
+            } else if (isRestoredSubmarineSwap(swap)) {
+                // destructure refund details
+                const { amount, lockupAddress, serverPublicKey, tree } =
+                    swap.refundDetails;
+
+                // fetch preimage if available
+                let preimage = "";
+                try {
+                    const data = await this.swapProvider.getSwapPreimage(
+                        swap.id
+                    );
+                    preimage = data.preimage;
+                } catch (error) {
+                    logger.warn(
+                        `Failed to restore preimage for submarine swap ${id}`,
+                        error
+                    );
+                }
+
+                // build pending submarine swap object
+                submarineSwaps.push({
+                    id,
+                    type: "submarine",
+                    createdAt,
+                    preimage,
+                    preimageHash: swap.preimageHash,
+                    status,
+                    request: {
+                        invoice: "", // TODO check if we can get the invoice from boltz
+                        refundPublicKey: publicKey,
+                    },
+                    response: {
+                        id,
+                        address: lockupAddress,
+                        expectedAmount: amount,
+                        claimPublicKey: serverPublicKey,
+                        timeoutBlockHeights: {
+                            refund: extractTimeLockFromLeafOutput(
+                                tree.refundWithoutBoltzLeaf.output
+                            ),
+                            unilateralClaim: extractTimeLockFromLeafOutput(
+                                tree.unilateralClaimLeaf.output
+                            ),
+                            unilateralRefund: extractTimeLockFromLeafOutput(
+                                tree.unilateralRefundLeaf.output
+                            ),
+                            unilateralRefundWithoutReceiver:
+                                extractTimeLockFromLeafOutput(
+                                    tree.unilateralRefundWithoutBoltzLeaf.output
+                                ),
+                        },
+                    },
+                } as PendingSubmarineSwap);
+            }
+        }
+
+        return { reverseSwaps, submarineSwaps };
+    }
+
+    // Swap enrichment and validation helpers
+
+    /**
+     * Enrich a restored reverse swap with its preimage.
+     * This makes the swap claimable via `claimVHTLC`.
+     * Validates that the preimage hash matches the swap's expected preimageHash.
+     *
+     * @param swap - The restored reverse swap to enrich.
+     * @param preimage - The preimage (hex-encoded) for the swap.
+     * @returns The enriched swap object (same reference, mutated).
+     * @throws Error if the preimage does not match the swap's preimageHash.
+     */
+    enrichReverseSwapPreimage(
+        swap: PendingReverseSwap,
+        preimage: string
+    ): PendingReverseSwap {
+        // Validate preimage matches the expected hash
+        const computedHash = hex.encode(sha256(hex.decode(preimage)));
+        if (computedHash !== swap.request.preimageHash) {
+            throw new Error(
+                `Preimage does not match swap: expected hash ${swap.request.preimageHash}, got ${computedHash}`
+            );
+        }
+        swap.preimage = preimage;
+        return swap;
+    }
+
+    /**
+     * Enrich a restored submarine swap with its invoice.
+     * This makes the swap refundable via `refundVHTLC`.
+     * Validates that the invoice is well-formed and its payment hash can be extracted.
+     * If the swap has a preimageHash (from restoration), validates that the invoice's
+     * payment hash matches.
+     *
+     * @param swap - The restored submarine swap to enrich.
+     * @param invoice - The Lightning invoice for the swap.
+     * @returns The enriched swap object (same reference, mutated).
+     * @throws Error if the invoice is invalid, cannot be decoded, or payment hash doesn't match.
+     */
+    enrichSubmarineSwapInvoice(
+        swap: PendingSubmarineSwap,
+        invoice: string
+    ): PendingSubmarineSwap {
+        // Validate invoice is well-formed and has a payment hash
+        let paymentHash: string;
+        try {
+            const decoded = decodeInvoice(invoice);
+            if (!decoded.paymentHash) {
+                throw new Error("Invoice missing payment hash");
+            }
+            paymentHash = decoded.paymentHash;
+        } catch (error) {
+            if (error instanceof Error) {
+                throw new Error(`Invalid Lightning invoice: ${error.message}`);
+            }
+            throw new Error(`Invalid Lightning invoice format`);
+        }
+
+        // If preimageHash is available (from restoration), validate it matches the invoice
+        if (swap.preimageHash && paymentHash !== swap.preimageHash) {
+            throw new Error(
+                `Invoice payment hash does not match swap: expected ${swap.preimageHash}, got ${paymentHash}`
+            );
+        }
+
+        swap.request.invoice = invoice;
+        return swap;
     }
 
     private async claimVHTLCwithOffchainTx(

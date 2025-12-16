@@ -946,6 +946,180 @@ describe("SwapManager", () => {
         });
     });
 
+    describe("Restored Swaps Validation", () => {
+        let claimCallback: ReturnType<typeof vi.fn>;
+        let refundCallback: ReturnType<typeof vi.fn>;
+        let saveSwapCallback: ReturnType<typeof vi.fn>;
+
+        beforeEach(() => {
+            claimCallback = vi.fn();
+            refundCallback = vi.fn();
+            saveSwapCallback = vi.fn();
+
+            swapManager = new SwapManager(swapProvider, {
+                enableAutoActions: true,
+            });
+            swapManager.setCallbacks({
+                claim: claimCallback,
+                refund: refundCallback,
+                saveSwap: saveSwapCallback,
+            });
+
+            // Mock fetch for polling
+            global.fetch = vi.fn(() =>
+                Promise.resolve({
+                    ok: true,
+                    json: () =>
+                        Promise.resolve({
+                            status: "swap.created",
+                        }),
+                    headers: new Headers({
+                        "content-length": "100",
+                    }),
+                } as Response)
+            );
+        });
+
+        it("should skip claim for restored reverse swap without preimage", async () => {
+            const restoredReverseSwap: PendingReverseSwap = {
+                ...mockReverseSwap,
+                preimage: "", // Empty preimage indicates restored swap
+                status: "transaction.confirmed", // Claimable status
+            };
+
+            await swapManager.start([restoredReverseSwap]);
+            mockWebSocket.onopen();
+
+            // Give async operations time to complete
+            await new Promise((resolve) => setTimeout(resolve, 10));
+
+            // Claim should NOT be called for restored swap without preimage
+            expect(claimCallback).not.toHaveBeenCalled();
+
+            await swapManager.stop();
+        });
+
+        it("should skip refund for restored submarine swap without invoice", async () => {
+            const restoredSubmarineSwap: PendingSubmarineSwap = {
+                ...mockSubmarineSwap,
+                request: {
+                    ...mockSubmarineSwap.request,
+                    invoice: "", // Empty invoice indicates restored swap
+                },
+                status: "invoice.failedToPay", // Refundable status
+            };
+
+            await swapManager.start([restoredSubmarineSwap]);
+            mockWebSocket.onopen();
+
+            // Give async operations time to complete
+            await new Promise((resolve) => setTimeout(resolve, 10));
+
+            // Refund should NOT be called for restored swap without invoice
+            expect(refundCallback).not.toHaveBeenCalled();
+
+            await swapManager.stop();
+        });
+
+        it("should claim reverse swap with valid preimage", async () => {
+            const validReverseSwap: PendingReverseSwap = {
+                ...mockReverseSwap,
+                preimage: "0".repeat(64), // Valid preimage
+                status: "transaction.confirmed", // Claimable status
+            };
+
+            await swapManager.start([validReverseSwap]);
+            mockWebSocket.onopen();
+
+            // Give async operations time to complete
+            await new Promise((resolve) => setTimeout(resolve, 10));
+
+            // Claim SHOULD be called for swap with valid preimage
+            expect(claimCallback).toHaveBeenCalled();
+
+            await swapManager.stop();
+        });
+
+        it("should refund submarine swap with valid invoice", async () => {
+            const validSubmarineSwap: PendingSubmarineSwap = {
+                ...mockSubmarineSwap,
+                request: {
+                    ...mockSubmarineSwap.request,
+                    invoice: "lnbc100n1p0", // Valid invoice
+                },
+                status: "invoice.set", // Non-final status initially
+            };
+
+            await swapManager.start([validSubmarineSwap]);
+            mockWebSocket.onopen();
+
+            // Simulate status update to refundable
+            const message = {
+                event: "update",
+                args: [
+                    {
+                        id: "submarine-swap-1",
+                        status: "invoice.failedToPay", // Refundable status
+                    },
+                ],
+            };
+
+            await mockWebSocket.onmessage({
+                data: JSON.stringify(message),
+            });
+
+            // Give async operations time to complete
+            await new Promise((resolve) => setTimeout(resolve, 10));
+
+            // Refund SHOULD be called for swap with valid invoice
+            expect(refundCallback).toHaveBeenCalled();
+
+            await swapManager.stop();
+        });
+
+        it("should still monitor restored swaps for status updates", async () => {
+            const onSwapUpdate = vi.fn();
+            swapManager = new SwapManager(swapProvider, {
+                enableAutoActions: true,
+                events: { onSwapUpdate },
+            });
+            swapManager.setCallbacks({
+                claim: claimCallback,
+                refund: refundCallback,
+                saveSwap: saveSwapCallback,
+            });
+
+            const restoredReverseSwap: PendingReverseSwap = {
+                ...mockReverseSwap,
+                preimage: "", // Restored swap
+                status: "swap.created",
+            };
+
+            await swapManager.start([restoredReverseSwap]);
+            mockWebSocket.onopen();
+
+            // Simulate status update
+            const message = {
+                event: "update",
+                args: [
+                    {
+                        id: "reverse-swap-1",
+                        status: "transaction.mempool",
+                    },
+                ],
+            };
+
+            await mockWebSocket.onmessage({
+                data: JSON.stringify(message),
+            });
+
+            // Status update should still be emitted for monitoring purposes
+            expect(onSwapUpdate).toHaveBeenCalled();
+
+            await swapManager.stop();
+        });
+    });
+
     describe("Statistics", () => {
         beforeEach(() => {
             swapManager = new SwapManager(swapProvider);
