@@ -58,6 +58,7 @@ import { Address, OutScript, Transaction } from "@scure/btc-signer";
 import { TransactionInput, TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
+import { logger } from "./logger";
 import { verifySignatures } from "./utils/signatures";
 import {
     extractInvoiceAmount,
@@ -69,7 +70,6 @@ import {
     updateReverseSwapStatus,
     updateSubmarineSwapStatus,
 } from "./utils/swap-helpers";
-import { logger } from "./logger";
 import { claimVHTLCIdentity } from "./utils/identity";
 import { createVHTLCBatchHandler } from "./batch";
 
@@ -597,31 +597,56 @@ export class ArkadeLightning {
 
         const isRecoverableVtxo = isRecoverable(vtxo);
 
-        const input = {
-            ...vtxo,
-            tapLeafScript: isRecoverableVtxo
-                ? vhtlcScript.refundWithoutReceiver()
-                : vhtlcScript.refund(),
-            tapTree: vhtlcScript.encode(),
-        };
-
         const output = {
             amount: BigInt(vtxo.value),
             script: ArkAddress.decode(address).pkScript,
         };
 
+        // If VTXO is recoverable, use refundWithoutReceiver path directly via batch
         if (isRecoverableVtxo) {
+            const input = {
+                ...vtxo,
+                tapLeafScript: vhtlcScript.refundWithoutReceiver(),
+                tapTree: vhtlcScript.encode(),
+            };
             await this.joinBatch(this.wallet.identity, input, output, aspInfo);
         } else {
-            await this.refundVHTLCwithOffchainTx(
-                pendingSwap,
-                boltzXOnlyPublicKey,
-                ourXOnlyPublicKey,
-                serverXOnlyPublicKey,
-                input,
-                output,
-                aspInfo
-            );
+            // Try cooperative refund with Boltz first
+            const cooperativeInput = {
+                ...vtxo,
+                tapLeafScript: vhtlcScript.refund(),
+                tapTree: vhtlcScript.encode(),
+            };
+
+            try {
+                await this.refundVHTLCwithOffchainTx(
+                    pendingSwap,
+                    boltzXOnlyPublicKey,
+                    ourXOnlyPublicKey,
+                    serverXOnlyPublicKey,
+                    cooperativeInput,
+                    output,
+                    aspInfo
+                );
+            } catch (error) {
+                // If Boltz fails to cooperate, fallback to refundWithoutReceiver via offchain tx
+                // This requires the refundWithoutReceiver timeout to have passed
+                logger.warn(
+                    `Cooperative refund failed for swap ${pendingSwap.id}, falling back to refundWithoutReceiver:`,
+                    error
+                );
+
+                const fallbackInput = {
+                    ...vtxo,
+                    tapLeafScript: vhtlcScript.refundWithoutReceiver(),
+                    tapTree: vhtlcScript.encode(),
+                };
+                await this.refundWithoutReceiverOffchainTx(
+                    fallbackInput,
+                    output,
+                    aspInfo
+                );
+            }
         }
 
         // update the pending swap on storage if available
@@ -1279,6 +1304,69 @@ export class ArkadeLightning {
 
         const finalCheckpointTx = combineTapscriptSigs(
             combinedSignedCheckpointTx,
+            serverSignedCheckpointTx
+        );
+
+        // finalize the transaction
+        await this.arkProvider.finalizeTx(arkTxid, [
+            base64.encode(finalCheckpointTx.toPSBT()),
+        ]);
+    }
+
+    /**
+     * Refund VHTLC using refundWithoutReceiver path via offchain transaction.
+     * This path only requires the sender's signature (no Boltz cooperation needed).
+     * The refundWithoutReceiver timeout must have passed for this to succeed.
+     */
+    private async refundWithoutReceiverOffchainTx(
+        input: ArkTxInput,
+        output: TransactionOutput,
+        arkInfos: Pick<ArkInfo, "checkpointTapscript" | "signerPubkey">
+    ): Promise<void> {
+        // create the server unroll script for checkpoint transactions
+        const rawCheckpointTapscript = hex.decode(arkInfos.checkpointTapscript);
+        const serverUnrollScript = CSVMultisigTapscript.decode(
+            rawCheckpointTapscript
+        );
+
+        // create the virtual transaction to refund the VHTLC
+        const { arkTx: unsignedRefundTx, checkpoints: checkpointPtxs } =
+            buildOffchainTx([input], [output], serverUnrollScript);
+
+        // validate we have one checkpoint transaction
+        if (checkpointPtxs.length !== 1)
+            throw new Error(
+                `Expected one checkpoint transaction, got ${checkpointPtxs.length}`
+            );
+
+        const unsignedCheckpointTx = checkpointPtxs[0];
+
+        // sign our part (refundWithoutReceiver only requires sender signature)
+        const signedRefundTx =
+            await this.wallet.identity.sign(unsignedRefundTx);
+        const signedCheckpointTx =
+            await this.wallet.identity.sign(unsignedCheckpointTx);
+
+        // submit to server for its signature
+        const { arkTxid, signedCheckpointTxs } = await this.arkProvider.submitTx(
+            base64.encode(signedRefundTx.toPSBT()),
+            [base64.encode(unsignedCheckpointTx.toPSBT())]
+        );
+
+        // validate we received exactly one checkpoint transaction
+        if (signedCheckpointTxs.length !== 1) {
+            throw new Error(
+                `Expected one signed checkpoint transaction, got ${signedCheckpointTxs.length}`
+            );
+        }
+
+        // combine the checkpoint signatures
+        const serverSignedCheckpointTx = Transaction.fromPSBT(
+            base64.decode(signedCheckpointTxs[0])
+        );
+
+        const finalCheckpointTx = combineTapscriptSigs(
+            signedCheckpointTx,
             serverSignedCheckpointTx
         );
 
