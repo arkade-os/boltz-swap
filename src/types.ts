@@ -67,6 +67,8 @@ export interface PendingSubmarineSwap {
     type: "submarine";
     createdAt: number;
     preimage?: string;
+    /** Original preimage hash from Boltz (available for restored swaps) */
+    preimageHash?: string;
     refunded?: boolean;
     refundable?: boolean;
     status: BoltzSwapStatus;

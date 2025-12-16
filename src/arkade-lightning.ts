@@ -1025,6 +1025,7 @@ export class ArkadeLightning {
                     type: "submarine",
                     createdAt,
                     preimage,
+                    preimageHash: swap.preimageHash,
                     status,
                     request: {
                         invoice: "", // TODO check if we can get the invoice from boltz
@@ -1089,31 +1090,38 @@ export class ArkadeLightning {
      * Enrich a restored submarine swap with its invoice.
      * This makes the swap refundable via `refundVHTLC`.
      * Validates that the invoice is well-formed and its payment hash can be extracted.
-     *
-     * Note: Full validation against the swap's preimageHash is not possible because
-     * the PendingSubmarineSwap structure doesn't preserve the original preimageHash
-     * from the Boltz restore API.
+     * If the swap has a preimageHash (from restoration), validates that the invoice's
+     * payment hash matches.
      *
      * @param swap - The restored submarine swap to enrich.
      * @param invoice - The Lightning invoice for the swap.
      * @returns The enriched swap object (same reference, mutated).
-     * @throws Error if the invoice is invalid or cannot be decoded.
+     * @throws Error if the invoice is invalid, cannot be decoded, or payment hash doesn't match.
      */
     enrichSubmarineSwapInvoice(
         swap: PendingSubmarineSwap,
         invoice: string
     ): PendingSubmarineSwap {
         // Validate invoice is well-formed and has a payment hash
+        let paymentHash: string;
         try {
             const decoded = decodeInvoice(invoice);
             if (!decoded.paymentHash) {
                 throw new Error("Invoice missing payment hash");
             }
+            paymentHash = decoded.paymentHash;
         } catch (error) {
             if (error instanceof Error) {
                 throw new Error(`Invalid Lightning invoice: ${error.message}`);
             }
             throw new Error(`Invalid Lightning invoice format`);
+        }
+
+        // If preimageHash is available (from restoration), validate it matches the invoice
+        if (swap.preimageHash && paymentHash !== swap.preimageHash) {
+            throw new Error(
+                `Invoice payment hash does not match swap: expected ${swap.preimageHash}, got ${paymentHash}`
+            );
         }
 
         swap.request.invoice = invoice;
