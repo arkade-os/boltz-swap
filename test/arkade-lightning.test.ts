@@ -1159,4 +1159,149 @@ describe("ArkadeLightning", () => {
             });
         });
     });
+
+    describe("Refund VHTLC Operations", () => {
+        const preimage = randomBytes(20);
+        const mockVHTLC = {
+            vhtlcAddress: mock.address,
+            vhtlcScript: new VHTLC.Script({
+                preimageHash: ripemd160(sha256(preimage)),
+                sender: mock.pubkeys.alice,
+                receiver: mock.pubkeys.boltz,
+                server: mock.pubkeys.server,
+                refundLocktime: BigInt(17),
+                unilateralClaimDelay: {
+                    type: "blocks",
+                    value: BigInt(21),
+                },
+                unilateralRefundDelay: {
+                    type: "blocks",
+                    value: BigInt(42),
+                },
+                unilateralRefundWithoutReceiverDelay: {
+                    type: "blocks",
+                    value: BigInt(63),
+                },
+            }),
+        };
+
+        const mockVtxo = {
+            txid: "mock-txid",
+            vout: 0,
+            value: 100000,
+            isSpent: false,
+            tapTree: "mock-tap-tree",
+            createdAt: { height: 100, timestamp: Date.now() },
+            expiresAt: { height: 200, timestamp: Date.now() + 1000000 },
+            virtualStatus: "confirmed",
+            isUnrolled: false,
+            status: "confirmed",
+        };
+
+        it("should throw error when invoice is missing", async () => {
+            // arrange
+            const pendingSwap: PendingSubmarineSwap = {
+                ...mockSubmarineSwap,
+                request: {
+                    ...createSubmarineSwapRequest,
+                    invoice: "", // Missing invoice
+                },
+            };
+
+            // act & assert
+            await expect(lightning.refundVHTLC(pendingSwap)).rejects.toThrow(
+                "Invoice is required to refund VHTLC"
+            );
+        });
+
+        it("should call refundVHTLCwithOffchainTx for non-recoverable VTXO", async () => {
+            // arrange - mock all the internal methods to test the flow
+            const pendingSwap: PendingSubmarineSwap = {
+                ...mockSubmarineSwap,
+                request: {
+                    ...createSubmarineSwapRequest,
+                    invoice: mock.invoice.address,
+                },
+            };
+
+            // Mock the private method directly to verify it's called
+            const refundVHTLCwithOffchainTxSpy = vi
+                .spyOn(lightning as any, "refundVHTLCwithOffchainTx")
+                .mockResolvedValueOnce(undefined);
+
+            // Mock ArkAddress.decode to return a valid pkScript
+            const { ArkAddress: ActualArkAddress } = await import(
+                "@arkade-os/sdk"
+            );
+            vi.spyOn(ActualArkAddress, "decode").mockReturnValue({
+                pkScript: new Uint8Array(32),
+            } as any);
+
+            vi.spyOn(arkProvider, "getInfo").mockResolvedValue(mockArkInfo);
+            vi.spyOn(lightning, "createVHTLCScript").mockReturnValue(mockVHTLC);
+            vi.spyOn(
+                wallet.contractRepository,
+                "saveToContractCollection"
+            ).mockResolvedValue();
+
+            // Mock non-recoverable VTXO (far future expiry)
+            vi.spyOn(indexerProvider, "getVtxos").mockResolvedValueOnce({
+                vtxos: [mockVtxo] as any,
+            });
+
+            // act
+            await lightning.refundVHTLC(pendingSwap);
+
+            // assert - cooperative refund should be called
+            expect(refundVHTLCwithOffchainTxSpy).toHaveBeenCalled();
+        });
+
+        it("should fallback to refundWithoutReceiverOffchainTx when cooperative refund fails", async () => {
+            // arrange
+            const pendingSwap: PendingSubmarineSwap = {
+                ...mockSubmarineSwap,
+                request: {
+                    ...createSubmarineSwapRequest,
+                    invoice: mock.invoice.address,
+                },
+            };
+
+            // Mock ArkAddress.decode
+            const { ArkAddress: ActualArkAddress } = await import(
+                "@arkade-os/sdk"
+            );
+            vi.spyOn(ActualArkAddress, "decode").mockReturnValue({
+                pkScript: new Uint8Array(32),
+            } as any);
+
+            vi.spyOn(arkProvider, "getInfo").mockResolvedValue(mockArkInfo);
+            vi.spyOn(lightning, "createVHTLCScript").mockReturnValue(mockVHTLC);
+            vi.spyOn(
+                wallet.contractRepository,
+                "saveToContractCollection"
+            ).mockResolvedValue();
+
+            // Mock non-recoverable VTXO
+            vi.spyOn(indexerProvider, "getVtxos").mockResolvedValueOnce({
+                vtxos: [mockVtxo] as any,
+            });
+
+            // Mock cooperative refund to fail (Boltz uncooperative)
+            const refundVHTLCwithOffchainTxSpy = vi
+                .spyOn(lightning as any, "refundVHTLCwithOffchainTx")
+                .mockRejectedValueOnce(new Error("Boltz refused to sign"));
+
+            // Mock fallback method to succeed
+            const refundWithoutReceiverOffchainTxSpy = vi
+                .spyOn(lightning as any, "refundWithoutReceiverOffchainTx")
+                .mockResolvedValueOnce(undefined);
+
+            // act
+            await lightning.refundVHTLC(pendingSwap);
+
+            // assert
+            expect(refundVHTLCwithOffchainTxSpy).toHaveBeenCalled();
+            expect(refundWithoutReceiverOffchainTxSpy).toHaveBeenCalled();
+        });
+    });
 });

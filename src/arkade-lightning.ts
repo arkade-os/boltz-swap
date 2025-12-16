@@ -1348,10 +1348,11 @@ export class ArkadeLightning {
             await this.wallet.identity.sign(unsignedCheckpointTx);
 
         // submit to server for its signature
-        const { arkTxid, signedCheckpointTxs } = await this.arkProvider.submitTx(
-            base64.encode(signedRefundTx.toPSBT()),
-            [base64.encode(unsignedCheckpointTx.toPSBT())]
-        );
+        const { arkTxid, signedCheckpointTxs } =
+            await this.arkProvider.submitTx(
+                base64.encode(signedRefundTx.toPSBT()),
+                [base64.encode(unsignedCheckpointTx.toPSBT())]
+            );
 
         // validate we received exactly one checkpoint transaction
         if (signedCheckpointTxs.length !== 1) {
