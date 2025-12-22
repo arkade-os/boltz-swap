@@ -81,6 +81,7 @@ export interface RefundHandler {
 }
 
 export interface ArkadeLightningConfig {
+    serviceWorker: ServiceWorker;
     wallet: Wallet | ServiceWorkerWallet;
     arkProvider?: ArkProvider;
     swapProvider: BoltzSwapProvider;

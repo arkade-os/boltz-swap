@@ -764,7 +764,8 @@ export class BoltzSwapProvider {
 
             webSocket.onerror = (error) => {
                 clearTimeout(connectionTimeout);
-                reject(new NetworkError(`WebSocket error: ${error.message}`));
+                const errMessage = "message" in error || error.toString();
+                reject(new NetworkError(`WebSocket error: ${errMessage}`));
             };
 
             webSocket.onopen = () => {
