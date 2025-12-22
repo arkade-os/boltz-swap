@@ -65,7 +65,7 @@ import {
     extractInvoiceAmount,
     extractTimeLockFromLeafOutput,
 } from "./utils/restoration";
-import { SwapManager } from "./swap-manager";
+import { SwapManager, SwapManagerConfig } from "./swap-manager";
 import {
     saveSwap,
     updateReverseSwapStatus,
@@ -80,7 +80,10 @@ import { SwapRepository } from "./repositories/swap-repository";
 export class ArkadeLightning {
     private readonly wallet: Wallet | ServiceWorkerWallet;
     private readonly arkProvider: ArkProvider;
+
+    // TODO: remove this
     private readonly swapProvider: BoltzSwapProvider;
+
     private readonly indexerProvider: IndexerProvider;
     private readonly swapManager: SwapManager | null = null;
     private readonly swapRepository: SwapRepository;
@@ -91,7 +94,7 @@ export class ArkadeLightning {
 
         this.wallet = config.wallet;
         // Prioritize wallet providers, fallback to config providers for backward compatibility
-        const arkProvider =
+        const arkProvider: ArkProvider | undefined =
             (config.wallet as any).arkProvider ?? config.arkProvider;
         if (!arkProvider)
             throw new Error(
@@ -121,17 +124,13 @@ export class ArkadeLightning {
         // - false/undefined: disabled
         if (config.swapManager) {
             const swapManagerConfig =
-                config.swapManager === true ? {} : config.swapManager;
+                config.swapManager === true ? { } as (SwapManagerConfig & {autoStart?: boolean})  : config.swapManager;
 
             // Extract autostart (defaults to true) before passing to SwapManager
             // SwapManager doesn't need it - only ArkadeLightning uses it
             const shouldAutostart = swapManagerConfig.autoStart ?? true;
 
-            this.swapManager = new SwapManager(
-                config.serviceWorker,
-                this.swapProvider,
-                swapManagerConfig
-            );
+            this.swapManager = new SwapManager(config.serviceWorker, swapManagerConfig);
 
             // Set up callbacks for claim, refund, and save operations
             this.swapManager.setCallbacks({
