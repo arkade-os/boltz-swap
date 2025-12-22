@@ -1,69 +1,92 @@
-import { IUpdater, Response /* , RequestEnvelope, ResponseEnvelope */ } from "@arkade-os/sdk";
+import {
+    IUpdater,
+    RequestEnvelope,
+    Response,
+    ResponseEnvelope
+} from "@arkade-os/sdk";
 import { PendingSwap, SwapManager, SwapManagerConfig } from "../swap-manager";
 import { logger } from "../logger";
 import {
     BoltzSwapProvider,
     BoltzSwapStatus,
     isReverseFinalStatus,
-    isSubmarineFinalStatus,
+    isSubmarineFinalStatus, SwapProviderConfig,
 } from "../boltz-swap-provider";
 import { NetworkName } from "@arkade-os/sdk";
 
-type Type = "SWAP_UPDATED" | "SWAP_FAILED" |"SWAP_COMPLETED" | "ERROR" | "INITIALIZED";
-type Payload = ReturnType<typeof swapUpdated| typeof initialized> ;
 
-export interface SwapUpdatedEvent extends Response.Base<Type> {
-    swap: PendingSwap;
-    previousStatus: PendingSwap["status"];
-}
-const swapUpdated = (
-    swap: PendingSwap,
-    previousStatus: PendingSwap["status"]
-): SwapUpdatedEvent => ({
-    success: true,
-    id: "no-id",
-    type: "SWAP_UPDATED",
-    swap,
-    previousStatus,
-} as any);
-export interface SwapFailedEvent extends Response.Base<Type> {
-    swap: PendingSwap;
-    error: string;
-}
-const swapFailed = (swap: PendingSwap, error: string): SwapFailedEvent => ({
-    type: "SWAP_FAILED",
-    success: false,
-    id: "no-id",
-    swap,
-    error,
-});
-const swapCompleted = (
-    swap: PendingSwap,
-): SwapUpdatedEvent =>
-    ({
-        success: true,
-        id: "no-id",
-        type: "SWAP_COMPLETED",
-        swap,
-    }) as any;
-export const initialized = (id: string): Response.Base<Type> => ({
-    type: "INITIALIZED",
-    success: true,
-    id
-});
+export type RequestInit = RequestEnvelope & {
+    type: "INIT";
+    payload: {
+        apiUrl: string;
+        network: NetworkName;
+    };
+};
+export type ResponseInit = ResponseEnvelope & { type: "INITIALIZED" };
 
+export type RequestGetReverseSwapTx= RequestEnvelope & { type: "GET_REVERSE_SWAP_TX_ID", payload: {swapId: string} };
+export type ResponseGetReverseSwapTx = ResponseEnvelope & { type: "REVERSE_SWAP_TX_ID", payload: { txid: string}}
 
-type SwapUpdaterRequest = any ; // RequestEnvelope<string, unknown>;
-type SwapUpdaterResponse = any ; // ResponseEnvelope<Type, Payload>;
+export type RequestGetWsUrl = RequestEnvelope & { type: "GET_WS_URL" };
+export type ResponseGetWsUrl = ResponseEnvelope & { type: "WS_URL", payload: { wsUrl: string}};
+
+export type RequestSwapStatusUpdated = RequestEnvelope & { type: "SWAP_STATUS_UPDATED", payload: { swapId: string, status: BoltzSwapStatus, error: string}};
+
+export type RequestGetMonitoredSwaps = RequestEnvelope & { type: "GET_MONITORED_SWAPS" };
+export type ResponseGetMonitoredSwaps = ResponseEnvelope & { type: "MONITORED_SWAPS", payload: { swaps: PendingSwap[] }};
+
+export type RequestGetSwap = RequestEnvelope & { type: "GET_SWAP", payload: { swapId: string }};
+export type ResponseGetSwap = ResponseEnvelope & { type: "GET_SWAP", payload: { swap: PendingSwap | undefined }};
+
+// generic empty response to ensure the caller doesn't time out
+type ResponseAck = ResponseEnvelope & { type: "ACK" };
+export type ResponseSwapStatusUpdated = ResponseEnvelope & {
+    broadcast: true;
+    type: "SWAP_STATUS_UPDATED";
+    payload: { swap: PendingSwap; previousStatus: BoltzSwapStatus };
+};
+export type ResponseSwapFailed = ResponseEnvelope & {
+    broadcast: true ;
+    type: "SWAP_FAILED";
+    payload: { swap: PendingSwap; error: string };
+};
+export type ResponseSwapCompleted = ResponseEnvelope & {
+    broadcast: true;
+    type: "SWAP_COMPLETED";
+    payload: { swap: PendingSwap };
+};
+
+export type RequestMonitorSwap = RequestEnvelope & { type: "MONITOR_SWAP", payload: { swap: PendingSwap }};
+export type RequestStopMonitoringSwap = RequestEnvelope & { type: "STOP_MONITORING_SWAP", payload: { swapId: string }};
+
+export type SwapUpdaterRequest =
+    | RequestInit
+    | RequestGetReverseSwapTx
+    | RequestGetWsUrl
+    | RequestSwapStatusUpdated
+    | RequestGetMonitoredSwaps
+    | RequestMonitorSwap
+    | RequestStopMonitoringSwap
+    | RequestGetSwap;
+
+export type SwapUpdaterResponse =
+    | ResponseInit
+    | ResponseGetReverseSwapTx
+    | ResponseGetWsUrl
+    | ResponseSwapStatusUpdated
+    | ResponseAck
+    | ResponseSwapFailed
+    | ResponseSwapCompleted
+    | ResponseGetMonitoredSwaps
+    | ResponseGetSwap;
 
 type SwapUpdaterConfig = { pollInterval?: number };
+
 export class SwapUpdater
     implements
         IUpdater<
-            SwapUpdaterRequest["type"],
-            SwapUpdaterRequest["payload"],
-            SwapUpdaterResponse["type"],
-            SwapUpdaterResponse["payload"]
+            SwapUpdaterRequest,
+            SwapUpdaterResponse
         >
 {
     static messagePrefix = "SwapUpdater";
@@ -74,74 +97,100 @@ export class SwapUpdater
     private pollTimer: ReturnType<typeof setTimeout> | null = null;
     private onNextTick: (() => SwapUpdaterResponse | null)[] = [];
 
-    constructor(private readonly config: SwapUpdaterConfig) {
+    constructor(private readonly config: SwapUpdaterConfig) {}
 
+    private handleInit(msg: RequestInit) {
+        this.swapProvider = new BoltzSwapProvider({ apiUrl: msg.payload.apiUrl, network: msg.payload.network });
     }
 
-    private handleInit({baseUrl,network}:{baseUrl: string, network: NetworkName}) {
-        this.swapProvider = new BoltzSwapProvider({ apiUrl: baseUrl, network });
-    };
+    private prefixed(res: Partial<SwapUpdaterResponse>) {
+        return { prefix: SwapUpdater.messagePrefix, ...res } as SwapUpdaterResponse;
+    }
 
     async handleMessage(
         message: SwapUpdaterRequest
-    ): Promise<SwapUpdaterResponse | null> {
+    ): Promise<SwapUpdaterResponse> {
+        const id = message.id;
         if (message.type === "INIT") {
-            await this.handleInit(message.payload as any);
-            const payload = initialized(message.id);
-            return { id: message.id, type: payload.type, payload}
+            console.log(`[${this.messagePrefix}] INIT`, message.payload);
+            this.handleInit(message);
+            return this.prefixed({ id, type: "INITIALIZED"})
         }
         if (!this.swapProvider) {
-            return Response.error(message.id, "Swap Provider not initialized");
+            return this.prefixed({id, error: new Error("Swap Provider not initialized")});
         }
         switch (message.type) {
             case "GET_REVERSE_SWAP_TX_ID": {
                 const res = await this.swapProvider.getReverseSwapTxId(
-                    (message as any).payload.swapId
+                    message.payload.swapId
                 );
-                if (res.id) {
-                    return { id: message.id, type: "GET_REVERSE_SWAP_TX_ID", payload: {txid: res.id} }
-                }
-                return Response.error(message.id, "Failed to get reverse swap txid");
+                    return this.prefixed({
+                        id,
+                        type: "REVERSE_SWAP_TX_ID",
+                        payload: { txid: res.id },
+                    });
             }
             case "GET_WS_URL": {
                 const wsUrl = this.swapProvider.getWsUrl();
-                return { id: message.id, type: "GET_WS_URL", payload: {wsUrl} }
+                return this.prefixed({
+                    id,
+                    type: "WS_URL",
+                    payload: { wsUrl },
+                });
             }
             case "SWAP_STATUS_UPDATED": {
-                const { swapId, status , error } = (message as any).payload;
+                const { swapId, status, error } = message.payload;
                 const swap = this.monitoredSwaps.get(swapId);
-                if (!swap) return null;
-                if (error) {
-                    this.scheduleForNextTick(() => ({
-                        prefix: SwapUpdater.messagePrefix,
-                        type: "SWAP_FAILED",
-                        broadcast: true,
-                        payload: swapFailed(swap, error),
-                    }));
-                    return null;
+                if (swap) {
+                    if (error) {
+                        this.scheduleForNextTick(() =>
+                            this.prefixed({
+                                type: "SWAP_FAILED",
+                                broadcast: true,
+                                payload: { swap, error },
+                            })
+                        );
+                    }
+                    if (status !== swap.status) {
+                        await this.handleSwapStatusUpdate(swap, status);
+                    }
                 }
-                if (!status) return null
-                 this.handleSwapStatusUpdate(swap, status);
-                return null
+                return this.prefixed({id, type: "ACK"});
             }
             case "GET_MONITORED_SWAPS":
-                return { id: message.id, type: "GET_MONITORED_SWAPS", payload: { swaps: Array.from(this.monitoredSwaps.values()) } }
+                return this.prefixed({
+                    id,
+                    type: "MONITORED_SWAPS",
+                    payload: {
+                        swaps: Array.from(this.monitoredSwaps.values()),
+                    }})
             case "GET_SWAP":
-                return { id: message.id, type: "GET_SWAP", payload: { swap: this.monitoredSwaps.get((message as any).payload.swapId) } }
+                return this.prefixed({
+                    id,
+                    type: "GET_SWAP",
+                    payload: {
+                        swap: this.monitoredSwaps.get(
+                            (message as any).payload.swapId
+                        ),
+                    },
+                });
             case "MONITOR_SWAP": {
-                const {swap} = (message as any).payload;
+                const { swap } = (message as any).payload;
                 this.monitoredSwaps.set(swap.id, swap);
-                return null
+                return this.prefixed({id, type: "ACK"});
             }
             case "STOP_MONITORING_SWAP": {
-                const {swapId} = (message as any).payload;
+                const { swapId } = (message as any).payload;
                 this.monitoredSwaps.delete(swapId);
-                return null
+                return this.prefixed({id, type: "ACK"});
             }
             default:
-                console.warn(`[${SwapUpdater.messagePrefix}] Unhandled message:`, message);
+                console.warn(
+                    `[${SwapUpdater.messagePrefix}] Unhandled message:`,
+                    message
+                );
+                throw new Error(`Unhandled message: ${message}`);
         }
-        return null;
     }
 
     async start(): Promise<void> {
@@ -205,7 +254,8 @@ export class SwapUpdater
      * 4. As fallback when WebSocket is unavailable
      */
     private async pollAllSwaps(): Promise<void> {
-        if (!this.swapProvider) throw new Error("Swap provider not initialized");
+        if (!this.swapProvider)
+            throw new Error("Swap provider not initialized");
         if (this.monitoredSwaps.size === 0) return;
 
         logger.log(`Polling ${this.monitoredSwaps.size} swaps...`);
@@ -254,25 +304,26 @@ export class SwapUpdater
         logger.log(`Swap ${swap.id} status: ${oldStatus} → ${newStatus}`);
 
         // notify all clients about the swap update
-        this.scheduleForNextTick(() => ({
-            prefix: SwapUpdater.messagePrefix,
-            type: "SWAP_STATUS_UPDATED",
-            broadcast: true,
-            payload: swapUpdated(swap, oldStatus),
-        }));
-
+        this.scheduleForNextTick(() =>
+            this.prefixed({
+                broadcast: true,
+                type: "SWAP_STATUS_UPDATED",
+                payload: { swap, previousStatus: oldStatus },
+            })
+        );
 
         // Remove from monitoring if final status
         if (this.isFinalStatus(newStatus)) {
             this.monitoredSwaps.delete(swap.id);
             // Emit completed event to all listeners
             logger.log(`Swap ${swap.id} completed with status: ${newStatus}`);
-            this.scheduleForNextTick(() => ({
-                prefix: SwapUpdater.messagePrefix,
-                type: "SWAP_COMPLETED",
-                broadcast: true,
-                payload: swapCompleted(swap),
-            }));
+            this.scheduleForNextTick(() =>
+                this.prefixed({
+                    broadcast: true,
+                    type: "SWAP_COMPLETED",
+                    payload: {swap},
+                })
+            );
         }
     }
 

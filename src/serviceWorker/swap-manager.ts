@@ -1,8 +1,33 @@
 import { PendingSwap, SwapManagerConfig } from "../swap-manager";
-import { BoltzSwapProvider, BoltzSwapStatus, SwapProviderConfig } from "../boltz-swap-provider";
+import {
+    BoltzSwapProvider,
+    BoltzSwapStatus,
+    GetReverseSwapTxIdResponse,
+    SwapProviderConfig,
+} from "../boltz-swap-provider";
 
-import { Request, Response } from "@arkade-os/sdk";
-import { SwapUpdater } from "./swap-updater";
+import {
+    Request,
+    RequestEnvelope,
+    Response,
+    ResponseEnvelope,
+} from "@arkade-os/sdk";
+import {
+    SwapUpdater,
+    RequestInit,
+    ResponseInit,
+    RequestGetMonitoredSwaps,
+    ResponseGetMonitoredSwaps,
+    RequestGetSwap,
+    ResponseGetSwap,
+    RequestMonitorSwap,
+    RequestStopMonitoringSwap,
+    RequestGetReverseSwapTx,
+    ResponseGetReverseSwapTx,
+    RequestGetWsUrl,
+    ResponseGetWsUrl,
+    RequestSwapStatusUpdated,
+} from "./swap-updater";
 import { hex } from "@scure/base";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
 import { logger } from "../logger";
@@ -50,70 +75,70 @@ export class ServiceWorkerSwapManager {
         }
     }
 
+    async init(config: Pick<SwapManagerConfig, "network"|"apiUrl">) {
+        return this.sendMessage<RequestInit, ResponseInit>({ type: "INIT", payload: {
+            apiUrl: config.apiUrl, network: config.network
+            }});
+    }
+
     async getMonitoredSwaps(): Promise<PendingSwap[]> {
-        const res: any = await this.sendMessage({ type: "GET_MONITORED_SWAPS", id: getRandomId() } as any)
-        if (res.success && res.payload.swaps) return res.payload.swaps;
-        console.error("invalid response", res);
+        const res = await this.sendMessage<RequestGetMonitoredSwaps,ResponseGetMonitoredSwaps>({ type: "GET_MONITORED_SWAPS" })
+        if (res.payload.swaps) return res.payload.swaps;
         throw  new Error("Failed to get monitored swaps");
     }
 
     async getSwap(swapId: string): Promise<PendingSwap | undefined> {
-        const res: any = await this.sendMessage({
+        const res = await this.sendMessage<RequestGetSwap, ResponseGetSwap>({
             type: "GET_SWAP",
-            id: getRandomId(),
-            swapId,
-        } as any);
-        if (res.success && res.payload.swap) return res.payload.swap;
-        console.error("invalid response", res);
-        return undefined;
+            payload:{swapId},
+        });
+        return res.payload.swap;
     }
 
     async monitorSwap(swap: PendingSwap): Promise<void> {
-        const res = await this.sendMessage({ type: "MONITOR_SWAP", swap } as any);
-        if (res.success) return;
-        throw  new Error("Failed to monitor swap");
+         await this.sendMessage<RequestMonitorSwap>({
+            type: "MONITOR_SWAP",
+            payload:{swap},
+        });
     }
 
     async stopMonitoringSwap(swapId: string): Promise<void> {
-        const res = await this.sendMessage({ type: "STOP_MONITORING_SWAP", swapId } as any);
-        if (res.success) return;
-        throw  new Error("Failed to stop monitoring swap");
+        await this.sendMessage<RequestStopMonitoringSwap>({ type: "STOP_MONITORING_SWAP", payload :{swapId} } );
     }
 
     async getReverseSwapTxId(swapId: string): Promise<string> {
-        const res: any = await this.sendMessage({ type: "GET_REVERSE_SWAP_TX_ID" as any, id: getRandomId()  as any, payload: { swapId}})
-        if (res.success && res.payload.txid) return res.payload.txid;
-        console.error("invalid response", res);
-        throw  new Error("Failed to get reverse swap txid");
+        const res = await this.sendMessage<RequestGetReverseSwapTx, ResponseGetReverseSwapTx>({ type: "GET_REVERSE_SWAP_TX_ID" as any, id: getRandomId()  as any, payload: { swapId}})
+        return res.payload.txid;
     }
 
     async getWsUrl(): Promise<string> {
-        const res: any = await this.sendMessage({ type: "GET_WS_URL", id: getRandomId() } as any)
-        if (res.success && res.payload.wsUrl) return res.payload.wsUrl;
-        console.error("invalid response", res);
-        throw  new Error("Failed to get ws url");
+        const res = await this.sendMessage<RequestGetWsUrl, ResponseGetWsUrl>({ type: "GET_WS_URL", id: getRandomId() })
+        return res.payload.wsUrl;
     }
 
     async notifySwapStatusUpdate( input: { swapId: string, status: BoltzSwapStatus, error: string}): Promise<void> {
-        const res  = await this.sendMessage({ type: "SWAP_STATUS_UPDATED", id: getRandomId(), payload: {
+        await this.sendMessage<RequestSwapStatusUpdated>({ type: "SWAP_STATUS_UPDATED", id: getRandomId(), payload: {
             swapId: input.swapId, error: input.error, status: input.status
-            }} as any)
-        if (res.success) return;
-        throw  new Error("Failed to notify swap status update");
+            }} )
     }
 
     // send a message and wait for a response
-    private async sendMessage<T extends Request.Base>(
-        message: T
-    ): Promise<Response.Base<any>> {
+    private async sendMessage<
+        REQ extends RequestEnvelope = RequestEnvelope,
+        RES extends ResponseEnvelope = ResponseEnvelope,
+    >(message: Partial<REQ>): Promise<RES> {
+        const id = getRandomId();
         return new Promise((resolve, reject) => {
             const messageHandler = (event: MessageEvent) => {
-                const response = event.data.payload as Response.Base<any>;
+                const response = event.data as RES;
+                if (!response) {
+                    console.log("Invalid response received from SW", event);
+                }
                 if (response.id === "") {
                     reject(new Error("Invalid response id"));
                     return;
                 }
-                if (response.id !== message.id) {
+                if (response.id !== id) {
                     return;
                 }
                 navigator.serviceWorker.removeEventListener(
@@ -121,8 +146,8 @@ export class ServiceWorkerSwapManager {
                     messageHandler
                 );
 
-                if (!response.success) {
-                    reject(new Error((response as Response.Error).message));
+                if (response.error) {
+                    reject(response.error);
                 } else {
                     resolve(response);
                 }
@@ -132,9 +157,9 @@ export class ServiceWorkerSwapManager {
             console.log("Sending message to SW:", message);
             this.serviceWorker.postMessage({
                 prefix: SwapUpdater.messagePrefix,
-                id: message.id,
-                type: message.type,
-                payload: message,
+                id: id,
+                type: "type" in message ? message.type : "NO_TYPE",
+                payload: "payload" in message ? message.payload : undefined,
             });
         });
     }
