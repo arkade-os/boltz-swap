@@ -8,7 +8,7 @@ import {
     isReverseClaimableStatus,
     isSubmarineRefundableStatus,
 } from "./boltz-swap-provider";
-import { PendingReverseSwap, PendingSubmarineSwap } from "./types";
+import { Network, PendingReverseSwap, PendingSubmarineSwap } from "./types";
 import { NetworkError } from "./errors";
 import { logger } from "./logger";
 import {
@@ -33,6 +33,9 @@ export interface SwapManagerConfig {
     maxPollRetryDelayMs?: number;
     /** Event callbacks for swap lifecycle events (optional, can use on/off methods instead) */
     events?: SwapManagerEvents;
+
+    network: Network;
+    apiUrl: string;
 }
 
 export interface SwapManagerEvents {
@@ -105,8 +108,8 @@ export class SwapManager {
 
     constructor(
         public readonly serviceWorker: ServiceWorker,
-        swapProvider: BoltzSwapProvider, // unused
-        config: SwapManagerConfig = {}
+        // swapProvider: BoltzSwapProvider, // unused
+        config: SwapManagerConfig
     ) {
         // this.swapProvider = swapProvider;
         this.svcSwapManager = new ServiceWorkerSwapManager(
@@ -152,6 +155,8 @@ export class SwapManager {
             pollRetryDelayMs: config.pollRetryDelayMs ?? 5000,
             maxPollRetryDelayMs: config.maxPollRetryDelayMs ?? 300000,
             events: config.events ?? {},
+            network: config.network,
+            apiUrl: config.apiUrl,
         };
 
         // Register initial event listeners from config if provided
@@ -166,6 +171,12 @@ export class SwapManager {
         if (config.events?.onActionExecuted) {
             this.actionExecutedListeners.add(config.events.onActionExecuted);
         }
+
+        this.svcSwapManager.init(config).then(() => {
+            logger.log("SwapManager initialized");
+        }).catch((error) => {
+            logger.error("SwapManager initialization failed:", error);
+        });
 
         this.currentReconnectDelay = this.config.reconnectDelayMs!;
         this.currentPollRetryDelay = this.config.pollRetryDelayMs!;
