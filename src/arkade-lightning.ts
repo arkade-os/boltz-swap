@@ -128,6 +128,7 @@ export class ArkadeLightning {
             const shouldAutostart = swapManagerConfig.autoStart ?? true;
 
             this.swapManager = new SwapManager(
+                config.serviceWorker,
                 this.swapProvider,
                 swapManagerConfig
             );
@@ -745,7 +746,7 @@ export class ArkadeLightning {
         pendingSwap: PendingReverseSwap
     ): Promise<{ txid: string }> {
         // If SwapManager is enabled and has this swap, delegate to it
-        if (this.swapManager && this.swapManager.hasSwap(pendingSwap.id)) {
+        if (this.swapManager && await this.swapManager.hasSwap(pendingSwap.id)) {
             return this.swapManager.waitForSwapCompletion(pendingSwap.id);
         }
 

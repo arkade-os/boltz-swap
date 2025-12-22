@@ -1,3 +1,4 @@
+
 export { ArkadeLightning } from "./arkade-lightning";
 export {
     BoltzSwapProvider,
@@ -33,6 +34,7 @@ export {
 } from "./utils/swap-helpers";
 export type { SwapSaver } from "./utils/swap-helpers";
 export { SwapManager } from "./swap-manager";
+export {SwapUpdater} from "./serviceWorker/swap-updater";
 export type {
     CreateLightningInvoiceResponse,
     SendLightningPaymentResponse,
