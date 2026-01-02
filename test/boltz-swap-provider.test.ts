@@ -272,6 +272,7 @@ describe("BoltzSwapProvider", () => {
             // arrange
             const mockResponse = {
                 id: "mock-txid-123",
+                hex: "abcdef123456",
                 timeoutBlockHeight: 800000,
             };
             vi.stubGlobal(
