@@ -141,6 +141,7 @@ export const isSubmarineSwapRefundable = (
 
 export type GetReverseSwapTxIdResponse = {
     id: string;
+    hex: string;
     timeoutBlockHeight: number;
 };
 
@@ -151,6 +152,7 @@ export const isGetReverseSwapTxIdResponse = (
         data &&
         typeof data === "object" &&
         typeof data.id === "string" &&
+        typeof data.hex === "string" &&
         typeof data.timeoutBlockHeight === "number"
     );
 };

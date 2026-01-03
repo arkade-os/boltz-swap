@@ -531,9 +531,12 @@ export class ArkadeLightning {
      * @param pendingSwap - The pending submarine swap to refund the VHTLC.
      */
     async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
-        // restored swaps may not have invoice
-        if (!pendingSwap.request.invoice)
-            throw new Error("Invoice is required to refund VHTLC");
+        const preimageHash = pendingSwap.request.invoice
+            ? getInvoicePaymentHash(pendingSwap.request.invoice)
+            : pendingSwap.preimageHash;
+
+        if (!preimageHash)
+            throw new Error("Preimage hash is required to refund VHTLC");
 
         const vhtlcPkScript = ArkAddress.decode(
             pendingSwap.response.address
@@ -583,9 +586,7 @@ export class ArkadeLightning {
 
         const { vhtlcScript } = this.createVHTLCScript({
             network: aspInfo.network,
-            preimageHash: hex.decode(
-                getInvoicePaymentHash(pendingSwap.request.invoice)
-            ),
+            preimageHash: hex.decode(preimageHash),
             receiverPubkey: hex.encode(boltzXOnlyPublicKey),
             senderPubkey: hex.encode(ourXOnlyPublicKey),
             serverPubkey: hex.encode(serverXOnlyPublicKey),

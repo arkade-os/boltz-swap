@@ -134,7 +134,7 @@ describe("ArkadeLightning", () => {
     };
 
     const mockReverseSwap: PendingReverseSwap = {
-        id: mock.id,
+        id: "reverse-mock-id",
         type: "reverse",
         createdAt: Date.now(),
         preimage: hex.encode(randomBytes(20)),
@@ -144,7 +144,7 @@ describe("ArkadeLightning", () => {
     };
 
     const mockSubmarineSwap: PendingSubmarineSwap = {
-        id: mock.id,
+        id: "submarine-mock-id",
         type: "submarine",
         createdAt: Date.now(),
         request: createSubmarineSwapRequest,
@@ -799,6 +799,7 @@ describe("ArkadeLightning", () => {
             // Mock getReverseSwapTxId to return an object with valid transaction id
             vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
                 id: mock.txid,
+                hex: "abc123",
                 timeoutBlockHeight: 123,
             });
 
@@ -833,6 +834,7 @@ describe("ArkadeLightning", () => {
             // Mock getReverseSwapTxId to return a undefined id (the problematic case)
             vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
                 id: "",
+                hex: "abc123",
                 timeoutBlockHeight: 123,
             });
 
@@ -1510,7 +1512,7 @@ describe("ArkadeLightning", () => {
 
             // assert
             expect(manager.getStats().isRunning).toBe(true);
-            expect(manager.getStats().monitoredSwaps).toBe(1);
+            expect(manager.getStats().monitoredSwaps).toBe(2);
         });
 
         it("should warn when starting already running manager", async () => {
