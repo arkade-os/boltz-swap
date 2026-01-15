@@ -48,7 +48,7 @@
     "author": "Arkade-OS",
     "license": "MIT",
     "dependencies": {
-        "@arkade-os/sdk": "0.3.10",
+        "@arkade-os/sdk": "0.3.11",
         "@noble/hashes": "2.0.1",
         "@scure/base": "2.0.0",
         "@scure/btc-signer": "2.0.1",
@@ -67,7 +67,7 @@
         "prettier": "3.6.2",
         "tsup": "^8.5.0",
         "typescript": "^5.9.2",
-        "vite": "^7.1.5",
+        "vite": "7.1.11",
         "vitest": "^3.2.4"
     },
     "engines": {
