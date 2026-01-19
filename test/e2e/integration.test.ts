@@ -18,9 +18,14 @@ it("should recover swept VHTLCs", { timeout: 120_000 }, async () => {
     expect("payment_request" in outputJSON).toBeTruthy();
     const invoice = outputJSON.payment_request;
 
+    // cancel invoice to make the swap fail
+    expect("r_hash" in outputJSON).toBeTruthy();
+    const hash = outputJSON.r_hash;
+    exec(`docker exec lnd lncli --network=regtest cancelinvoice ${hash}`);
+
     const swap = await arkadeLightning.createSubmarineSwap({ invoice });
-    // fund the vhtlc after fulmine is down so it can be swept
-    exec(`docker compose -f test.docker-compose.yml stop boltz-fulmine`);
+
+    // fund the vhtlc after is canceled so it can be swept
     exec(
         `docker exec -t arkd ark send --to ${swap.response.address} --amount ${swap.response.expectedAmount} --password secret`
     );
