@@ -1032,7 +1032,7 @@ describe("BoltzSwapProvider", () => {
                     errorResponse
                 );
                 expect((error as NetworkError).message).toBe(
-                    "Boltz API error: 400"
+                    'Boltz API error: 400 {"error":"27 is less than minimal of 333"}'
                 );
             }
         });
