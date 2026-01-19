@@ -863,9 +863,7 @@ export class BoltzSwapProvider {
                 } catch {
                     // If parsing fails, errorData remains undefined
                 }
-                const message = errorData
-                    ? `Boltz API error: ${response.status}`
-                    : `Boltz API error: ${response.status} ${errorBody}`;
+                const message = `Boltz API error: ${response.status} ${errorBody}`;
                 throw new NetworkError(message, response.status, errorData);
             }
             if (response.headers.get("content-length") === "0") {
