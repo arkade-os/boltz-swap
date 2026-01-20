@@ -15,6 +15,7 @@ import {
     CreateChainSwapRequest,
     CreateChainSwapResponse,
 } from "./boltz-swap-provider";
+import { SwapManagerConfig } from "./swap-manager";
 
 // TODO: replace with better data structure
 export interface Vtxo {
@@ -70,6 +71,8 @@ export interface PendingSubmarineSwap {
     type: "submarine";
     createdAt: number;
     preimage?: string;
+    /** Original preimage hash from Boltz (available for restored swaps) */
+    preimageHash?: string;
     refunded?: boolean;
     refundable?: boolean;
     status: BoltzSwapStatus;
@@ -102,6 +105,13 @@ export interface ArkadeLightningConfig {
     refundHandler?: RefundHandler;
     timeoutConfig?: Partial<TimeoutConfig>;
     retryConfig?: Partial<RetryConfig>;
+    /**
+     * Enable background swap monitoring and autonomous actions.
+     * - `false` or `undefined`: SwapManager disabled
+     * - `true`: SwapManager enabled with default configuration
+     * - `SwapManagerConfig` object: SwapManager enabled with custom configuration
+     */
+    swapManager?: boolean | (SwapManagerConfig & { autoStart?: boolean });
 }
 
 export interface TimeoutConfig {

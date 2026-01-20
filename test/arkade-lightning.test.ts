@@ -244,8 +244,8 @@ describe("ArkadeLightning", () => {
         intentFee: {
             offchainInput: "",
             offchainOutput: "",
-            onchainInput: "",
-            onchainOutput: "",
+            onchainInput: 0n,
+            onchainOutput: 0n,
         },
     };
 
@@ -1073,6 +1073,90 @@ describe("ArkadeLightning", () => {
             await expect(lightning.waitAndClaim(pendingSwap)).rejects.toThrow(
                 "Transaction ID not available for settled swap"
             );
+        });
+    });
+
+    describe("Swap Enrichment and Validation Helpers", () => {
+        describe("enrichReverseSwapPreimage", () => {
+            it("should enrich reverse swap with valid preimage", () => {
+                // Create a preimage and compute its hash
+                const preimageBytes = randomBytes(32);
+                const preimage = hex.encode(preimageBytes);
+                const preimageHash = hex.encode(sha256(preimageBytes));
+
+                const swap: PendingReverseSwap = {
+                    ...mockReverseSwap,
+                    preimage: "", // Empty preimage (restored swap)
+                    request: {
+                        ...mockReverseSwap.request,
+                        preimageHash, // Set expected hash
+                    },
+                };
+
+                const result = lightning.enrichReverseSwapPreimage(
+                    swap,
+                    preimage
+                );
+
+                expect(result.preimage).toBe(preimage);
+                expect(result).toBe(swap); // Same reference
+            });
+
+            it("should throw error for mismatched preimage", () => {
+                const swap: PendingReverseSwap = {
+                    ...mockReverseSwap,
+                    preimage: "", // Empty preimage (restored swap)
+                    request: {
+                        ...mockReverseSwap.request,
+                        preimageHash: "a".repeat(64), // Some hash
+                    },
+                };
+
+                const wrongPreimage = "b".repeat(64); // Won't match
+
+                expect(() =>
+                    lightning.enrichReverseSwapPreimage(swap, wrongPreimage)
+                ).toThrow("Preimage does not match swap");
+            });
+        });
+
+        describe("enrichSubmarineSwapInvoice", () => {
+            it("should enrich submarine swap with valid invoice", () => {
+                const swap: PendingSubmarineSwap = {
+                    ...mockSubmarineSwap,
+                    request: {
+                        ...mockSubmarineSwap.request,
+                        invoice: "", // Empty invoice (restored swap)
+                    },
+                };
+
+                // Use the valid mock invoice
+                const invoice = mock.invoice.address;
+                const result = lightning.enrichSubmarineSwapInvoice(
+                    swap,
+                    invoice
+                );
+
+                expect(result.request.invoice).toBe(invoice);
+                expect(result).toBe(swap); // Same reference
+            });
+
+            it("should throw error for invalid invoice format", () => {
+                const swap: PendingSubmarineSwap = {
+                    ...mockSubmarineSwap,
+                    request: {
+                        ...mockSubmarineSwap.request,
+                        invoice: "",
+                    },
+                };
+
+                expect(() =>
+                    lightning.enrichSubmarineSwapInvoice(
+                        swap,
+                        "invalid-invoice"
+                    )
+                ).toThrow("Invalid Lightning invoice");
+            });
         });
     });
 });

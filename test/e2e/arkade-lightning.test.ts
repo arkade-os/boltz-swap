@@ -7,6 +7,7 @@ import {
     CreateSubmarineSwapRequest,
     CreateSubmarineSwapResponse,
 } from "../../src/boltz-swap-provider";
+import { SwapManager } from "../../src/swap-manager";
 import type {
     PendingReverseSwap,
     PendingSubmarineSwap,
@@ -27,6 +28,19 @@ import { randomBytes } from "crypto";
 
 // Scaffolding test file for ArkadeLightning
 // This file will be updated when implementing features from README.md
+
+// Helper to check if regtest environment is running
+async function isRegtestAvailable(): Promise<boolean> {
+    try {
+        const response = await fetch("http://localhost:9069/version");
+        return response.ok;
+    } catch {
+        return false;
+    }
+}
+
+// Check if regtest is available before running tests
+const skipE2E = !(await isRegtestAvailable());
 
 describe("ArkadeLightning", () => {
     let indexerProvider: RestIndexerProvider;
@@ -120,7 +134,7 @@ describe("ArkadeLightning", () => {
     };
 
     const mockReverseSwap: PendingReverseSwap = {
-        id: mock.id,
+        id: "reverse-mock-id",
         type: "reverse",
         createdAt: Date.now(),
         preimage: hex.encode(randomBytes(20)),
@@ -130,7 +144,7 @@ describe("ArkadeLightning", () => {
     };
 
     const mockSubmarineSwap: PendingSubmarineSwap = {
-        id: mock.id,
+        id: "submarine-mock-id",
         type: "submarine",
         createdAt: Date.now(),
         request: createSubmarineSwapRequest,
@@ -222,7 +236,7 @@ describe("ArkadeLightning", () => {
         });
     });
 
-    describe("Create Lightning Invoice", () => {
+    describe.skipIf(skipE2E)("Create Lightning Invoice", () => {
         it("should throw if amount is not > 0", async () => {
             // act & assert
             await expect(
@@ -785,6 +799,7 @@ describe("ArkadeLightning", () => {
             // Mock getReverseSwapTxId to return an object with valid transaction id
             vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
                 id: mock.txid,
+                hex: "abc123",
                 timeoutBlockHeight: 123,
             });
 
@@ -819,6 +834,7 @@ describe("ArkadeLightning", () => {
             // Mock getReverseSwapTxId to return a undefined id (the problematic case)
             vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
                 id: "",
+                hex: "abc123",
                 timeoutBlockHeight: 123,
             });
 
@@ -833,6 +849,727 @@ describe("ArkadeLightning", () => {
             await expect(lightning.waitAndClaim(pendingSwap)).rejects.toThrow(
                 "Transaction ID not available for settled swap"
             );
+        });
+    });
+
+    describe.skipIf(skipE2E)("SwapManager Integration", () => {
+        let swapManagerLightning: ArkadeLightning;
+
+        afterEach(async () => {
+            // Clean up swap manager after each test
+            if (swapManagerLightning) {
+                await swapManagerLightning.stopSwapManager();
+            }
+        });
+
+        describe("Initialization with SwapManager", () => {
+            it("should instantiate with swapManager enabled (boolean true)", () => {
+                // act
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: true,
+                });
+
+                // assert
+                expect(swapManagerLightning.getSwapManager()).not.toBeNull();
+            });
+
+            it("should instantiate with swapManager config object", () => {
+                // act
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        enableAutoActions: false,
+                        pollInterval: 60000,
+                    },
+                });
+
+                // assert
+                expect(swapManagerLightning.getSwapManager()).not.toBeNull();
+            });
+
+            it("should have null swapManager when disabled", () => {
+                // act
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: false,
+                });
+
+                // assert
+                expect(swapManagerLightning.getSwapManager()).toBeNull();
+            });
+
+            it("should have null swapManager when not configured", () => {
+                // assert - using the default lightning instance without swapManager
+                expect(lightning.getSwapManager()).toBeNull();
+            });
+
+            it("should have SwapManager interface methods", () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: true,
+                });
+
+                const manager = swapManagerLightning.getSwapManager();
+
+                // assert
+                expect(manager).not.toBeNull();
+                expect(manager!.start).toBeInstanceOf(Function);
+                expect(manager!.stop).toBeInstanceOf(Function);
+                expect(manager!.addSwap).toBeInstanceOf(Function);
+                expect(manager!.removeSwap).toBeInstanceOf(Function);
+                expect(manager!.getPendingSwaps).toBeInstanceOf(Function);
+                expect(manager!.hasSwap).toBeInstanceOf(Function);
+                expect(manager!.isProcessing).toBeInstanceOf(Function);
+                expect(manager!.getStats).toBeInstanceOf(Function);
+                expect(manager!.subscribeToSwapUpdates).toBeInstanceOf(
+                    Function
+                );
+                expect(manager!.waitForSwapCompletion).toBeInstanceOf(Function);
+                expect(manager!.onSwapUpdate).toBeInstanceOf(Function);
+                expect(manager!.onSwapCompleted).toBeInstanceOf(Function);
+                expect(manager!.onSwapFailed).toBeInstanceOf(Function);
+                expect(manager!.onActionExecuted).toBeInstanceOf(Function);
+                expect(manager!.onWebSocketConnected).toBeInstanceOf(Function);
+                expect(manager!.onWebSocketDisconnected).toBeInstanceOf(
+                    Function
+                );
+            });
+        });
+
+        describe("SwapManager Lifecycle", () => {
+            it("should start and stop swap manager manually", async () => {
+                // arrange - create with autoStart disabled
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+
+                // assert initial state
+                expect(manager.getStats().isRunning).toBe(false);
+
+                // act - start
+                await swapManagerLightning.startSwapManager();
+
+                // assert - running
+                expect(manager.getStats().isRunning).toBe(true);
+
+                // act - stop
+                await swapManagerLightning.stopSwapManager();
+
+                // assert - stopped
+                expect(manager.getStats().isRunning).toBe(false);
+            });
+
+            it("should throw when starting swap manager without config", async () => {
+                // assert
+                await expect(lightning.startSwapManager()).rejects.toThrow(
+                    "SwapManager is not enabled"
+                );
+            });
+
+            it("should not throw when stopping disabled swap manager", async () => {
+                // act & assert
+                await expect(
+                    lightning.stopSwapManager()
+                ).resolves.toBeUndefined();
+            });
+        });
+
+        describe("SwapManager Stats", () => {
+            it("should return correct stats when not running", () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+
+                // act
+                const stats = manager.getStats();
+
+                // assert
+                expect(stats.isRunning).toBe(false);
+                expect(stats.monitoredSwaps).toBe(0);
+                expect(stats.websocketConnected).toBe(false);
+                expect(stats.usePollingFallback).toBe(false);
+                expect(typeof stats.currentReconnectDelay).toBe("number");
+                expect(typeof stats.currentPollRetryDelay).toBe("number");
+            });
+
+            it("should return correct stats when running", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+
+                // act
+                await swapManagerLightning.startSwapManager();
+                const stats = manager.getStats();
+
+                // assert
+                expect(stats.isRunning).toBe(true);
+                expect(stats.monitoredSwaps).toBe(0);
+            });
+        });
+
+        describe("SwapManager Add/Remove Swaps", () => {
+            it("should add swap to monitoring", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                await swapManagerLightning.startSwapManager();
+
+                // act
+                manager.addSwap(mockReverseSwap);
+
+                // assert
+                expect(manager.hasSwap(mockReverseSwap.id)).toBe(true);
+                expect(manager.getStats().monitoredSwaps).toBe(1);
+                expect(manager.getPendingSwaps()).toHaveLength(1);
+                expect(manager.getPendingSwaps()[0].id).toBe(
+                    mockReverseSwap.id
+                );
+            });
+
+            it("should remove swap from monitoring", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                await swapManagerLightning.startSwapManager();
+                manager.addSwap(mockReverseSwap);
+
+                // act
+                manager.removeSwap(mockReverseSwap.id);
+
+                // assert
+                expect(manager.hasSwap(mockReverseSwap.id)).toBe(false);
+                expect(manager.getStats().monitoredSwaps).toBe(0);
+                expect(manager.getPendingSwaps()).toHaveLength(0);
+            });
+
+            it("should add multiple swaps", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                await swapManagerLightning.startSwapManager();
+
+                const reverseSwap2: PendingReverseSwap = {
+                    ...mockReverseSwap,
+                    id: "reverse-swap-2",
+                    preimage: hex.encode(randomBytes(20)),
+                };
+
+                // act
+                manager.addSwap(mockReverseSwap);
+                manager.addSwap(mockSubmarineSwap);
+                manager.addSwap(reverseSwap2);
+
+                // assert
+                expect(manager.getStats().monitoredSwaps).toBe(3);
+                expect(manager.hasSwap(mockReverseSwap.id)).toBe(true);
+                expect(manager.hasSwap(mockSubmarineSwap.id)).toBe(true);
+                expect(manager.hasSwap("reverse-swap-2")).toBe(true);
+            });
+        });
+
+        describe("SwapManager Event Listeners", () => {
+            it("should add and remove swap update listener", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                const listener = vi.fn();
+
+                // act - add listener
+                const unsubscribe = manager.onSwapUpdate(listener);
+
+                // assert - unsubscribe is a function
+                expect(typeof unsubscribe).toBe("function");
+
+                // act - remove listener
+                unsubscribe();
+            });
+
+            it("should add and remove swap completed listener", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                const listener = vi.fn();
+
+                // act - add listener
+                const unsubscribe = manager.onSwapCompleted(listener);
+
+                // assert
+                expect(typeof unsubscribe).toBe("function");
+
+                // act - remove listener using off method
+                manager.offSwapCompleted(listener);
+            });
+
+            it("should add and remove swap failed listener", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                const listener = vi.fn();
+
+                // act & assert
+                const unsubscribe = manager.onSwapFailed(listener);
+                expect(typeof unsubscribe).toBe("function");
+                manager.offSwapFailed(listener);
+            });
+
+            it("should add and remove action executed listener", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                const listener = vi.fn();
+
+                // act & assert
+                const unsubscribe = manager.onActionExecuted(listener);
+                expect(typeof unsubscribe).toBe("function");
+                manager.offActionExecuted(listener);
+            });
+
+            it("should add and remove WebSocket connected listener", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                const listener = vi.fn();
+
+                // act & assert
+                const unsubscribe = manager.onWebSocketConnected(listener);
+                expect(typeof unsubscribe).toBe("function");
+                manager.offWebSocketConnected(listener);
+            });
+
+            it("should add and remove WebSocket disconnected listener", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                const listener = vi.fn();
+
+                // act & assert
+                const unsubscribe = manager.onWebSocketDisconnected(listener);
+                expect(typeof unsubscribe).toBe("function");
+                manager.offWebSocketDisconnected(listener);
+            });
+        });
+
+        describe("SwapManager Per-Swap Subscriptions", () => {
+            it("should subscribe to specific swap updates", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                await swapManagerLightning.startSwapManager();
+                manager.addSwap(mockReverseSwap);
+
+                const callback = vi.fn();
+
+                // act
+                const unsubscribe = manager.subscribeToSwapUpdates(
+                    mockReverseSwap.id,
+                    callback
+                );
+
+                // assert
+                expect(typeof unsubscribe).toBe("function");
+
+                // cleanup
+                unsubscribe();
+            });
+
+            it("should unsubscribe from specific swap updates", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                const callback = vi.fn();
+
+                // act
+                const unsubscribe = manager.subscribeToSwapUpdates(
+                    mockReverseSwap.id,
+                    callback
+                );
+                unsubscribe();
+
+                // assert - unsubscribe should not throw
+                expect(true).toBe(true);
+            });
+        });
+
+        describe("SwapManager Processing State", () => {
+            it("should report not processing when no action is running", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                await swapManagerLightning.startSwapManager();
+                manager.addSwap(mockReverseSwap);
+
+                // act & assert
+                expect(manager.isProcessing(mockReverseSwap.id)).toBe(false);
+            });
+
+            it("should report not processing for unknown swap", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+
+                // act & assert
+                expect(manager.isProcessing("unknown-swap-id")).toBe(false);
+            });
+        });
+
+        describe("SwapManager Configuration", () => {
+            it("should use default config values", () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: true,
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                const stats = manager.getStats();
+
+                // assert - check default reconnect delay (1000ms)
+                expect(stats.currentReconnectDelay).toBe(1000);
+                // Default poll retry delay (5000ms)
+                expect(stats.currentPollRetryDelay).toBe(5000);
+            });
+
+            it("should use custom reconnect delay", () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        reconnectDelayMs: 2000,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                const stats = manager.getStats();
+
+                // assert
+                expect(stats.currentReconnectDelay).toBe(2000);
+            });
+
+            it("should use custom poll retry delay", () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        pollRetryDelayMs: 10000,
+                    },
+                });
+
+                const manager = swapManagerLightning.getSwapManager()!;
+                const stats = manager.getStats();
+
+                // assert
+                expect(stats.currentPollRetryDelay).toBe(10000);
+            });
+
+            it("should accept event callbacks in config", () => {
+                // arrange
+                const onSwapUpdate = vi.fn();
+                const onSwapCompleted = vi.fn();
+                const onSwapFailed = vi.fn();
+
+                // act
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        events: {
+                            onSwapUpdate,
+                            onSwapCompleted,
+                            onSwapFailed,
+                        },
+                    },
+                });
+
+                // assert - should not throw
+                expect(swapManagerLightning.getSwapManager()).not.toBeNull();
+            });
+        });
+
+        describe("SwapManager with Pending Swaps on Start", () => {
+            it("should start with pending swaps from storage", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                // Mock storage to return pending swaps
+                vi.spyOn(
+                    wallet.contractRepository,
+                    "getContractCollection"
+                ).mockImplementation(async (collectionName) => {
+                    if (collectionName === "reverseSwaps") {
+                        return [mockReverseSwap];
+                    }
+                    if (collectionName === "submarineSwaps") {
+                        return [mockSubmarineSwap];
+                    }
+                    return [];
+                });
+
+                // act
+                await swapManagerLightning.startSwapManager();
+
+                const manager = swapManagerLightning.getSwapManager()!;
+
+                // assert
+                expect(manager.getStats().monitoredSwaps).toBe(2);
+                expect(manager.hasSwap(mockReverseSwap.id)).toBe(true);
+                expect(manager.hasSwap(mockSubmarineSwap.id)).toBe(true);
+            });
+
+            it("should filter out completed swaps on start", async () => {
+                // arrange
+                swapManagerLightning = new ArkadeLightning({
+                    ...params,
+                    swapManager: {
+                        autoStart: false,
+                    },
+                });
+
+                const completedSwap: PendingReverseSwap = {
+                    ...mockReverseSwap,
+                    id: "completed-swap",
+                    status: "invoice.settled", // Final status
+                };
+
+                const expiredSwap: PendingSubmarineSwap = {
+                    ...mockSubmarineSwap,
+                    id: "expired-swap",
+                    status: "swap.expired", // Final status
+                };
+
+                // Mock storage to return mix of pending and completed swaps
+                vi.spyOn(
+                    wallet.contractRepository,
+                    "getContractCollection"
+                ).mockImplementation(async (collectionName) => {
+                    if (collectionName === "reverseSwaps") {
+                        return [mockReverseSwap, completedSwap];
+                    }
+                    if (collectionName === "submarineSwaps") {
+                        return [mockSubmarineSwap, expiredSwap];
+                    }
+                    return [];
+                });
+
+                // act
+                await swapManagerLightning.startSwapManager();
+
+                const manager = swapManagerLightning.getSwapManager()!;
+
+                // assert - only non-final swaps should be monitored
+                expect(manager.getStats().monitoredSwaps).toBe(2);
+                expect(manager.hasSwap(mockReverseSwap.id)).toBe(true);
+                expect(manager.hasSwap(mockSubmarineSwap.id)).toBe(true);
+                expect(manager.hasSwap("completed-swap")).toBe(false);
+                expect(manager.hasSwap("expired-swap")).toBe(false);
+            });
+        });
+    });
+
+    describe("SwapManager Standalone", () => {
+        let manager: SwapManager;
+
+        beforeEach(() => {
+            manager = new SwapManager(swapProvider);
+        });
+
+        afterEach(async () => {
+            await manager.stop();
+        });
+
+        it("should create SwapManager with default config", () => {
+            // assert
+            expect(manager).toBeDefined();
+            expect(manager.getStats().isRunning).toBe(false);
+        });
+
+        it("should create SwapManager with custom config", () => {
+            // arrange
+            const customManager = new SwapManager(swapProvider, {
+                enableAutoActions: false,
+                pollInterval: 60000,
+                reconnectDelayMs: 2000,
+                maxReconnectDelayMs: 120000,
+            });
+
+            // assert
+            expect(customManager).toBeDefined();
+            expect(customManager.getStats().currentReconnectDelay).toBe(2000);
+        });
+
+        it("should start with empty swap list", async () => {
+            // act
+            await manager.start([]);
+
+            // assert
+            expect(manager.getStats().isRunning).toBe(true);
+            expect(manager.getStats().monitoredSwaps).toBe(0);
+        });
+
+        it("should start with pending swaps", async () => {
+            // act
+            await manager.start([mockReverseSwap, mockSubmarineSwap]);
+
+            // assert
+            expect(manager.getStats().isRunning).toBe(true);
+            expect(manager.getStats().monitoredSwaps).toBe(2);
+        });
+
+        it("should warn when starting already running manager", async () => {
+            // arrange
+            const consoleWarnSpy = vi
+                .spyOn(console, "warn")
+                .mockImplementation(() => {});
+            await manager.start([]);
+
+            // act
+            await manager.start([]);
+
+            // assert
+            expect(consoleWarnSpy).toHaveBeenCalledWith(
+                "SwapManager is already running"
+            );
+
+            consoleWarnSpy.mockRestore();
+        });
+
+        it("should not throw when stopping non-running manager", async () => {
+            // act & assert
+            await expect(manager.stop()).resolves.toBeUndefined();
+        });
+
+        it("should return pending swaps", async () => {
+            // arrange
+            await manager.start([mockReverseSwap]);
+
+            // act
+            const swaps = manager.getPendingSwaps();
+
+            // assert
+            expect(swaps).toHaveLength(1);
+            expect(swaps[0]).toEqual(mockReverseSwap);
+        });
+
+        it("should check if swap exists", async () => {
+            // arrange
+            await manager.start([mockReverseSwap]);
+
+            // act & assert
+            expect(manager.hasSwap(mockReverseSwap.id)).toBe(true);
+            expect(manager.hasSwap("non-existent")).toBe(false);
+        });
+
+        describe("setCallbacks", () => {
+            it("should set callbacks without error", () => {
+                // act & assert
+                expect(() => {
+                    manager.setCallbacks({
+                        claim: async () => {},
+                        refund: async () => {},
+                        saveSwap: async () => {},
+                    });
+                }).not.toThrow();
+            });
         });
     });
 });
