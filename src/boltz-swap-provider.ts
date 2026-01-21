@@ -580,18 +580,25 @@ const isGetChainClaimDetailsResponse = (
     );
 };
 
-export type PostChainClaimDetailsRequest = {
-    preimage: string;
-    signature?: {
+type PostChainClaimDetailsRequestToArk = {
+    signature: {
         partialSignature: string;
         pubNonce: string;
     };
+};
+
+type PostChainClaimDetailsRequestToBtc = {
+    preimage: string;
     toSign: {
         index: number;
         transaction: string;
         pubNonce: string;
     };
 };
+
+export type PostChainClaimDetailsRequest =
+    | PostChainClaimDetailsRequestToArk
+    | PostChainClaimDetailsRequestToBtc;
 
 export type PostChainClaimDetailsResponse = {
     pubNonce: string;

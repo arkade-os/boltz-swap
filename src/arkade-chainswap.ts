@@ -194,6 +194,7 @@ export class ArkadeChainSwap {
             arkInfo,
             pendingSwap,
             claimFunction: this.claimARK.bind(this),
+            beNiceFunction: this.signCooperativeClaimForServer.bind(this),
         });
 
         return pendingSwap;
@@ -201,11 +202,15 @@ export class ArkadeChainSwap {
 
     /**
      * Waits for the swap to be confirmed and claims it.
+     * @param arkInfo - The Ark information.
      * @param pendingSwap - The pending chain swap.
+     * @param claimFunction - The function to claim the swap.
+     * @param beNiceFunction - Optional function to be called in BTC => ARK transaction.claim.pending.
      * @returns The transaction ID of the claimed VHTLC.
      * @throws SwapExpiredError if the swap has expired.
      * @throws TransactionFailedError if the transaction has failed.
      * @throws TransactionRefundedError if the transaction has been refunded.
+     * @throws Error if claim function fails.
      */
     async waitAndClaim(args: {
         arkInfo: ArkInfo;
@@ -215,8 +220,11 @@ export class ArkadeChainSwap {
             arkInfo: ArkInfo;
             data: any;
         }) => Promise<void>;
+        beNiceFunction?: (args: {
+            pendingSwap: PendingChainSwap;
+        }) => Promise<void>;
     }): Promise<{ txid: string }> {
-        const { arkInfo, pendingSwap, claimFunction } = args;
+        const { arkInfo, pendingSwap, beNiceFunction, claimFunction } = args;
 
         return new Promise<{ txid: string }>((resolve, reject) => {
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
@@ -241,6 +249,15 @@ export class ArkadeChainSwap {
                             status,
                         });
                         resolve({ txid: pendingSwap.response.id });
+                        break;
+                    case "transaction.claim.pending":
+                        // Be nice and sign a cooperative claim for the server
+                        // Not required: you can treat this as success already,
+                        // the server will batch sweep eventually
+                        const { from, to } = pendingSwap.request;
+                        if (beNiceFunction && from === "BTC" && to === "ARK") {
+                            await beNiceFunction({ pendingSwap });
+                        }
                         break;
                     case "swap.expired":
                         await this.savePendingChainSwap({
@@ -508,6 +525,52 @@ export class ArkadeChainSwap {
         await this.savePendingChainSwap({
             ...pendingSwap,
             status: finalStatus.status,
+        });
+    }
+
+    /**
+     * Sign a cooperative claim for the server in BTC => ARK swaps.
+     * @param pendingSwap
+     */
+    async signCooperativeClaimForServer(args: {
+        pendingSwap: PendingChainSwap;
+    }): Promise<void> {
+        const { pendingSwap } = args;
+
+        const claimDetails = await this.swapProvider.getChainClaimDetails(
+            pendingSwap.id
+        );
+
+        const musig = TaprootUtils.tweakMusig(
+            Musig.create(hex.decode(pendingSwap.ephemeralKey), [
+                hex.decode(claimDetails.publicKey),
+                secp256k1.getPublicKey(hex.decode(pendingSwap.ephemeralKey)),
+            ]),
+            SwapTreeSerializer.deserializeSwapTree(
+                pendingSwap.response.lockupDetails.swapTree
+            ).tree
+        );
+
+        const musigNonces = musig
+            .message(hex.decode(claimDetails.transactionHash))
+            .generateNonce()
+            .aggregateNonces([
+                [
+                    hex.decode(
+                        pendingSwap.response.lockupDetails.serverPublicKey
+                    ),
+                    hex.decode(claimDetails.pubNonce),
+                ],
+            ])
+            .initializeSession();
+
+        const partialSig = musigNonces.signPartial();
+
+        await this.swapProvider.postChainClaimDetails(pendingSwap.response.id, {
+            signature: {
+                partialSignature: hex.encode(partialSig.ourPartialSignature),
+                pubNonce: hex.encode(partialSig.publicNonce),
+            },
         });
     }
 
