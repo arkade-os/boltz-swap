@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@arkade-os/sdk':
-        specifier: 0.3.11
-        version: 0.3.11
+        specifier: 0.3.12
+        version: 0.3.12
       '@noble/hashes':
         specifier: 2.0.1
         version: 2.0.1
@@ -69,8 +69,8 @@ importers:
 
 packages:
 
-  '@arkade-os/sdk@0.3.11':
-    resolution: {integrity: sha512-Hyd/kfzdaxX7yAxsBA2sqzPr2r+FjIsg/oi9TFMLjaZBBvdXr9U9meITDwjLvCFm1or6Mg2TdFBe2hoB05Kfyw==}
+  '@arkade-os/sdk@0.3.12':
+    resolution: {integrity: sha512-/zE8XiDo6yOCaspMcO3Gua/gLGYmYLRFbqaD1ORkaGI7hH/Gq+m0tkIwArVlwtK50loHK4jvS8clovcaV9CARg==}
     engines: {node: '>=20.0.0'}
 
   '@esbuild/aix-ppc64@0.25.9':
@@ -1367,7 +1367,7 @@ packages:
 
 snapshots:
 
-  '@arkade-os/sdk@0.3.11':
+  '@arkade-os/sdk@0.3.12':
     dependencies:
       '@marcbachmann/cel-js': 7.0.0
       '@noble/curves': 2.0.0
