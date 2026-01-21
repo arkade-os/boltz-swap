@@ -1,7 +1,3 @@
-import zkpInit, { Secp256k1ZKP } from "@vulpemventures/secp256k1-zkp";
-import ECPairFactory from "ecpair";
-import { randomBytes } from "crypto";
-import * as ecc from "tiny-secp256k1";
 import {
     SwapError,
     SwapExpiredError,
@@ -21,8 +17,8 @@ import {
     Wallet,
     VHTLC,
     TapLeafScript,
+    ArkInfo,
 } from "@arkade-os/sdk";
-import { sha256 } from "@noble/hashes/sha2.js";
 import type {
     ArkadeLightningConfig,
     LimitsResponse,
@@ -37,9 +33,23 @@ import {
     BoltzSwapStatus,
 } from "./boltz-swap-provider";
 import { base64, hex } from "@scure/base";
-import { normalizeToXOnlyPublicKey } from "./utils/signatures";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { TransactionInput } from "@scure/btc-signer/psbt.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { secp256k1 } from "@noble/curves/secp256k1.js";
+import {
+    SwapTreeSerializer,
+    TaprootUtils,
+    Musig,
+    Networks,
+    constructClaimTransaction,
+    targetFee,
+    detectSwap,
+    OutputType,
+} from "boltz-core";
+import { randomBytes } from "crypto";
+import { Address, OutScript, SigHash, Transaction } from "@scure/btc-signer";
+import { normalizeToXOnlyPublicKey } from "./utils/signatures";
 
 function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
@@ -101,12 +111,28 @@ export class ArkadeChainSwap {
                 message: "Invalid amount in sendToBTC",
             });
 
+        // get ark info
+        const arkInfo = await this.arkProvider.getInfo();
+
         // create chain swap
         const pendingSwap = await this.createChainSwap({
             to: "BTC",
             from: "ARK",
             feeSatsPerByte,
-            serverLockAmount: amountSats,
+            userLockAmount: amountSats,
+            toAddress,
+        });
+
+        // verify swap details
+        await this.verifyChainSwap({
+            arkInfo,
+            to: "BTC",
+            from: "ARK",
+            swap: pendingSwap,
+        }).catch((err) => {
+            throw new SwapError({
+                message: `Chain swap verification failed: ${err.message}`,
+            });
         });
 
         // send funds to the swap address
@@ -116,7 +142,11 @@ export class ArkadeChainSwap {
         });
 
         // wait for the swap to be ready and claim the HTLC
-        await this.waitAndClaim(pendingSwap, this.claimBTC.bind(this));
+        await this.waitAndClaim({
+            arkInfo,
+            pendingSwap,
+            claimFunction: this.claimBTC.bind(this),
+        });
 
         return pendingSwap;
     }
@@ -134,6 +164,8 @@ export class ArkadeChainSwap {
                 message: "Invalid amount in receiveFromBTC",
             });
 
+        const arkInfo = await this.arkProvider.getInfo();
+
         // create chain swap
         const pendingSwap = await this.createChainSwap({
             to: "ARK",
@@ -142,11 +174,27 @@ export class ArkadeChainSwap {
             userLockAmount: amountSats,
         });
 
+        // verify swap details
+        await this.verifyChainSwap({
+            arkInfo,
+            to: "ARK",
+            from: "BTC",
+            swap: pendingSwap,
+        }).catch((err) => {
+            throw new SwapError({
+                message: `Chain swap verification failed: ${err.message}`,
+            });
+        });
+
         // notify the user of the generated lockup address
         onAddressGenerated(pendingSwap.response.lockupDetails.lockupAddress);
 
         // wait for the swap to be ready and claim the VHTLC
-        await this.waitAndClaim(pendingSwap, this.claimARK.bind(this));
+        await this.waitAndClaim({
+            arkInfo,
+            pendingSwap,
+            claimFunction: this.claimARK.bind(this),
+        });
 
         return pendingSwap;
     }
@@ -159,13 +207,23 @@ export class ArkadeChainSwap {
      * @throws TransactionFailedError if the transaction has failed.
      * @throws TransactionRefundedError if the transaction has been refunded.
      */
-    async waitAndClaim(
-        pendingSwap: PendingChainSwap,
-        claimFunction: (s: PendingChainSwap) => Promise<void>
-    ): Promise<{ txid: string }> {
+    async waitAndClaim(args: {
+        arkInfo: ArkInfo;
+        pendingSwap: PendingChainSwap;
+        claimFunction: (args: {
+            pendingSwap: PendingChainSwap;
+            arkInfo: ArkInfo;
+            data: any;
+        }) => Promise<void>;
+    }): Promise<{ txid: string }> {
+        const { arkInfo, pendingSwap, claimFunction } = args;
+
         return new Promise<{ txid: string }>((resolve, reject) => {
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
-            const onStatusUpdate = async (status: BoltzSwapStatus) => {
+            const onStatusUpdate = async (
+                status: BoltzSwapStatus,
+                data: any
+            ) => {
                 switch (status) {
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
@@ -173,7 +231,9 @@ export class ArkadeChainSwap {
                             ...pendingSwap,
                             status,
                         });
-                        claimFunction(pendingSwap).catch(reject);
+                        claimFunction({ pendingSwap, arkInfo, data }).catch(
+                            reject
+                        );
                         break;
                     case "transaction.claimed":
                         await this.savePendingChainSwap({
@@ -225,33 +285,133 @@ export class ArkadeChainSwap {
      * Claim sats on BTC chain by claiming the HTLC.
      * @param pendingSwap
      */
-    async claimBTC(pendingSwap: PendingChainSwap): Promise<void> {
-        // TODO: implement BTC HTLC claim logic
-        console.log("Claiming BTC HTLC for swap:", pendingSwap);
-        throw new Error("BTC HTLC claim not implemented yet");
+    async claimBTC(args: {
+        pendingSwap: PendingChainSwap;
+        arkInfo: ArkInfo;
+        data: any;
+    }): Promise<void> {
+        const { pendingSwap, arkInfo, data } = args;
+
+        if (!pendingSwap.toAddress)
+            throw new Error("Destination address is required");
+
+        const lockupTx = Transaction.fromRaw(hex.decode(data.transaction.hex));
+
+        const network =
+            arkInfo.network === "bitcoin" ? Networks.bitcoin : Networks.regtest;
+
+        const swapTree = SwapTreeSerializer.deserializeSwapTree(
+            pendingSwap.response.claimDetails.swapTree
+        );
+
+        const musig = TaprootUtils.tweakMusig(
+            Musig.create(hex.decode(pendingSwap.ephemeralKey), [
+                hex.decode(pendingSwap.response.claimDetails.serverPublicKey),
+                secp256k1.getPublicKey(hex.decode(pendingSwap.ephemeralKey)),
+            ]),
+            swapTree.tree
+        );
+        const swapOutput = detectSwap(musig.aggPubkey, lockupTx)!;
+        const claimTx = targetFee(1, (fee) =>
+            constructClaimTransaction(
+                [
+                    {
+                        preimage: hex.decode(pendingSwap.preimage),
+                        type: OutputType.Taproot,
+                        script: swapOutput.script!,
+                        amount: swapOutput.amount!,
+                        vout: swapOutput.vout!,
+                        privateKey: hex.decode(pendingSwap.ephemeralKey),
+                        transactionId: lockupTx.id,
+                        swapTree: swapTree,
+                        internalKey: musig.internalKey,
+                        // False to enforce script path
+                        cooperative: true,
+                    },
+                ],
+                OutScript.encode(
+                    Address(network).decode(pendingSwap.toAddress!)
+                ),
+                fee
+            )
+        );
+
+        const musigMessage = musig
+            .message(
+                claimTx.preimageWitnessV1(
+                    0,
+                    [swapOutput.script!],
+                    SigHash.DEFAULT,
+                    [swapOutput.amount!]
+                )
+            )
+            .generateNonce();
+
+        console.log("Claim transaction:", claimTx.hex);
+
+        const signedTxData = await this.swapProvider.postChainClaimDetails(
+            pendingSwap.response.id,
+            {
+                preimage: pendingSwap.preimage,
+                toSign: {
+                    pubNonce: hex.encode(musigMessage.publicNonce),
+                    transaction: claimTx.hex,
+                    index: 0,
+                },
+            }
+        );
+
+        console.log("Signed transaction:", signedTxData);
+
+        const musigSession = musigMessage
+            .aggregateNonces([
+                [
+                    hex.decode(
+                        pendingSwap.response.claimDetails.serverPublicKey
+                    ),
+                    hex.decode(signedTxData.pubNonce),
+                ],
+            ])
+            .initializeSession();
+
+        musigSession.addPartial(
+            hex.decode(pendingSwap.response.claimDetails.serverPublicKey),
+            hex.decode(signedTxData.partialSignature)
+        );
+        const musigSigned = musigSession.signPartial();
+
+        claimTx.updateInput(0, {
+            finalScriptWitness: [musigSigned.aggregatePartials()],
+        });
+
+        const broadcastData = this.swapProvider.postBtcTransaction(claimTx.hex);
+        console.log("Broadcast response:", broadcastData);
     }
 
     /**
      * Claim sats on ARK chain by claiming the VHTLC.
      * @param pendingSwap
      */
-    async claimARK(pendingSwap: PendingChainSwap): Promise<void> {
+    async claimARK(args: {
+        arkInfo: ArkInfo;
+        pendingSwap: PendingChainSwap;
+    }): Promise<void> {
+        const { arkInfo, pendingSwap } = args;
         const preimage = hex.decode(pendingSwap.preimage);
-        const aspInfo = await this.arkProvider.getInfo();
         const address = await this.wallet.getAddress();
         const { request, response } = pendingSwap;
 
         // build expected VHTLC script
         const { vhtlcScript } = this.createVHTLCScript({
-            network: aspInfo.network,
+            network: arkInfo.network,
             preimageHash: sha256(preimage),
             receiverPubkey: request.claimPublicKey,
             senderPubkey: response.lockupDetails.serverPublicKey,
-            serverPubkey: aspInfo.signerPubkey,
+            serverPubkey: arkInfo.signerPubkey,
             timeoutBlockHeights: response.claimDetails.timeoutBlockHeights,
         });
 
-        if (!vhtlcScript)
+        if (!vhtlcScript.claimScript)
             throw new Error("Failed to create VHTLC script for chain swap");
 
         // get spendable VTXOs from the lockup address
@@ -259,6 +419,7 @@ export class ArkadeChainSwap {
             scripts: [hex.encode(vhtlcScript.pkScript)],
             spendableOnly: true,
         });
+
         if (spendableVtxos.vtxos.length === 0)
             throw new Error("No spendable virtual coins found");
 
@@ -286,7 +447,7 @@ export class ArkadeChainSwap {
         };
 
         // create the server unroll script for checkpoint transactions
-        const rawCheckpointTapscript = hex.decode(aspInfo.checkpointTapscript);
+        const rawCheckpointTapscript = hex.decode(arkInfo.checkpointTapscript);
         const serverUnrollScript = CSVMultisigTapscript.decode(
             rawCheckpointTapscript
         );
@@ -321,7 +482,7 @@ export class ArkadeChainSwap {
         if (
             !this.validFinalArkTx(
                 finalArkTx,
-                hex.decode(aspInfo.signerPubkey),
+                hex.decode(arkInfo.signerPubkey),
                 vhtlcScript.leaves
             )
         ) {
@@ -358,14 +519,7 @@ export class ArkadeChainSwap {
      * @param param0 - The parameters for creating the VHTLC script.
      * @returns The created VHTLC script and address.
      */
-    createVHTLCScript({
-        network,
-        preimageHash,
-        receiverPubkey,
-        senderPubkey,
-        serverPubkey,
-        timeoutBlockHeights,
-    }: {
+    createVHTLCScript(args: {
         network: string;
         preimageHash: Uint8Array;
         receiverPubkey: string;
@@ -378,6 +532,15 @@ export class ArkadeChainSwap {
             unilateralRefundWithoutReceiver: number;
         };
     }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string } {
+        const {
+            network,
+            preimageHash,
+            receiverPubkey,
+            senderPubkey,
+            serverPubkey,
+            timeoutBlockHeights,
+        } = args;
+
         // validate we are using a x-only receiver public key
         const receiverXOnlyPublicKey = normalizeToXOnlyPublicKey(
             hex.decode(receiverPubkey),
@@ -422,7 +585,8 @@ export class ArkadeChainSwap {
             },
         });
 
-        if (!vhtlcScript) throw new Error("Failed to create VHTLC script");
+        if (!vhtlcScript.claimScript)
+            throw new Error("Failed to create VHTLC script");
 
         // encode vhtlc address from vhtlc script
         const hrp = network === "bitcoin" ? "ark" : "tark";
@@ -498,13 +662,11 @@ export class ArkadeChainSwap {
         feeSatsPerByte: number;
         userLockAmount?: number;
         serverLockAmount?: number;
+        toAddress?: string;
     }): Promise<PendingChainSwap> {
         // deconstruct args and validate
         const { to, from, feeSatsPerByte, serverLockAmount, userLockAmount } =
             args;
-
-        // get ark info
-        const aspInfo = await this.arkProvider.getInfo();
 
         // create random preimage and its hash
         const preimage = randomBytes(32);
@@ -514,14 +676,14 @@ export class ArkadeChainSwap {
 
         // ephemeral keys
         // needed to claim/refund on the BTC chain
-        const ephemeralKeys = ECPairFactory(ecc).makeRandom();
+        const ephemeralKey = secp256k1.utils.randomSecretKey();
 
         // get refund public key
         // needed in case the swap fails and needs to be refunded
         const refundPublicKey =
             from === "ARK"
                 ? hex.encode(await this.wallet.identity.compressedPublicKey())
-                : hex.encode(ephemeralKeys.publicKey);
+                : hex.encode(secp256k1.getPublicKey(ephemeralKey));
 
         if (!refundPublicKey)
             throw new SwapError({
@@ -532,7 +694,7 @@ export class ArkadeChainSwap {
         const claimPublicKey =
             to === "ARK"
                 ? hex.encode(await this.wallet.identity.compressedPublicKey())
-                : hex.encode(ephemeralKeys.publicKey);
+                : hex.encode(secp256k1.getPublicKey(ephemeralKey));
 
         if (!claimPublicKey)
             throw new SwapError({
@@ -555,57 +717,78 @@ export class ArkadeChainSwap {
         const swapResponse =
             await this.swapProvider.createChainSwap(swapRequest);
 
-        // create vhtlc script
-        const { vhtlcAddress } = this.createVHTLCScript({
-            network: to === "BTC" ? aspInfo.network : "bitcoin",
-            preimageHash: sha256(preimage),
-            receiverPubkey: claimPublicKey,
-            senderPubkey: swapResponse.lockupDetails.serverPublicKey,
-            serverPubkey: aspInfo.signerPubkey,
-            timeoutBlockHeights: swapResponse.lockupDetails.timeoutBlockHeights,
-        });
-
-        // create htlc script
-        const { htlcAddress } = this.createHTLCScript({
-            network: to === "BTC" ? aspInfo.network : "bitcoin",
-            preimageHash: sha256(preimage),
-            receiverPubkey: claimPublicKey,
-            senderPubkey: swapResponse.lockupDetails.serverPublicKey,
-            serverPubkey: aspInfo.signerPubkey,
-            timeoutBlockHeights: 21, // TODO
-        });
-
-        // validate lockup address matches expected script
-        const expectectLockupAddress =
-            from === "ARK" ? vhtlcAddress : htlcAddress;
-        if (expectectLockupAddress !== swapResponse.lockupDetails.lockupAddress)
-            throw new SwapError({
-                message: "Boltz is trying to scam us (invalid lockup address)",
-            });
-
-        // validate claim address matches expected script
-        const expectectClaimAddress = to === "ARK" ? vhtlcAddress : htlcAddress;
-        if (expectectClaimAddress !== swapResponse.claimDetails.lockupAddress)
-            throw new SwapError({
-                message: "Boltz is trying to scam us (invalid claim address)",
-            });
-
         const pendingSwap: PendingChainSwap = {
             id: swapResponse.id,
             type: "chain",
             feeSatsPerByte,
-            ephemeralKey: hex.encode(ephemeralKeys.privateKey!),
+            ephemeralKey: hex.encode(ephemeralKey),
             createdAt: Math.floor(Date.now() / 1000),
             preimage: hex.encode(preimage),
             request: swapRequest,
             response: swapResponse,
             status: "swap.created",
+            toAddress: args.toAddress,
         };
 
         // save pending swap to storage if available
         await this.savePendingChainSwap(pendingSwap);
 
         return pendingSwap;
+    }
+
+    /**
+     * Validates the lockup and claim addresses match the expected scripts
+     * @param args - The arguments for creating a chain swap.
+     * @returns The created pending chain swap.
+     */
+    async verifyChainSwap(args: {
+        to: Chain;
+        from: Chain;
+        swap: PendingChainSwap;
+        arkInfo: ArkInfo;
+    }): Promise<boolean> {
+        // deconstruct args and validate
+        const { to, from, swap, arkInfo } = args;
+
+        // create vhtlc script
+        const { vhtlcAddress } = this.createVHTLCScript({
+            network: to === "BTC" ? arkInfo.network : "bitcoin",
+            preimageHash: hex.decode(swap.request.preimageHash),
+            receiverPubkey: swap.request.claimPublicKey,
+            senderPubkey: swap.response.lockupDetails.serverPublicKey,
+            serverPubkey: arkInfo.signerPubkey,
+            timeoutBlockHeights:
+                swap.response.lockupDetails.timeoutBlockHeights,
+        });
+
+        // create htlc script
+        const { htlcAddress } = this.createHTLCScript({
+            network: to === "BTC" ? arkInfo.network : "bitcoin",
+            preimageHash: hex.decode(swap.request.preimageHash),
+            receiverPubkey: swap.request.claimPublicKey,
+            senderPubkey: swap.response.lockupDetails.serverPublicKey,
+            serverPubkey: arkInfo.signerPubkey,
+            timeoutBlockHeights: 21, // TODO
+        });
+
+        // validate lockup address matches expected script
+        const expectectLockupAddress =
+            from === "ARK" ? vhtlcAddress : htlcAddress;
+        if (
+            expectectLockupAddress !== swap.response.lockupDetails.lockupAddress
+        )
+            throw new SwapError({
+                message: "Boltz is trying to scam us (invalid lockup address)",
+            });
+
+        // validate claim address matches expected script
+        const expectectClaimAddress = to === "ARK" ? vhtlcAddress : htlcAddress;
+        if (expectectClaimAddress !== swap.response.claimDetails.lockupAddress)
+            throw new SwapError({
+                message: "Boltz is trying to scam us (invalid claim address)",
+            });
+
+        return true;
     }
 
     /**

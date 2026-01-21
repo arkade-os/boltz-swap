@@ -244,8 +244,8 @@ describe("ArkadeLightning", () => {
         intentFee: {
             offchainInput: "",
             offchainOutput: "",
-            onchainInput: 0n,
-            onchainOutput: 0n,
+            onchainInput: "",
+            onchainOutput: "",
         },
     };
 
@@ -1025,6 +1025,7 @@ describe("ArkadeLightning", () => {
             // Mock getReverseSwapTxId to return an object with valid transaction id
             vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
                 id: mock.txid,
+                hex: mock.hex,
                 timeoutBlockHeight: 123,
             });
 
@@ -1059,6 +1060,7 @@ describe("ArkadeLightning", () => {
             // Mock getReverseSwapTxId to return a undefined id (the problematic case)
             vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
                 id: "",
+                hex: mock.hex,
                 timeoutBlockHeight: 123,
             });
 

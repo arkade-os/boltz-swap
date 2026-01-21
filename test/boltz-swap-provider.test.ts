@@ -850,8 +850,14 @@ describe("BoltzSwapProvider", () => {
                     args: [swapId],
                 })
             );
-            expect(updateCallback).toHaveBeenCalledWith("transaction.mempool");
-            expect(updateCallback).toHaveBeenCalledWith("invoice.settled");
+            expect(updateCallback).toHaveBeenCalledWith("transaction.mempool", {
+                id: swapId,
+                status: "transaction.mempool",
+            });
+            expect(updateCallback).toHaveBeenCalledWith("invoice.settled", {
+                id: swapId,
+                status: "invoice.settled",
+            });
             expect(mockWebSocket.close).toHaveBeenCalled();
         });
 
@@ -894,7 +900,10 @@ describe("BoltzSwapProvider", () => {
 
             // assert
             expect(updateCallback).toHaveBeenCalledTimes(1);
-            expect(updateCallback).toHaveBeenCalledWith("invoice.settled");
+            expect(updateCallback).toHaveBeenCalledWith("invoice.settled", {
+                id: swapId,
+                status: "invoice.settled",
+            });
         });
 
         it("should reject on WebSocket error", async () => {
@@ -987,7 +996,10 @@ describe("BoltzSwapProvider", () => {
 
                 // assert
                 expect(mockWebSocket.close).toHaveBeenCalled();
-                expect(updateCallback).toHaveBeenCalledWith(status);
+                expect(updateCallback).toHaveBeenCalledWith(status, {
+                    id: swapId,
+                    status,
+                });
             }
         });
     });

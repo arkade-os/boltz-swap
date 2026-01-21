@@ -460,7 +460,7 @@ export class ArkadeLightning {
             timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
         });
 
-        if (!vhtlcScript)
+        if (!vhtlcScript.claimScript)
             throw new Error("Failed to create VHTLC script for reverse swap");
         if (vhtlcAddress !== pendingSwap.response.lockupAddress)
             throw new Error("Boltz is trying to scam us");
@@ -593,7 +593,7 @@ export class ArkadeLightning {
             timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
         });
 
-        if (!vhtlcScript)
+        if (!vhtlcScript.claimScript)
             throw new Error("Failed to create VHTLC script for reverse swap");
 
         const isRecoverableVtxo = isRecoverable(vtxo);
@@ -1404,7 +1404,8 @@ export class ArkadeLightning {
             },
         });
 
-        if (!vhtlcScript) throw new Error("Failed to create VHTLC script");
+        if (!vhtlcScript.claimScript)
+            throw new Error("Failed to create VHTLC script");
 
         // validate vhtlc script
         const hrp = network === "bitcoin" ? "ark" : "tark";

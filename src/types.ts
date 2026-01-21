@@ -90,6 +90,7 @@ export interface PendingChainSwap {
     status: BoltzSwapStatus;
     request: CreateChainSwapRequest;
     response: CreateChainSwapResponse;
+    toAddress?: string;
 }
 
 export interface RefundHandler {

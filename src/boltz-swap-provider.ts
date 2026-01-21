@@ -497,11 +497,11 @@ export type CreateChainSwapRequest = {
 type CreateChainSwapResponseDetails = {
     swapTree: {
         claimLeaf: {
-            version: 0;
+            version: number;
             output: string;
         };
         refundLeaf: {
-            version: 0;
+            version: number;
             output: string;
         };
     };
@@ -513,7 +513,7 @@ type CreateChainSwapResponseDetails = {
         unilateralRefund: number;
         unilateralRefundWithoutReceiver: number;
     };
-    amount: 0;
+    amount: number;
     refundAddress: string;
     bip21: string;
 };
@@ -582,7 +582,7 @@ const isGetChainClaimDetailsResponse = (
 
 export type PostChainClaimDetailsRequest = {
     preimage: string;
-    signature: {
+    signature?: {
         partialSignature: string;
         pubNonce: string;
     };
@@ -608,6 +608,17 @@ const isPostChainClaimDetailsResponse = (
         typeof data.partialSignature === "string"
     );
 };
+
+export type PostBtcTransactionResponse = {
+    id: string;
+};
+
+const isPostBtcTransactionResponse = (
+    data: any
+): data is PostBtcTransactionResponse => {
+    return data && typeof data === "object" && typeof data.id === "string";
+};
+
 export type Leaf = {
     version: number;
     output: string;
@@ -1105,7 +1116,7 @@ export class BoltzSwapProvider {
                     case "transaction.lockupFailed":
                     case "swap.expired":
                         webSocket.close();
-                        update(status);
+                        update(status, msg.args[0]);
                         break;
                     case "invoice.paid":
                     case "invoice.pending":
@@ -1114,7 +1125,7 @@ export class BoltzSwapProvider {
                     case "transaction.claim.pending":
                     case "transaction.confirmed":
                     case "transaction.mempool":
-                        update(status);
+                        update(status, msg.args[0]);
                 }
             };
         });
@@ -1157,6 +1168,19 @@ export class BoltzSwapProvider {
         return response;
     }
 
+    async postBtcTransaction(hex: string): Promise<PostBtcTransactionResponse> {
+        const response = await this.request<PostBtcTransactionResponse>(
+            "v2/chain/BTC/transaction",
+            "POST",
+            hex
+        );
+        if (!isPostBtcTransactionResponse(response))
+            throw new SchemaError({
+                message: "error posting BTC transaction",
+            });
+        return response;
+    }
+
     async postChainClaimDetails(
         swapId: string,
         request: PostChainClaimDetailsRequest
@@ -1173,6 +1197,7 @@ export class BoltzSwapProvider {
             });
         return response;
     }
+
     async restoreSwaps(publicKey: string): Promise<CreateSwapsRestoreResponse> {
         const requestBody: CreateSwapsRestoreRequest = {
             publicKey,
