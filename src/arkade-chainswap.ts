@@ -364,8 +364,6 @@ export class ArkadeChainSwap {
             )
             .generateNonce();
 
-        console.log("Claim transaction:", claimTx.hex);
-
         const signedTxData = await this.swapProvider.postChainClaimDetails(
             pendingSwap.response.id,
             {
@@ -377,8 +375,6 @@ export class ArkadeChainSwap {
                 },
             }
         );
-
-        console.log("Signed transaction:", signedTxData);
 
         const musigSession = musigMessage
             .aggregateNonces([
@@ -401,8 +397,7 @@ export class ArkadeChainSwap {
             finalScriptWitness: [musigSigned.aggregatePartials()],
         });
 
-        const broadcastData = this.swapProvider.postBtcTransaction(claimTx.hex);
-        console.log("Broadcast response:", broadcastData);
+        await this.swapProvider.postBtcTransaction(claimTx.hex);
     }
 
     /**
@@ -701,15 +696,6 @@ export class ArkadeChainSwap {
             hex.decode(serverPubkey),
             "server"
         );
-
-        console.log({
-            refundLocktime: BigInt(timeoutBlockHeights),
-            preimageHash: ripemd160(preimageHash),
-            receiver: receiverXOnlyPublicKey,
-            sender: senderXOnlyPublicKey,
-            server: serverXOnlyPublicKey,
-            network,
-        });
 
         return { htlcScript: "", htlcAddress: "" };
     }
