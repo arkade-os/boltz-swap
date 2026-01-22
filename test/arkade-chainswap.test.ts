@@ -175,13 +175,10 @@ describe("ArkadeChainSwap", () => {
 
     const createChainSwapResponse: CreateChainSwapResponse = {
         id: mock.id,
-        referralId: "",
         claimDetails: {
             lockupAddress: "mock-claim-address",
             amount: mock.amount,
             serverPublicKey: compressedPubkeys.boltz,
-            refundAddress: "mock-refund-address",
-            bip21: "mock-bip21",
             swapTree: {
                 claimLeaf: {
                     version: 0,
@@ -192,30 +189,13 @@ describe("ArkadeChainSwap", () => {
                     output: "",
                 },
             },
-            timeoutBlockHeights: {
-                refund: 17,
-                unilateralClaim: 21,
-                unilateralRefund: 42,
-                unilateralRefundWithoutReceiver: 63,
-            },
+            timeoutBlockHeight: 21,
         },
         lockupDetails: {
             lockupAddress: mock.lockupAddress,
             amount: mock.amount,
-            serverPublicKey: compressedPubkeys.boltz,
-            refundAddress: "mock-refund-address",
-            bip21: "mock-bip21",
-            swapTree: {
-                claimLeaf: {
-                    version: 0,
-                    output: "",
-                },
-                refundLeaf: {
-                    version: 0,
-                    output: "",
-                },
-            },
-            timeoutBlockHeights: {
+            timeoutBlockHeight: 21,
+            timeouts: {
                 refund: 17,
                 unilateralClaim: 21,
                 unilateralRefund: 42,
@@ -388,7 +368,7 @@ describe("ArkadeChainSwap", () => {
         });
 
         it("should have expected interface methods", () => {
-            expect(chainSwap.sendToBTC).toBeInstanceOf(Function);
+            expect(chainSwap.arkToBtc).toBeInstanceOf(Function);
             expect(chainSwap.receiveFromBTC).toBeInstanceOf(Function);
             expect(chainSwap.createChainSwap).toBeInstanceOf(Function);
             expect(chainSwap.verifyChainSwap).toBeInstanceOf(Function);
@@ -460,7 +440,7 @@ describe("ArkadeChainSwap", () => {
                 receiverPubkey: compressedPubkeys.alice,
                 senderPubkey: compressedPubkeys.boltz,
                 serverPubkey: hex.encode(mock.pubkeys.server),
-                timeoutBlockHeights: 21,
+                timeoutBlockHeight: 21,
             });
 
             // assert - currently returns empty values as it's a TODO
@@ -615,31 +595,31 @@ describe("ArkadeChainSwap", () => {
         });
     });
 
-    describe("Send to BTC", () => {
+    describe("ARK to BTC", () => {
         it("should throw if amount is not > 0", async () => {
             // act & assert
             await expect(
-                chainSwap.sendToBTC({
+                chainSwap.arkToBtc({
                     toAddress: mock.address,
                     amountSats: 0,
                 })
-            ).rejects.toThrow("Invalid amount in sendToBTC");
+            ).rejects.toThrow("Invalid amount in arkToBtc");
             await expect(
-                chainSwap.sendToBTC({
+                chainSwap.arkToBtc({
                     toAddress: mock.address,
                     amountSats: -1,
                 })
-            ).rejects.toThrow("Invalid amount in sendToBTC");
+            ).rejects.toThrow("Invalid amount in arkToBtc");
         });
 
         it("should throw if toAddress is empty", async () => {
             // act & assert
             await expect(
-                chainSwap.sendToBTC({
+                chainSwap.arkToBtc({
                     toAddress: "",
                     amountSats: mock.amount,
                 })
-            ).rejects.toThrow("Invalid BTC address in sendToBTC");
+            ).rejects.toThrow("Invalid BTC address in arkToBtc");
         });
     });
 

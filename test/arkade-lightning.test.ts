@@ -28,6 +28,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice } from "../src/utils/decoding";
 import { pubECDSA } from "@scure/btc-signer/utils.js";
+import { SwapManager } from "../src";
 
 // Mock the @arkade-os/sdk modules
 vi.mock("@arkade-os/sdk", async () => {
@@ -378,274 +379,362 @@ describe("ArkadeLightning", () => {
         });
     });
 
-    describe("VHTLC Operations", () => {
-        const preimage = randomBytes(20);
-        const mockVHTLC = {
-            vhtlcAddress: mock.address,
-            vhtlcScript: new VHTLC.Script({
-                preimageHash: ripemd160(sha256(preimage)),
-                sender: mock.pubkeys.alice,
-                receiver: mock.pubkeys.boltz,
-                server: mock.pubkeys.server,
-                refundLocktime: BigInt(17),
-                unilateralClaimDelay: {
-                    type: "blocks",
-                    value: BigInt(21),
-                },
-                unilateralRefundDelay: {
-                    type: "blocks",
-                    value: BigInt(42),
-                },
-                unilateralRefundWithoutReceiverDelay: {
-                    type: "blocks",
-                    value: BigInt(63),
-                },
-            }),
-        };
-        it("should claim a VHTLC", async () => {
-            // arrange
-            const pendingSwap: PendingReverseSwap = {
-                id: mock.id,
-                type: "reverse",
-                createdAt: Date.now(),
-                preimage: hex.encode(preimage),
-                request: createReverseSwapRequest,
-                response: createReverseSwapResponse,
-                status: "swap.created",
-            };
-            vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(mockArkInfo);
-            vi.spyOn(lightning, "createVHTLCScript").mockReturnValueOnce(
-                mockVHTLC
-            );
-            vi.spyOn(indexerProvider, "getVtxos").mockResolvedValueOnce({
-                vtxos: [],
-            });
-            vi.spyOn(arkProvider, "submitTx").mockResolvedValueOnce({
-                arkTxid: "",
-                finalArkTx: "",
-                signedCheckpointTxs: [],
-            });
-            vi.spyOn(arkProvider, "finalizeTx").mockResolvedValueOnce();
-            await expect(lightning.claimVHTLC(pendingSwap)).rejects.toThrow(
-                "Boltz is trying to scam us"
-            );
-        });
-    });
-
-    describe("Create Lightning Invoice", () => {
-        it("should throw if amount is not > 0", async () => {
-            // act & assert
-            await expect(
-                lightning.createLightningInvoice({ amount: 0 })
-            ).rejects.toThrow("Amount must be greater than 0");
-            await expect(
-                lightning.createLightningInvoice({ amount: -1 })
-            ).rejects.toThrow("Amount must be greater than 0");
-        });
-
-        it("should create a Lightning invoice", async () => {
-            // arrange
-            const pendingSwap: PendingReverseSwap = {
-                ...mockReverseSwap,
-                preimage: mock.preimage,
-            };
-            vi.spyOn(lightning, "createReverseSwap").mockResolvedValueOnce(
-                pendingSwap
-            );
-
-            // act
-            const result = await lightning.createLightningInvoice({
-                amount: mock.amount,
+    describe("Receive from Lightning", () => {
+        describe("Create Lightning Invoice", () => {
+            it("should throw if amount is not > 0", async () => {
+                // act & assert
+                await expect(
+                    lightning.createLightningInvoice({ amount: 0 })
+                ).rejects.toThrow("Amount must be greater than 0");
+                await expect(
+                    lightning.createLightningInvoice({ amount: -1 })
+                ).rejects.toThrow("Amount must be greater than 0");
             });
 
-            // assert
-            expect(result.expiry).toBe(mock.invoice.expiry);
-            expect(result.invoice).toBe(mock.invoice.address);
-            expect(result.paymentHash).toBe(mock.invoice.paymentHash);
-            expect(result.preimage).toBe(mock.preimage);
-            expect(result.pendingSwap.request.claimPublicKey).toBe(
-                compressedPubkeys.alice
-            );
-        });
+            it("should create a Lightning invoice", async () => {
+                // arrange
+                const pendingSwap: PendingReverseSwap = {
+                    ...mockReverseSwap,
+                    preimage: mock.preimage,
+                };
+                vi.spyOn(lightning, "createReverseSwap").mockResolvedValueOnce(
+                    pendingSwap
+                );
 
-        it("should pass description to reverse swap when creating Lightning invoice", async () => {
-            // arrange
-            const testDescription = "Test payment description";
-            const pendingSwap: PendingReverseSwap = {
-                ...mockReverseSwap,
-                request: {
-                    ...createReverseSwapRequest,
+                // act
+                const result = await lightning.createLightningInvoice({
+                    amount: mock.amount,
+                });
+
+                // assert
+                expect(result.expiry).toBe(mock.invoice.expiry);
+                expect(result.invoice).toBe(mock.invoice.address);
+                expect(result.paymentHash).toBe(mock.invoice.paymentHash);
+                expect(result.preimage).toBe(mock.preimage);
+                expect(result.pendingSwap.request.claimPublicKey).toBe(
+                    compressedPubkeys.alice
+                );
+            });
+
+            it("should pass description to reverse swap when creating Lightning invoice", async () => {
+                // arrange
+                const testDescription = "Test payment description";
+                const pendingSwap: PendingReverseSwap = {
+                    ...mockReverseSwap,
+                    request: {
+                        ...createReverseSwapRequest,
+                        description: testDescription,
+                    },
+                };
+                const createReverseSwapSpy = vi
+                    .spyOn(lightning, "createReverseSwap")
+                    .mockResolvedValueOnce(pendingSwap);
+
+                // act
+                await lightning.createLightningInvoice({
+                    amount: mock.amount,
                     description: testDescription,
-                },
+                });
+
+                // assert
+                expect(createReverseSwapSpy).toHaveBeenCalledWith({
+                    amount: mock.amount,
+                    description: testDescription,
+                });
+            });
+        });
+
+        describe("Reverse Swaps", () => {
+            it("should create a reverse swap", async () => {
+                // arrange
+                vi.spyOn(
+                    swapProvider,
+                    "createReverseSwap"
+                ).mockResolvedValueOnce(createReverseSwapResponse);
+
+                // act
+                const pendingSwap = await lightning.createReverseSwap({
+                    amount: mock.invoice.amount,
+                });
+
+                // assert
+                expect(pendingSwap.request.invoiceAmount).toBe(
+                    mock.invoice.amount
+                );
+                expect(pendingSwap.request.preimageHash).toHaveLength(64);
+                expect(pendingSwap.response.invoice).toBe(mock.invoice.address);
+                expect(pendingSwap.response.lockupAddress).toBe(
+                    mock.lockupAddress
+                );
+                expect(pendingSwap.response.onchainAmount).toBe(
+                    mock.invoice.amount
+                );
+                expect(pendingSwap.response.refundPublicKey).toBe(
+                    compressedPubkeys.boltz
+                );
+                expect(pendingSwap.status).toEqual("swap.created");
+            });
+
+            it("should get correct swap status", async () => {
+                // arrange
+                vi.spyOn(
+                    swapProvider,
+                    "createReverseSwap"
+                ).mockResolvedValueOnce(createReverseSwapResponse);
+                vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValueOnce({
+                    status: "swap.created",
+                });
+
+                // act
+                const pendingSwap = await lightning.createReverseSwap({
+                    amount: mock.invoice.amount,
+                });
+
+                // assert
+                expect(lightning.getSwapStatus).toBeInstanceOf(Function);
+                const status = await lightning.getSwapStatus(pendingSwap.id);
+                expect(status.status).toBe("swap.created");
+            });
+
+            it("should pass description to swap provider when creating reverse swap", async () => {
+                // arrange
+                const testDescription = "Test reverse swap description";
+                const createReverseSwapSpy = vi
+                    .spyOn(swapProvider, "createReverseSwap")
+                    .mockResolvedValueOnce(createReverseSwapResponse);
+
+                // act
+                await lightning.createReverseSwap({
+                    amount: mock.invoice.amount,
+                    description: testDescription,
+                });
+
+                // assert
+                expect(createReverseSwapSpy).toHaveBeenCalledWith({
+                    invoiceAmount: mock.invoice.amount,
+                    claimPublicKey: expect.any(String),
+                    preimageHash: expect.any(String),
+                    description: testDescription,
+                });
+            });
+        });
+
+        describe("VHTLC Operations", () => {
+            const preimage = randomBytes(20);
+            const mockVHTLC = {
+                vhtlcAddress: mock.address,
+                vhtlcScript: new VHTLC.Script({
+                    preimageHash: ripemd160(sha256(preimage)),
+                    sender: mock.pubkeys.alice,
+                    receiver: mock.pubkeys.boltz,
+                    server: mock.pubkeys.server,
+                    refundLocktime: BigInt(17),
+                    unilateralClaimDelay: {
+                        type: "blocks",
+                        value: BigInt(21),
+                    },
+                    unilateralRefundDelay: {
+                        type: "blocks",
+                        value: BigInt(42),
+                    },
+                    unilateralRefundWithoutReceiverDelay: {
+                        type: "blocks",
+                        value: BigInt(63),
+                    },
+                }),
             };
-            const createReverseSwapSpy = vi
-                .spyOn(lightning, "createReverseSwap")
-                .mockResolvedValueOnce(pendingSwap);
+            it("should claim a VHTLC", async () => {
+                // arrange
+                const pendingSwap: PendingReverseSwap = {
+                    id: mock.id,
+                    type: "reverse",
+                    createdAt: Date.now(),
+                    preimage: hex.encode(preimage),
+                    request: createReverseSwapRequest,
+                    response: createReverseSwapResponse,
+                    status: "swap.created",
+                };
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+                vi.spyOn(lightning, "createVHTLCScript").mockReturnValueOnce(
+                    mockVHTLC
+                );
+                vi.spyOn(indexerProvider, "getVtxos").mockResolvedValueOnce({
+                    vtxos: [],
+                });
+                vi.spyOn(arkProvider, "submitTx").mockResolvedValueOnce({
+                    arkTxid: "",
+                    finalArkTx: "",
+                    signedCheckpointTxs: [],
+                });
+                vi.spyOn(arkProvider, "finalizeTx").mockResolvedValueOnce();
+                await expect(lightning.claimVHTLC(pendingSwap)).rejects.toThrow(
+                    "Boltz is trying to scam us"
+                );
+            });
+        });
 
-            // act
-            await lightning.createLightningInvoice({
-                amount: mock.amount,
-                description: testDescription,
+        describe("waitAndClaim", () => {
+            it("should return valid txid when transaction is available", async () => {
+                // arrange
+                const pendingSwap = mockReverseSwap;
+
+                // Mock getSwapStatus to return a status with valid transaction
+                vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValue({
+                    status: "invoice.settled",
+                });
+
+                // Mock getReverseSwapTxId to return an object with valid transaction id
+                vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
+                    id: mock.txid,
+                    timeoutBlockHeight: 123,
+                });
+
+                // Mock monitorSwap to directly trigger the invoice.settled case
+                vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
+                    async (swapId, update) => {
+                        setTimeout(() => update("invoice.settled"), 10);
+                    }
+                );
+
+                // act
+                const result = await lightning.waitAndClaim(pendingSwap);
+
+                // assert
+                expect(result.txid).toBe(mock.txid);
+                expect(result.txid).not.toBe("");
             });
 
-            // assert
-            expect(createReverseSwapSpy).toHaveBeenCalledWith({
-                amount: mock.amount,
-                description: testDescription,
+            it("should throw error when transaction id is empty string", async () => {
+                // arrange
+                const pendingSwap = mockReverseSwap;
+
+                // Mock getSwapStatus to return a status with empty transaction id
+                vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValue({
+                    status: "invoice.settled",
+                    transaction: {
+                        id: "",
+                        hex: mock.hex,
+                    },
+                });
+
+                // Mock getReverseSwapTxId to return a undefined id (the problematic case)
+                vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
+                    id: "",
+                    timeoutBlockHeight: 123,
+                });
+
+                // Mock monitorSwap to directly trigger the invoice.settled case
+                vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
+                    async (swapId, update) => {
+                        setTimeout(() => update("invoice.settled"), 10);
+                    }
+                );
+
+                // act & assert
+                await expect(
+                    lightning.waitAndClaim(pendingSwap)
+                ).rejects.toThrow(
+                    "Transaction ID not available for settled swap"
+                );
             });
         });
     });
 
-    describe("Reverse Swaps", () => {
-        it("should create a reverse swap", async () => {
-            // arrange
-            vi.spyOn(swapProvider, "createReverseSwap").mockResolvedValueOnce(
-                createReverseSwapResponse
-            );
+    describe("Send to Lightning", () => {
+        describe("Submarine Swaps", () => {
+            it("should create a submarine swap", async () => {
+                // arrange
+                vi.spyOn(
+                    swapProvider,
+                    "createSubmarineSwap"
+                ).mockResolvedValueOnce(createSubmarineSwapResponse);
 
-            // act
-            const pendingSwap = await lightning.createReverseSwap({
-                amount: mock.invoice.amount,
+                // act
+                const pendingSwap = await lightning.createSubmarineSwap({
+                    invoice: mock.invoice.address,
+                });
+
+                // assert
+                expect(pendingSwap.status).toEqual("invoice.set");
+                expect(pendingSwap.request).toEqual(createSubmarineSwapRequest);
+                expect(pendingSwap.response).toEqual(
+                    createSubmarineSwapResponse
+                );
             });
 
-            // assert
-            expect(pendingSwap.request.invoiceAmount).toBe(mock.invoice.amount);
-            expect(pendingSwap.request.preimageHash).toHaveLength(64);
-            expect(pendingSwap.response.invoice).toBe(mock.invoice.address);
-            expect(pendingSwap.response.lockupAddress).toBe(mock.lockupAddress);
-            expect(pendingSwap.response.onchainAmount).toBe(
-                mock.invoice.amount
-            );
-            expect(pendingSwap.response.refundPublicKey).toBe(
-                compressedPubkeys.boltz
-            );
-            expect(pendingSwap.status).toEqual("swap.created");
-        });
+            it("should get correct swap status", async () => {
+                // arrange
+                vi.spyOn(
+                    swapProvider,
+                    "createSubmarineSwap"
+                ).mockResolvedValueOnce(createSubmarineSwapResponse);
+                vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValueOnce({
+                    status: "swap.created",
+                });
 
-        it("should get correct swap status", async () => {
-            // arrange
-            vi.spyOn(swapProvider, "createReverseSwap").mockResolvedValueOnce(
-                createReverseSwapResponse
-            );
-            vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValueOnce({
-                status: "swap.created",
-            });
+                // act
+                const pendingSwap = await lightning.createSubmarineSwap({
+                    invoice: mock.invoice.address,
+                });
 
-            // act
-            const pendingSwap = await lightning.createReverseSwap({
-                amount: mock.invoice.amount,
-            });
-
-            // assert
-            expect(lightning.getSwapStatus).toBeInstanceOf(Function);
-            const status = await lightning.getSwapStatus(pendingSwap.id);
-            expect(status.status).toBe("swap.created");
-        });
-
-        it("should pass description to swap provider when creating reverse swap", async () => {
-            // arrange
-            const testDescription = "Test reverse swap description";
-            const createReverseSwapSpy = vi
-                .spyOn(swapProvider, "createReverseSwap")
-                .mockResolvedValueOnce(createReverseSwapResponse);
-
-            // act
-            await lightning.createReverseSwap({
-                amount: mock.invoice.amount,
-                description: testDescription,
-            });
-
-            // assert
-            expect(createReverseSwapSpy).toHaveBeenCalledWith({
-                invoiceAmount: mock.invoice.amount,
-                claimPublicKey: expect.any(String),
-                preimageHash: expect.any(String),
-                description: testDescription,
+                // assert
+                expect(lightning.getSwapStatus).toBeInstanceOf(Function);
+                const status = await lightning.getSwapStatus(pendingSwap.id);
+                expect(status.status).toBe("swap.created");
             });
         });
-    });
 
-    describe("Submarine Swaps", () => {
-        it("should create a submarine swap", async () => {
-            // arrange
-            vi.spyOn(swapProvider, "createSubmarineSwap").mockResolvedValueOnce(
-                createSubmarineSwapResponse
-            );
-
-            // act
-            const pendingSwap = await lightning.createSubmarineSwap({
-                invoice: mock.invoice.address,
+        describe("Sending Lightning Payments", () => {
+            it("should send a Lightning payment", async () => {
+                // arrange
+                const pendingSwap = mockSubmarineSwap;
+                vi.spyOn(wallet, "sendBitcoin").mockResolvedValueOnce(
+                    mock.txid
+                );
+                vi.spyOn(
+                    lightning,
+                    "createSubmarineSwap"
+                ).mockResolvedValueOnce(pendingSwap);
+                vi.spyOn(
+                    lightning,
+                    "waitForSwapSettlement"
+                ).mockResolvedValueOnce({
+                    preimage: mock.preimage,
+                });
+                // act
+                const result = await lightning.sendLightningPayment({
+                    invoice: mock.invoice.address,
+                });
+                // assert
+                expect(wallet.sendBitcoin).toHaveBeenCalledWith({
+                    address: mock.address,
+                    amount: mock.invoice.amount,
+                });
+                expect(result.amount).toBe(mock.invoice.amount);
+                expect(result.preimage).toBe(mock.preimage);
+                expect(result.txid).toBe(mock.txid);
             });
-
-            // assert
-            expect(pendingSwap.status).toEqual("invoice.set");
-            expect(pendingSwap.request).toEqual(createSubmarineSwapRequest);
-            expect(pendingSwap.response).toEqual(createSubmarineSwapResponse);
         });
 
-        it("should get correct swap status", async () => {
-            // arrange
-            vi.spyOn(swapProvider, "createSubmarineSwap").mockResolvedValueOnce(
-                createSubmarineSwapResponse
-            );
-            vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValueOnce({
-                status: "swap.created",
+        describe("Decoding lightning invoices", () => {
+            it("should decode a lightning invoice", async () => {
+                // act
+                const decoded = decodeInvoice(mock.invoice.address);
+                // assert
+                expect(decoded.expiry).toBe(mock.invoice.expiry);
+                expect(decoded.amountSats).toBe(mock.invoice.amount);
+                expect(decoded.description).toBe(mock.invoice.description);
+                expect(decoded.paymentHash).toBe(mock.invoice.paymentHash);
             });
 
-            // act
-            const pendingSwap = await lightning.createSubmarineSwap({
-                invoice: mock.invoice.address,
+            it("should throw on invalid Lightning invoice", async () => {
+                // act
+                const invoice = "lntb30m1invalid";
+                // assert
+                expect(() => decodeInvoice(invoice)).toThrow();
             });
-
-            // assert
-            expect(lightning.getSwapStatus).toBeInstanceOf(Function);
-            const status = await lightning.getSwapStatus(pendingSwap.id);
-            expect(status.status).toBe("swap.created");
-        });
-    });
-
-    describe("Decoding lightning invoices", () => {
-        it("should decode a lightning invoice", async () => {
-            // act
-            const decoded = decodeInvoice(mock.invoice.address);
-            // assert
-            expect(decoded.expiry).toBe(mock.invoice.expiry);
-            expect(decoded.amountSats).toBe(mock.invoice.amount);
-            expect(decoded.description).toBe(mock.invoice.description);
-            expect(decoded.paymentHash).toBe(mock.invoice.paymentHash);
-        });
-
-        it("should throw on invalid Lightning invoice", async () => {
-            // act
-            const invoice = "lntb30m1invalid";
-            // assert
-            expect(() => decodeInvoice(invoice)).toThrow();
-        });
-    });
-
-    describe("Sending Lightning Payments", () => {
-        it("should send a Lightning payment", async () => {
-            // arrange
-            const pendingSwap = mockSubmarineSwap;
-            vi.spyOn(wallet, "sendBitcoin").mockResolvedValueOnce(mock.txid);
-            vi.spyOn(lightning, "createSubmarineSwap").mockResolvedValueOnce(
-                pendingSwap
-            );
-            vi.spyOn(lightning, "waitForSwapSettlement").mockResolvedValueOnce({
-                preimage: mock.preimage,
-            });
-            // act
-            const result = await lightning.sendLightningPayment({
-                invoice: mock.invoice.address,
-            });
-            // assert
-            expect(wallet.sendBitcoin).toHaveBeenCalledWith({
-                address: mock.address,
-                amount: mock.invoice.amount,
-            });
-            expect(result.amount).toBe(mock.invoice.amount);
-            expect(result.preimage).toBe(mock.preimage);
-            expect(result.txid).toBe(mock.txid);
         });
     });
 
@@ -1009,72 +1098,6 @@ describe("ArkadeLightning", () => {
                 expect(result.type).toBe("reverse");
                 expect(result.status).toBe("swap.created");
             });
-        });
-    });
-
-    describe("waitAndClaim", () => {
-        it("should return valid txid when transaction is available", async () => {
-            // arrange
-            const pendingSwap = mockReverseSwap;
-
-            // Mock getSwapStatus to return a status with valid transaction
-            vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValue({
-                status: "invoice.settled",
-            });
-
-            // Mock getReverseSwapTxId to return an object with valid transaction id
-            vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
-                id: mock.txid,
-                hex: mock.hex,
-                timeoutBlockHeight: 123,
-            });
-
-            // Mock monitorSwap to directly trigger the invoice.settled case
-            vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
-                async (swapId, update) => {
-                    setTimeout(() => update("invoice.settled"), 10);
-                }
-            );
-
-            // act
-            const result = await lightning.waitAndClaim(pendingSwap);
-
-            // assert
-            expect(result.txid).toBe(mock.txid);
-            expect(result.txid).not.toBe("");
-        });
-
-        it("should throw error when transaction id is empty string", async () => {
-            // arrange
-            const pendingSwap = mockReverseSwap;
-
-            // Mock getSwapStatus to return a status with empty transaction id
-            vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValue({
-                status: "invoice.settled",
-                transaction: {
-                    id: "",
-                    hex: mock.hex,
-                },
-            });
-
-            // Mock getReverseSwapTxId to return a undefined id (the problematic case)
-            vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
-                id: "",
-                hex: mock.hex,
-                timeoutBlockHeight: 123,
-            });
-
-            // Mock monitorSwap to directly trigger the invoice.settled case
-            vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
-                async (swapId, update) => {
-                    setTimeout(() => update("invoice.settled"), 10);
-                }
-            );
-
-            // act & assert
-            await expect(lightning.waitAndClaim(pendingSwap)).rejects.toThrow(
-                "Transaction ID not available for settled swap"
-            );
         });
     });
 

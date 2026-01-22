@@ -350,6 +350,7 @@ describe("BoltzSwapProvider", () => {
                 expectedAmount: 21000,
                 claimPublicKey: mockHexCompressedPubKey,
                 acceptZeroConf: true,
+                timeoutBlockHeight: 21,
                 timeoutBlockHeights: {
                     refund: 17,
                     unilateralClaim: 21,
@@ -408,6 +409,7 @@ describe("BoltzSwapProvider", () => {
                 onchainAmount: 21000,
                 lockupAddress: "mock-lockupAddress",
                 refundPublicKey: mockHexCompressedPubKey,
+                timeoutBlockHeight: 21,
                 timeoutBlockHeights: {
                     refund: 17,
                     unilateralClaim: 21,
@@ -451,6 +453,7 @@ describe("BoltzSwapProvider", () => {
                 onchainAmount: 21000,
                 lockupAddress: "mock-lockup-address",
                 refundPublicKey: "mock-refund-public-key",
+                timeoutBlockHeight: 21,
                 timeoutBlockHeights: {
                     refund: 800000,
                     unilateralClaim: 800050,
@@ -496,6 +499,7 @@ describe("BoltzSwapProvider", () => {
                 onchainAmount: 21000,
                 lockupAddress: "mock-lockup-address",
                 refundPublicKey: "mock-refund-public-key",
+                timeoutBlockHeight: 21,
                 timeoutBlockHeights: {
                     refund: 800000,
                     unilateralClaim: 800050,
