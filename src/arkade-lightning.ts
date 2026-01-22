@@ -277,7 +277,6 @@ export class ArkadeLightning {
 
         // save pending swap to storage
         await this.savePendingSubmarineSwap(pendingSwap);
-
         // send funds to the swap address
         const txid = await this.wallet.sendBitcoin({
             address: pendingSwap.response.address,
@@ -292,6 +291,7 @@ export class ArkadeLightning {
                 txid,
             };
         } catch (error: any) {
+            console.warn("Error during swap settlement:", error);
             if (error.isRefundable) {
                 await this.refundVHTLC(pendingSwap);
                 const finalStatus = await this.getSwapStatus(pendingSwap.id);

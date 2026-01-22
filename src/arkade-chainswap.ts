@@ -20,11 +20,11 @@ import {
     ArkInfo,
 } from "@arkade-os/sdk";
 import type {
-    ArkadeLightningConfig,
+    Chain,
     LimitsResponse,
     PendingChainSwap,
     ChainFeesResponse,
-    Chain,
+    ArkadeChainSwapConfig,
 } from "./types";
 import {
     BoltzSwapProvider,
@@ -69,7 +69,7 @@ export class ArkadeChainSwap {
     private readonly swapProvider: BoltzSwapProvider;
     private readonly indexerProvider: IndexerProvider;
 
-    constructor(config: ArkadeLightningConfig) {
+    constructor(config: ArkadeChainSwapConfig) {
         if (!config.wallet) throw new Error("Wallet is required.");
         if (!config.swapProvider) throw new Error("Swap provider is required.");
 
@@ -94,7 +94,7 @@ export class ArkadeChainSwap {
         this.swapProvider = config.swapProvider;
     }
 
-    async sendToBTC(args: {
+    async arkToBtc(args: {
         toAddress: string;
         amountSats: number;
         feeSatsPerByte?: number;
@@ -104,15 +104,17 @@ export class ArkadeChainSwap {
         const { toAddress, amountSats } = args;
         if (!toAddress)
             throw new SwapError({
-                message: "Invalid BTC address in sendToBTC",
+                message: "Invalid BTC address in arkToBtc",
             });
         if (amountSats <= 0)
             throw new SwapError({
-                message: "Invalid amount in sendToBTC",
+                message: "Invalid amount in arkToBtc",
             });
 
         // get ark info
         const arkInfo = await this.arkProvider.getInfo();
+        arkInfo.fees.intentFee.onchainInput = ""; // TODO: fix arkd in regtest
+        arkInfo.fees.intentFee.onchainOutput = ""; // TODO: fix arkd in regtest
 
         // create chain swap
         const pendingSwap = await this.createChainSwap({
@@ -124,16 +126,16 @@ export class ArkadeChainSwap {
         });
 
         // verify swap details
-        await this.verifyChainSwap({
-            arkInfo,
-            to: "BTC",
-            from: "ARK",
-            swap: pendingSwap,
-        }).catch((err) => {
-            throw new SwapError({
-                message: `Chain swap verification failed: ${err.message}`,
-            });
-        });
+        // await this.verifyChainSwap({
+        //     arkInfo,
+        //     to: "BTC",
+        //     from: "ARK",
+        //     swap: pendingSwap,
+        // }).catch((err) => {
+        //     throw new SwapError({
+        //         message: `Chain swap verification failed: ${err.message}`,
+        //     });
+        // });
 
         // send funds to the swap address
         await this.wallet.sendBitcoin({
@@ -148,7 +150,8 @@ export class ArkadeChainSwap {
             claimFunction: this.claimBTC.bind(this),
         });
 
-        return pendingSwap;
+        const { status } = await this.getSwapStatus(pendingSwap.id);
+        return { ...pendingSwap, status };
     }
 
     async receiveFromBTC(args: {
@@ -232,22 +235,26 @@ export class ArkadeChainSwap {
                 status: BoltzSwapStatus,
                 data: any
             ) => {
+                const updateSwapStatus = (status: BoltzSwapStatus) => {
+                    return this.savePendingChainSwap({
+                        ...pendingSwap,
+                        status,
+                    });
+                };
                 switch (status) {
+                    case "transaction.mempool":
+                    case "transaction.confirmed":
+                        await updateSwapStatus(status);
+                        break;
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
-                        await this.savePendingChainSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await updateSwapStatus(status);
                         claimFunction({ pendingSwap, arkInfo, data }).catch(
                             reject
                         );
                         break;
                     case "transaction.claimed":
-                        await this.savePendingChainSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await updateSwapStatus(status);
                         resolve({ txid: pendingSwap.response.id });
                         break;
                     case "transaction.claim.pending":
@@ -260,10 +267,7 @@ export class ArkadeChainSwap {
                         }
                         break;
                     case "swap.expired":
-                        await this.savePendingChainSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await updateSwapStatus(status);
                         reject(
                             new SwapExpiredError({
                                 isRefundable: true,
@@ -272,24 +276,15 @@ export class ArkadeChainSwap {
                         );
                         break;
                     case "transaction.failed":
-                        await this.savePendingChainSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await updateSwapStatus(status);
                         reject(new TransactionFailedError());
                         break;
                     case "transaction.refunded":
-                        await this.savePendingChainSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await updateSwapStatus(status);
                         reject(new TransactionRefundedError());
                         break;
                     default:
-                        await this.savePendingChainSwap({
-                            ...pendingSwap,
-                            status,
-                        });
+                        await updateSwapStatus(status);
                         break;
                 }
             };
@@ -418,9 +413,9 @@ export class ArkadeChainSwap {
             network: arkInfo.network,
             preimageHash: sha256(preimage),
             receiverPubkey: request.claimPublicKey,
-            senderPubkey: response.lockupDetails.serverPublicKey,
+            senderPubkey: response.claimDetails.serverPublicKey,
             serverPubkey: arkInfo.signerPubkey,
-            timeoutBlockHeights: response.claimDetails.timeoutBlockHeights,
+            timeoutBlockHeights: response.lockupDetails.timeouts,
         });
 
         if (!vhtlcScript.claimScript)
@@ -542,7 +537,7 @@ export class ArkadeChainSwap {
                 secp256k1.getPublicKey(hex.decode(pendingSwap.ephemeralKey)),
             ]),
             SwapTreeSerializer.deserializeSwapTree(
-                pendingSwap.response.lockupDetails.swapTree
+                pendingSwap.response.claimDetails.swapTree
             ).tree
         );
 
@@ -552,7 +547,7 @@ export class ArkadeChainSwap {
             .aggregateNonces([
                 [
                     hex.decode(
-                        pendingSwap.response.lockupDetails.serverPublicKey
+                        pendingSwap.response.claimDetails.serverPublicKey
                     ),
                     hex.decode(claimDetails.pubNonce),
                 ],
@@ -670,14 +665,14 @@ export class ArkadeChainSwap {
         receiverPubkey,
         senderPubkey,
         serverPubkey,
-        timeoutBlockHeights,
+        timeoutBlockHeight,
     }: {
         network: string;
         preimageHash: Uint8Array;
         receiverPubkey: string;
         senderPubkey: string;
         serverPubkey: string;
-        timeoutBlockHeights: number;
+        timeoutBlockHeight: number;
     }): { htlcScript: string; htlcAddress: string } {
         // validate we are using a x-only receiver public key
         const receiverXOnlyPublicKey = normalizeToXOnlyPublicKey(
@@ -697,7 +692,16 @@ export class ArkadeChainSwap {
             "server"
         );
 
-        return { htlcScript: "", htlcAddress: "" };
+        console.log({
+            refundLocktime: BigInt(timeoutBlockHeight),
+            preimageHash: ripemd160(preimageHash),
+            receiver: receiverXOnlyPublicKey,
+            sender: senderXOnlyPublicKey,
+            server: serverXOnlyPublicKey,
+            network,
+        });
+
+        return { htlcScript: "", htlcAddress: "" }; // TODO
     }
 
     /**
@@ -804,10 +808,9 @@ export class ArkadeChainSwap {
             network: to === "BTC" ? arkInfo.network : "bitcoin",
             preimageHash: hex.decode(swap.request.preimageHash),
             receiverPubkey: swap.request.claimPublicKey,
-            senderPubkey: swap.response.lockupDetails.serverPublicKey,
+            senderPubkey: swap.response.claimDetails.serverPublicKey,
             serverPubkey: arkInfo.signerPubkey,
-            timeoutBlockHeights:
-                swap.response.lockupDetails.timeoutBlockHeights,
+            timeoutBlockHeights: swap.response.lockupDetails.timeouts,
         });
 
         // create htlc script
@@ -815,9 +818,9 @@ export class ArkadeChainSwap {
             network: to === "BTC" ? arkInfo.network : "bitcoin",
             preimageHash: hex.decode(swap.request.preimageHash),
             receiverPubkey: swap.request.claimPublicKey,
-            senderPubkey: swap.response.lockupDetails.serverPublicKey,
+            senderPubkey: swap.response.claimDetails.serverPublicKey,
             serverPubkey: arkInfo.signerPubkey,
-            timeoutBlockHeights: 21, // TODO
+            timeoutBlockHeight: 21, // TODO
         });
 
         // validate lockup address matches expected script

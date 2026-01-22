@@ -170,9 +170,26 @@ export const isSubmarineSwapRefundable = (
 
 // API call types and validators
 
+type TimeoutBlockHeights = {
+    refund: number;
+    unilateralClaim: number;
+    unilateralRefund: number;
+    unilateralRefundWithoutReceiver: number;
+};
+
+const isTimeoutBlockHeights = (data: any): data is TimeoutBlockHeights => {
+    return (
+        data &&
+        typeof data === "object" &&
+        typeof data.refund === "number" &&
+        typeof data.unilateralClaim === "number" &&
+        typeof data.unilateralRefund === "number" &&
+        typeof data.unilateralRefundWithoutReceiver === "number"
+    );
+};
+
 export type GetReverseSwapTxIdResponse = {
     id: string;
-    hex: string;
     timeoutBlockHeight: number;
 };
 
@@ -183,7 +200,6 @@ export const isGetReverseSwapTxIdResponse = (
         data &&
         typeof data === "object" &&
         typeof data.id === "string" &&
-        typeof data.hex === "string" &&
         typeof data.timeoutBlockHeight === "number"
     );
 };
@@ -320,12 +336,7 @@ export type CreateSubmarineSwapResponse = {
     expectedAmount: number;
     claimPublicKey: string;
     acceptZeroConf: boolean;
-    timeoutBlockHeights: {
-        refund: number;
-        unilateralClaim: number;
-        unilateralRefund: number;
-        unilateralRefundWithoutReceiver: number;
-    };
+    timeoutBlockHeights: TimeoutBlockHeights;
 };
 
 export const isCreateSubmarineSwapResponse = (
@@ -339,12 +350,7 @@ export const isCreateSubmarineSwapResponse = (
         typeof data.expectedAmount === "number" &&
         typeof data.claimPublicKey === "string" &&
         typeof data.acceptZeroConf === "boolean" &&
-        data.timeoutBlockHeights &&
-        typeof data.timeoutBlockHeights === "object" &&
-        typeof data.timeoutBlockHeights.unilateralClaim === "number" &&
-        typeof data.timeoutBlockHeights.unilateralRefund === "number" &&
-        typeof data.timeoutBlockHeights.unilateralRefundWithoutReceiver ===
-            "number"
+        isTimeoutBlockHeights(data.timeoutBlockHeights)
     );
 };
 
@@ -373,12 +379,7 @@ export type CreateReverseSwapResponse = {
     onchainAmount: number;
     lockupAddress: string;
     refundPublicKey: string;
-    timeoutBlockHeights: {
-        refund: number;
-        unilateralClaim: number;
-        unilateralRefund: number;
-        unilateralRefundWithoutReceiver: number;
-    };
+    timeoutBlockHeights: TimeoutBlockHeights;
 };
 
 export const isCreateReverseSwapResponse = (
@@ -392,13 +393,7 @@ export const isCreateReverseSwapResponse = (
         typeof data.onchainAmount === "number" &&
         typeof data.lockupAddress === "string" &&
         typeof data.refundPublicKey === "string" &&
-        data.timeoutBlockHeights &&
-        typeof data.timeoutBlockHeights === "object" &&
-        typeof data.timeoutBlockHeights.refund === "number" &&
-        typeof data.timeoutBlockHeights.unilateralClaim === "number" &&
-        typeof data.timeoutBlockHeights.unilateralRefund === "number" &&
-        typeof data.timeoutBlockHeights.unilateralRefundWithoutReceiver ===
-            "number"
+        isTimeoutBlockHeights(data.timeoutBlockHeights)
     );
 };
 
@@ -482,6 +477,79 @@ const isGetChainPairsResponse = (data: any): data is GetChainPairsResponse => {
     );
 };
 
+type SwapTree = {
+    claimLeaf: {
+        version: number;
+        output: string;
+    };
+    refundLeaf: {
+        version: number;
+        output: string;
+    };
+};
+
+const isSwapTree = (data: any): data is SwapTree => {
+    return (
+        data &&
+        typeof data === "object" &&
+        typeof data.claimLeaf === "object" &&
+        typeof data.claimLeaf.version === "number" &&
+        typeof data.claimLeaf.output === "string" &&
+        typeof data.refundLeaf === "object" &&
+        typeof data.refundLeaf.version === "number" &&
+        typeof data.refundLeaf.output === "string"
+    );
+};
+
+type ChainSwapClaimDetails = {
+    serverPublicKey: string;
+    amount: number;
+    lockupAddress: string;
+    timeoutBlockHeight: number;
+    swapTree: SwapTree;
+};
+
+const isChainSwapClaimDetails = (data: any): data is ChainSwapClaimDetails => {
+    return (
+        data &&
+        typeof data === "object" &&
+        typeof data.amount === "number" &&
+        typeof data.lockupAddress === "string" &&
+        typeof data.serverPublicKey === "string" &&
+        typeof data.timeoutBlockHeight === "number" &&
+        isSwapTree(data.swapTree)
+    );
+};
+
+type ChainSwapLockupDetails = {
+    amount: number;
+    lockupAddress: string;
+    timeoutBlockHeight: number;
+    timeouts: {
+        refund: number;
+        unilateralClaim: number;
+        unilateralRefund: number;
+        unilateralRefundWithoutReceiver: number;
+    };
+};
+
+const isChainSwapLockupDetails = (
+    data: any
+): data is ChainSwapLockupDetails => {
+    return (
+        data &&
+        typeof data === "object" &&
+        typeof data.amount === "number" &&
+        typeof data.lockupAddress === "string" &&
+        typeof data.timeoutBlockHeight === "number" &&
+        typeof data.timeouts === "object" &&
+        typeof data.timeouts.refund === "number" &&
+        typeof data.timeouts.unilateralClaim === "number" &&
+        typeof data.timeouts.unilateralRefund === "number" &&
+        typeof data.timeouts.unilateralRefundWithoutReceiver === "number"
+    );
+};
+
 export type CreateChainSwapRequest = {
     to: Chain;
     from: Chain;
@@ -494,57 +562,10 @@ export type CreateChainSwapRequest = {
     referralId?: string;
 };
 
-type CreateChainSwapResponseDetails = {
-    swapTree: {
-        claimLeaf: {
-            version: number;
-            output: string;
-        };
-        refundLeaf: {
-            version: number;
-            output: string;
-        };
-    };
-    lockupAddress: string;
-    serverPublicKey: string;
-    timeoutBlockHeights: {
-        refund: number;
-        unilateralClaim: number;
-        unilateralRefund: number;
-        unilateralRefundWithoutReceiver: number;
-    };
-    amount: number;
-    refundAddress: string;
-    bip21: string;
-};
-
-const isCreateChainSwapResponseDetails = (
-    data: any
-): data is CreateChainSwapResponseDetails => {
-    return (
-        data &&
-        typeof data === "object" &&
-        typeof data.swapTree === "object" &&
-        typeof data.swapTree.claimLeaf === "object" &&
-        typeof data.swapTree.claimLeaf.version === "number" &&
-        typeof data.swapTree.claimLeaf.output === "string" &&
-        typeof data.swapTree.refundLeaf === "object" &&
-        typeof data.swapTree.refundLeaf.version === "number" &&
-        typeof data.swapTree.refundLeaf.output === "string" &&
-        typeof data.lockupAddress === "string" &&
-        typeof data.serverPublicKey === "string" &&
-        typeof data.timeoutBlockHeight === "number" &&
-        typeof data.amount === "number" &&
-        typeof data.refundAddress === "string" &&
-        typeof data.bip21 === "string"
-    );
-};
-
 export type CreateChainSwapResponse = {
     id: string;
-    referralId: string;
-    claimDetails: CreateChainSwapResponseDetails;
-    lockupDetails: CreateChainSwapResponseDetails;
+    claimDetails: ChainSwapClaimDetails;
+    lockupDetails: ChainSwapLockupDetails;
 };
 
 const isCreateChainSwapResponse = (
@@ -554,11 +575,8 @@ const isCreateChainSwapResponse = (
         data &&
         typeof data === "object" &&
         typeof data.id === "string" &&
-        typeof data.referralId === "string" &&
-        data.claimDetails &&
-        isCreateChainSwapResponseDetails(data.claimDetails) &&
-        data.lockupDetails &&
-        isCreateChainSwapResponseDetails(data.lockupDetails)
+        isChainSwapClaimDetails(data.claimDetails) &&
+        isChainSwapLockupDetails(data.lockupDetails)
     );
 };
 
@@ -673,6 +691,7 @@ export type Details = {
     lockupAddress: string;
     serverPublicKey: string;
     timeoutBlockHeight: number;
+    timeoutBlockHeights: TimeoutBlockHeights;
     preimageHash?: string;
 };
 
@@ -691,6 +710,7 @@ export const isDetails = (data: any): data is Details => {
         typeof data.lockupAddress === "string" &&
         typeof data.serverPublicKey === "string" &&
         typeof data.timeoutBlockHeight === "number" &&
+        isTimeoutBlockHeights(data.timeoutBlockHeights) &&
         (data.preimageHash === undefined ||
             typeof data.preimageHash === "string")
     );
@@ -1129,9 +1149,11 @@ export class BoltzSwapProvider {
                     case "invoice.pending":
                     case "invoice.set":
                     case "swap.created":
-                    case "transaction.claim.pending":
-                    case "transaction.confirmed":
                     case "transaction.mempool":
+                    case "transaction.confirmed":
+                    case "transaction.claim.pending":
+                    case "transaction.server.mempool":
+                    case "transaction.server.confirmed":
                         update(status, msg.args[0]);
                 }
             };
