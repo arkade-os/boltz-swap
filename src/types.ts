@@ -97,6 +97,13 @@ export interface RefundHandler {
     onRefundNeeded: (swapData: PendingSubmarineSwap) => Promise<void>;
 }
 
+export interface ArkadeChainSwapConfig {
+    wallet: Wallet | ServiceWorkerWallet;
+    arkProvider?: ArkProvider;
+    swapProvider: BoltzSwapProvider;
+    indexerProvider?: IndexerProvider;
+}
+
 export interface ArkadeLightningConfig {
     wallet: Wallet | ServiceWorkerWallet;
     arkProvider?: ArkProvider;
