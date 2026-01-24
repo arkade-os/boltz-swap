@@ -1,5 +1,6 @@
 import { verifyTapscriptSignatures } from "@arkade-os/sdk";
 import { Transaction } from "@scure/btc-signer";
+import { hex } from "@scure/base";
 
 export const verifySignatures = (
     tx: Transaction,
@@ -21,18 +22,20 @@ export const verifySignatures = (
  * @param swapId
  * @returns Uint8Array
  */
-export const normalizeToXOnlyPublicKey = (
-    publicKey: Uint8Array,
-    keyName: string,
-    swapId?: string
+export const normalizeToXOnlyKey = (
+    someKey: Uint8Array | string,
+    keyName = "",
+    swapId = ""
 ): Uint8Array => {
-    if (publicKey.length === 33) {
-        return publicKey.slice(1);
+    const keyBytes =
+        typeof someKey === "string" ? hex.decode(someKey) : someKey;
+    if (keyBytes.length === 33) {
+        return keyBytes.slice(1);
     }
-    if (publicKey.length !== 32) {
+    if (keyBytes.length !== 32) {
         throw new Error(
-            `Invalid ${keyName} public key length: ${publicKey.length} ${swapId ? "for swap " + swapId : ""}`
+            `Invalid ${keyName} key length: ${keyBytes.length} ${swapId ? "for swap " + swapId : ""}`
         );
     }
-    return publicKey;
+    return keyBytes;
 };

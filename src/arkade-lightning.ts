@@ -58,7 +58,7 @@ import { Address, OutScript, Transaction } from "@scure/btc-signer";
 import { TransactionInput, TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
-import { verifySignatures } from "./utils/signatures";
+import { normalizeToXOnlyKey, verifySignatures } from "./utils/signatures";
 import {
     extractInvoiceAmount,
     extractTimeLockFromLeafOutput,
@@ -291,7 +291,6 @@ export class ArkadeLightning {
                 txid,
             };
         } catch (error: any) {
-            console.warn("Error during swap settlement:", error);
             if (error.isRefundable) {
                 await this.refundVHTLC(pendingSwap);
                 const finalStatus = await this.getSwapStatus(pendingSwap.id);
@@ -430,21 +429,21 @@ export class ArkadeLightning {
         const address = await this.wallet.getAddress();
 
         // validate we are using a x-only receiver public key
-        const ourXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const ourXOnlyPublicKey = normalizeToXOnlyKey(
             await this.wallet.identity.xOnlyPublicKey(),
             "our",
             pendingSwap.id
         );
 
         // validate we are using a x-only boltz public key
-        const boltzXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const boltzXOnlyPublicKey = normalizeToXOnlyKey(
             hex.decode(pendingSwap.response.refundPublicKey),
             "boltz",
             pendingSwap.id
         );
 
         // validate we are using a x-only server public key
-        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const serverXOnlyPublicKey = normalizeToXOnlyKey(
             hex.decode(aspInfo.signerPubkey),
             "server",
             pendingSwap.id
@@ -564,21 +563,21 @@ export class ArkadeLightning {
         if (!address) throw new Error("Failed to get ark address from wallet");
 
         // validate we are using a x-only public key
-        const ourXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const ourXOnlyPublicKey = normalizeToXOnlyKey(
             await this.wallet.identity.xOnlyPublicKey(),
             "our",
             pendingSwap.id
         );
 
         // validate we are using a x-only server public key
-        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const serverXOnlyPublicKey = normalizeToXOnlyKey(
             hex.decode(aspInfo.signerPubkey),
             "server",
             pendingSwap.id
         );
 
         // validate we are using a x-only boltz public key
-        const boltzXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const boltzXOnlyPublicKey = normalizeToXOnlyKey(
             hex.decode(pendingSwap.response.claimPublicKey),
             "boltz",
             pendingSwap.id
@@ -594,7 +593,7 @@ export class ArkadeLightning {
         });
 
         if (!vhtlcScript.claimScript)
-            throw new Error("Failed to create VHTLC script for reverse swap");
+            throw new Error("Failed to create VHTLC script for submarine swap");
 
         const isRecoverableVtxo = isRecoverable(vtxo);
 
@@ -1361,19 +1360,19 @@ export class ArkadeLightning {
         };
     }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string } {
         // validate we are using a x-only receiver public key
-        const receiverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const receiverXOnlyPublicKey = normalizeToXOnlyKey(
             hex.decode(receiverPubkey),
             "receiver"
         );
 
         // validate we are using a x-only sender public key
-        const senderXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const senderXOnlyPublicKey = normalizeToXOnlyKey(
             hex.decode(senderPubkey),
             "sender"
         );
 
         // validate we are using a x-only server public key
-        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const serverXOnlyPublicKey = normalizeToXOnlyKey(
             hex.decode(serverPubkey),
             "server"
         );
@@ -1534,29 +1533,6 @@ export class ArkadeLightning {
                     );
                 });
         }
-    }
-
-    /**
-     * Validate we are using a x-only public key
-     * @param publicKey
-     * @param keyName
-     * @param swapId
-     * @returns Uint8Array
-     */
-    private normalizeToXOnlyPublicKey(
-        publicKey: Uint8Array,
-        keyName: string,
-        swapId?: string
-    ): Uint8Array {
-        if (publicKey.length === 33) {
-            return publicKey.slice(1);
-        }
-        if (publicKey.length !== 32) {
-            throw new Error(
-                `Invalid ${keyName} public key length: ${publicKey.length} ${swapId ? "for swap " + swapId : ""}`
-            );
-        }
-        return publicKey;
     }
 
     /**

@@ -397,6 +397,11 @@ export const isCreateReverseSwapResponse = (
     );
 };
 
+export type RefundSubmarineSwapRequest = {
+    transaction: string;
+    checkpoint: string;
+};
+
 export type RefundSubmarineSwapResponse = {
     transaction: string;
     checkpoint: string;
@@ -501,52 +506,48 @@ const isSwapTree = (data: any): data is SwapTree => {
     );
 };
 
-type ChainSwapClaimDetails = {
-    serverPublicKey: string;
-    amount: number;
-    lockupAddress: string;
-    timeoutBlockHeight: number;
-    swapTree: SwapTree;
+export type Timeouts = {
+    refund: number;
+    unilateralClaim: number;
+    unilateralRefund: number;
+    unilateralRefundWithoutReceiver: number;
 };
 
-const isChainSwapClaimDetails = (data: any): data is ChainSwapClaimDetails => {
+const isTimeouts = (data: any): data is Timeouts => {
     return (
         data &&
         typeof data === "object" &&
-        typeof data.amount === "number" &&
-        typeof data.lockupAddress === "string" &&
-        typeof data.serverPublicKey === "string" &&
-        typeof data.timeoutBlockHeight === "number" &&
-        isSwapTree(data.swapTree)
+        typeof data.refund === "number" &&
+        typeof data.unilateralClaim === "number" &&
+        typeof data.unilateralRefund === "number" &&
+        typeof data.unilateralRefundWithoutReceiver === "number"
     );
 };
 
-type ChainSwapLockupDetails = {
+type ChainSwapDetailsResponse = {
     amount: number;
     lockupAddress: string;
     timeoutBlockHeight: number;
-    timeouts: {
-        refund: number;
-        unilateralClaim: number;
-        unilateralRefund: number;
-        unilateralRefundWithoutReceiver: number;
-    };
+    serverPublicKey?: string;
+    swapTree?: SwapTree;
+    timeouts?: Timeouts;
+    bip21?: string;
 };
 
-const isChainSwapLockupDetails = (
+const isChainSwapDetailsResponse = (
     data: any
-): data is ChainSwapLockupDetails => {
+): data is ChainSwapDetailsResponse => {
     return (
         data &&
         typeof data === "object" &&
         typeof data.amount === "number" &&
         typeof data.lockupAddress === "string" &&
         typeof data.timeoutBlockHeight === "number" &&
-        typeof data.timeouts === "object" &&
-        typeof data.timeouts.refund === "number" &&
-        typeof data.timeouts.unilateralClaim === "number" &&
-        typeof data.timeouts.unilateralRefund === "number" &&
-        typeof data.timeouts.unilateralRefundWithoutReceiver === "number"
+        (data.swapTree === undefined || isSwapTree(data.swapTree)) &&
+        (data.timeouts === undefined || isTimeouts(data.timeouts)) &&
+        (data.bip21 === undefined || typeof data.bip21 === "string") &&
+        (data.serverPublicKey === undefined ||
+            typeof data.serverPublicKey === "string")
     );
 };
 
@@ -564,8 +565,8 @@ export type CreateChainSwapRequest = {
 
 export type CreateChainSwapResponse = {
     id: string;
-    claimDetails: ChainSwapClaimDetails;
-    lockupDetails: ChainSwapLockupDetails;
+    claimDetails: ChainSwapDetailsResponse;
+    lockupDetails: ChainSwapDetailsResponse;
 };
 
 const isCreateChainSwapResponse = (
@@ -575,8 +576,8 @@ const isCreateChainSwapResponse = (
         data &&
         typeof data === "object" &&
         typeof data.id === "string" &&
-        isChainSwapClaimDetails(data.claimDetails) &&
-        isChainSwapLockupDetails(data.lockupDetails)
+        isChainSwapDetailsResponse(data.claimDetails) &&
+        isChainSwapDetailsResponse(data.lockupDetails)
     );
 };
 
@@ -598,29 +599,21 @@ const isGetChainClaimDetailsResponse = (
     );
 };
 
-type PostChainClaimDetailsRequestToArk = {
-    signature: {
-        partialSignature: string;
-        pubNonce: string;
-    };
-};
-
-type PostChainClaimDetailsRequestToBtc = {
-    preimage: string;
-    toSign: {
+export type PostChainClaimDetailsRequest = {
+    preimage?: string;
+    toSign?: {
         index: number;
         transaction: string;
         pubNonce: string;
     };
+    signature?: {
+        partialSignature: string;
+        pubNonce: string;
+    };
 };
-
-export type PostChainClaimDetailsRequest =
-    | PostChainClaimDetailsRequestToArk
-    | PostChainClaimDetailsRequestToBtc;
-
 export type PostChainClaimDetailsResponse = {
-    pubNonce: string;
-    partialSignature: string;
+    pubNonce?: string;
+    partialSignature?: string;
 };
 
 const isPostChainClaimDetailsResponse = (
@@ -629,9 +622,15 @@ const isPostChainClaimDetailsResponse = (
     return (
         data &&
         typeof data === "object" &&
-        typeof data.pubNonce === "string" &&
-        typeof data.partialSignature === "string"
+        ((typeof data.pubNonce === "string" &&
+            typeof data.partialSignature === "string") ||
+            (typeof data.pubNonce === "undefined" &&
+                typeof data.partialSignature === "undefined"))
     );
+};
+
+export type PostBtcTransactionRequest = {
+    hex: string;
 };
 
 export type PostBtcTransactionResponse = {
@@ -914,13 +913,7 @@ export class BoltzSwapProvider {
             });
         }
         // make submarine swap request
-        const requestBody: {
-            from: "ARK";
-            to: "BTC";
-            invoice: string;
-            refundPublicKey: string;
-            referralId?: string;
-        } = {
+        const requestBody = {
             from: "ARK",
             to: "BTC",
             invoice,
@@ -950,15 +943,7 @@ export class BoltzSwapProvider {
             });
         }
         // make reverse swap request
-        const requestBody: {
-            from: "BTC";
-            to: "ARK";
-            invoiceAmount: number;
-            claimPublicKey: string;
-            preimageHash: string;
-            description?: string;
-            referralId?: string;
-        } = {
+        const requestBody = {
             from: "BTC",
             to: "ARK",
             invoiceAmount,
@@ -973,8 +958,10 @@ export class BoltzSwapProvider {
             "POST",
             requestBody
         );
+
         if (!isCreateReverseSwapResponse(response))
             throw new SchemaError({ message: "Error creating reverse swap" });
+
         return response;
     }
 
@@ -1061,7 +1048,7 @@ export class BoltzSwapProvider {
         checkpoint: Transaction
     ): Promise<{ transaction: Transaction; checkpoint: Transaction }> {
         // make refund swap request
-        const requestBody = {
+        const requestBody: RefundSubmarineSwapRequest = {
             checkpoint: base64.encode(checkpoint.toPSBT()),
             transaction: base64.encode(transaction.toPSBT()),
         };
@@ -1198,15 +1185,19 @@ export class BoltzSwapProvider {
     }
 
     async postBtcTransaction(hex: string): Promise<PostBtcTransactionResponse> {
+        const requestBody: PostBtcTransactionRequest = { hex };
+
         const response = await this.request<PostBtcTransactionResponse>(
-            "v2/chain/BTC/transaction",
+            "/v2/chain/BTC/transaction",
             "POST",
-            hex
+            requestBody
         );
+
         if (!isPostBtcTransactionResponse(response))
             throw new SchemaError({
                 message: "error posting BTC transaction",
             });
+
         return response;
     }
 
@@ -1214,16 +1205,17 @@ export class BoltzSwapProvider {
         swapId: string,
         request: PostChainClaimDetailsRequest
     ): Promise<PostChainClaimDetailsResponse> {
-        const requestBody = request;
         const response = await this.request<PostChainClaimDetailsResponse>(
             `/v2/swap/chain/${swapId}/claim`,
             "POST",
-            requestBody
+            request
         );
+
         if (!isPostChainClaimDetailsResponse(response))
             throw new SchemaError({
                 message: `error fetching claim details for swap: ${swapId}`,
             });
+
         return response;
     }
 

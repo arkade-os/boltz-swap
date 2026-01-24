@@ -74,11 +74,6 @@ describe("ArkadeLightning", () => {
     let aliceSecKey: Uint8Array;
     let aliceCompressedPubKey: string;
 
-    beforeAll(async () => {
-        // make sure ark cli funds are not expired
-        await execAsync(`${arkcli} settle --password secret`);
-    });
-
     beforeEach(async () => {
         const arkUrl = "http://localhost:7070";
 
@@ -329,7 +324,7 @@ describe("ArkadeLightning", () => {
                 await lightning.waitAndClaim(pendingSwap);
 
                 // wait a bit for the wallet to detect the payment
-                await sleep(3000);
+                await sleep(2000);
 
                 const balanceAfter = await wallet.getBalance();
 
@@ -492,7 +487,7 @@ describe("ArkadeLightning", () => {
                 await cancelInvoice(r_hash); // cancel invoice to make the swap fail
 
                 // act
-                expect(() =>
+                await expect(() =>
                     lightning.sendLightningPayment({
                         invoice,
                     })
