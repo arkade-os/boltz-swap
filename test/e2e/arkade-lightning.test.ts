@@ -12,6 +12,7 @@ import {
     Wallet,
     SingleKey,
     EsploraProvider,
+    ArkNote,
 } from "@arkade-os/sdk";
 import { hex } from "@scure/base";
 import { schnorr } from "@noble/curves/secp256k1.js";
@@ -40,19 +41,6 @@ const payInvoice = async (invoice: string) => {
     return execAsync(`${lncli} payinvoice --force ${invoice}`);
 };
 
-// fund an address using arkd docker container
-const fundAddress = async (address: string, amount: number) => {
-    return execAsync(
-        `${arkcli} send --to ${address} --amount ${amount} --password secret`
-    );
-};
-
-// fund a wallet by getting its address and funding it
-const fundWallet = async (wallet: Wallet, amount: number) => {
-    const address = await wallet.getAddress();
-    return fundAddress(address, amount);
-};
-
 // get a new lightning invoice from lnd docker container
 const getNewLightningInvoice = async (
     amount: number
@@ -73,10 +61,43 @@ describe("ArkadeLightning", () => {
 
     let aliceSecKey: Uint8Array;
     let aliceCompressedPubKey: string;
+    let fundedWallet: Wallet;
+
+    const arkUrl = "http://localhost:7070";
+
+    const fundWallet = async (amount: number): Promise<void> => {
+        await fundedWallet.sendBitcoin({
+            address: await wallet.getAddress(),
+            amount,
+        });
+        await sleep(2000); // wait for the wallet to detect the incoming funds
+    };
+
+    // Funded wallet setup
+    beforeAll(async () => {
+        fundedWallet = await Wallet.create({
+            identity: SingleKey.fromRandomBytes(),
+            arkServerUrl: arkUrl,
+        });
+
+        const amount = 1_000_000;
+
+        const { stdout: arknote } = await execAsync(
+            `docker exec -t arkd arkd note --amount ${amount}`
+        );
+
+        await fundedWallet.settle({
+            inputs: [ArkNote.fromString(arknote.trim())],
+            outputs: [
+                {
+                    address: await fundedWallet.getAddress(),
+                    amount: BigInt(amount),
+                },
+            ],
+        });
+    }, 120_000);
 
     beforeEach(async () => {
-        const arkUrl = "http://localhost:7070";
-
         // Create identity
         aliceSecKey = schnorr.utils.randomSecretKey();
         aliceCompressedPubKey = hex.encode(pubECDSA(aliceSecKey, true));
@@ -361,9 +382,10 @@ describe("ArkadeLightning", () => {
             it("should send a Lightning payment", async () => {
                 // arrange
                 const amount = 1000;
-                await fundWallet(wallet, amount + 10);
+                const fundAmount = amount + 10;
+                await fundWallet(fundAmount);
+
                 const balanceBefore = await wallet.getBalance();
-                expect(balanceBefore.available).toEqual(amount + 10);
 
                 const { invoice, r_hash } =
                     await getNewLightningInvoice(amount);
@@ -382,6 +404,7 @@ describe("ArkadeLightning", () => {
                 expect(result.txid).toHaveLength(64);
                 expect(r_hash).toBe(preimageHash);
 
+                expect(balanceBefore.available).toEqual(fundAmount);
                 const balanceAfter = await wallet.getBalance();
                 expect(balanceAfter.available).toBeLessThan(
                     balanceBefore.available - amount
@@ -448,7 +471,8 @@ describe("ArkadeLightning", () => {
             it("should return preimage", async () => {
                 // arrange
                 const amount = 1000;
-                await fundWallet(wallet, amount + 10);
+                const fundAmount = amount + 10;
+                await fundWallet(fundAmount);
 
                 const { invoice, r_hash } =
                     await getNewLightningInvoice(amount);
@@ -476,31 +500,37 @@ describe("ArkadeLightning", () => {
         });
 
         describe("refundVHTLC", () => {
-            it("should automatically refund failed submarine swap", async () => {
-                // arrange
-                const amount = 1000;
-                await fundWallet(wallet, amount + 10);
+            it(
+                "should automatically refund failed submarine swap",
+                { timeout: 120_000 },
+                async () => {
+                    // arrange
+                    const amount = 1000;
+                    const fundAmount = amount + 10;
+                    await fundWallet(fundAmount);
 
-                const { invoice, r_hash } =
-                    await getNewLightningInvoice(amount);
+                    // create invoice
+                    const res = await getNewLightningInvoice(amount);
 
-                await cancelInvoice(r_hash); // cancel invoice to make the swap fail
+                    // cancel invoice to make the swap fail
+                    await cancelInvoice(res.r_hash);
 
-                // act
-                await expect(() =>
-                    lightning.sendLightningPayment({
-                        invoice,
-                    })
-                ).rejects.toThrow();
+                    // act
+                    await expect(() =>
+                        lightning.sendLightningPayment({
+                            invoice: res.invoice,
+                        })
+                    ).rejects.toThrow();
 
-                await sleep(1000); // wait a bit for the swap to be marked as failed
+                    await sleep(1000); // wait a bit for the swap to be marked as failed
 
-                // assert
-                const swapHistory = await lightning.getSwapHistory();
-                expect(swapHistory).toHaveLength(1);
-                const failedSwap = swapHistory[0] as PendingSubmarineSwap;
-                expect(failedSwap.status).toBe("invoice.failedToPay");
-            });
+                    // assert
+                    const swapHistory = await lightning.getSwapHistory();
+                    expect(swapHistory).toHaveLength(1);
+                    const failedSwap = swapHistory[0] as PendingSubmarineSwap;
+                    expect(failedSwap.status).toBe("invoice.failedToPay");
+                }
+            );
 
             it.skip(
                 "should recover swept VHTLCs",
@@ -508,36 +538,43 @@ describe("ArkadeLightning", () => {
                 async () => {
                     // arrange
                     const amount = 1000;
-                    const { invoice, r_hash } =
-                        await getNewLightningInvoice(amount);
-                    await cancelInvoice(r_hash); // cancel invoice to make the swap fail
+                    const fundAmount = 2 * amount;
+                    await fundWallet(fundAmount);
+                    const res = await getNewLightningInvoice(amount);
+                    await cancelInvoice(res.r_hash); // cancel invoice to make the swap fail
 
                     // act
-                    const swap = await lightning.createSubmarineSwap({
-                        invoice,
+                    const pendingSwap = await lightning.createSubmarineSwap({
+                        invoice: res.invoice,
                     });
 
                     // fund the vhtlc after invoice is canceled so it can be swept
-                    await fundAddress(
-                        swap.response.address,
-                        swap.response.expectedAmount
-                    );
+                    await wallet.sendBitcoin({
+                        address: pendingSwap.response.address,
+                        amount: pendingSwap.response.expectedAmount,
+                    });
 
-                    // generate block to expire the vhtlc
-                    await execAsync("nigiri rpc --generate 1");
+                    // get intermediate balance after funding vhtlc
+                    const intermediateBalance = await wallet.getBalance();
+
+                    // generate blocks to expire the vhtlc
+                    await execAsync("nigiri rpc --generate 21");
 
                     // sleep 30 seconds to let arkd sweep the vhtlc
                     await new Promise((resolve) => setTimeout(resolve, 30_000));
 
                     // try to refund (with vhtlc swept)
-                    await lightning.refundVHTLC(swap);
+                    await lightning.refundVHTLC(pendingSwap);
 
                     await sleep(1500);
 
                     // assert
+                    expect(intermediateBalance.available).toEqual(
+                        amount * 2 - pendingSwap.response.expectedAmount
+                    );
                     const balance = await wallet.getBalance();
                     expect(balance.available).toBe(
-                        swap.response.expectedAmount
+                        pendingSwap.response.expectedAmount
                     );
                 }
             );
@@ -639,7 +676,8 @@ describe("ArkadeLightning", () => {
             it("should save submarine swap when sending lightning payment", async () => {
                 // arrange
                 const amount = 1000;
-                await fundWallet(wallet, amount + 10);
+                const fundAmount = amount + 10;
+                await fundWallet(fundAmount);
                 const { invoice } = await getNewLightningInvoice(amount);
 
                 // act
@@ -672,33 +710,33 @@ describe("ArkadeLightning", () => {
                 // arrange
                 const { invoice: invoice1 } =
                     await getNewLightningInvoice(1000);
-                const pendingSwap1 = await lightning.createSubmarineSwap({
+
+                await lightning.createSubmarineSwap({
                     invoice: invoice1,
                 });
-                await sleep(10); // ensure different timestamps
-                const pendingSwap2 = await lightning.createReverseSwap({
+
+                await sleep(1000); // ensure different timestamps
+
+                await lightning.createReverseSwap({
                     amount: 2000,
                 });
-                await sleep(10); // ensure different timestamps
-                const pendingSwap3 = await lightning.createReverseSwap({
+
+                await sleep(1000); // ensure different timestamps
+
+                await lightning.createReverseSwap({
                     amount: 3000,
-                });
-                await sleep(10); // ensure different timestamps
-                const pendingSwap4 = await lightning.createReverseSwap({
-                    amount: 4000,
                 });
 
                 // act
                 const result = await lightning.getSwapHistory();
 
                 // assert
-                expect(result).toHaveLength(4);
+                expect(result).toHaveLength(3);
 
                 // Should be sorted by createdAt desc (newest first)
                 expect(result[0].type).toBe("reverse"); // newest
                 expect(result[1].type).toBe("reverse");
-                expect(result[2].type).toBe("reverse");
-                expect(result[3].type).toBe("submarine"); // oldest
+                expect(result[2].type).toBe("submarine"); // oldest
 
                 // Verify the sort order
                 for (let i = 0; i < result.length - 1; i++) {

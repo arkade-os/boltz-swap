@@ -7,6 +7,7 @@ import {
     Wallet,
     SingleKey,
     EsploraProvider,
+    ArkNote,
 } from "@arkade-os/sdk";
 import { hex } from "@scure/base";
 import { schnorr } from "@noble/curves/secp256k1.js";
@@ -15,27 +16,15 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { ArkadeChainSwap } from "../../src/arkade-chainswap";
 import { ArkadeChainSwapConfig } from "../../src/types";
+import { ad } from "vitest/dist/chunks/reporters.d.BFLkQcL6.js";
 
 const execAsync = promisify(exec);
 const arkcli = "docker exec -t arkd ark";
 const bccli = "docker exec -t bitcoin bitcoin-cli -regtest";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// fund an address using arkd docker container
-const fundArkAddress = async (address: string, amount: number) => {
-    return execAsync(
-        `${arkcli} send --to ${address} --amount ${amount} --password secret`
-    );
-};
-
 const fundBtcAddress = async (address: string, amount: number) => {
     return execAsync(`${bccli} sendtoaddress ${address} ${amount / 1e8}`);
-};
-
-// fund a wallet by getting its address and funding it
-const fundWallet = async (wallet: Wallet, amount: number) => {
-    const address = await wallet.getAddress();
-    return fundArkAddress(address, amount);
 };
 
 const generateBlocks = async (numBlocks = 1) => {
@@ -65,10 +54,42 @@ describe("ArkadeChainSwap", () => {
 
     let aliceSecKey: Uint8Array;
     let aliceCompressedPubKey: string;
+    let fundedWallet: Wallet;
+
+    const arkUrl = "http://localhost:7070";
+
+    const fundWallet = async (amount: number): Promise<void> => {
+        await fundedWallet.sendBitcoin({
+            address: await wallet.getAddress(),
+            amount,
+        });
+        await sleep(2000); // wait for the wallet to detect the incoming funds
+    };
+
+    beforeAll(async () => {
+        fundedWallet = await Wallet.create({
+            identity: SingleKey.fromRandomBytes(),
+            arkServerUrl: arkUrl,
+        });
+
+        const amount = 1_000_000;
+
+        const { stdout: arknote } = await execAsync(
+            `docker exec -t arkd arkd note --amount ${amount}`
+        );
+
+        await fundedWallet.settle({
+            inputs: [ArkNote.fromString(arknote.trim())],
+            outputs: [
+                {
+                    address: await fundedWallet.getAddress(),
+                    amount: BigInt(amount),
+                },
+            ],
+        });
+    }, 120_000);
 
     beforeEach(async () => {
-        const arkUrl = "http://localhost:7070";
-
         // Create identity
         aliceSecKey = schnorr.utils.randomSecretKey();
         aliceCompressedPubKey = hex.encode(pubECDSA(aliceSecKey, true));
@@ -102,12 +123,16 @@ describe("ArkadeChainSwap", () => {
     });
 
     describe("Initialization", () => {
-        const config: ArkadeChainSwapConfig = {
-            wallet,
-            arkProvider,
-            swapProvider,
-            indexerProvider,
-        };
+        let config: ArkadeChainSwapConfig;
+
+        beforeEach(() => {
+            config = {
+                wallet,
+                arkProvider,
+                swapProvider,
+                indexerProvider,
+            };
+        });
 
         it("should be instantiated with wallet and swap provider", () => {
             expect(chainSwap).toBeInstanceOf(ArkadeChainSwap);
@@ -193,8 +218,9 @@ describe("ArkadeChainSwap", () => {
                 async () => {
                     // arrange
                     const amountSats = 21000;
+                    const fundAmount = amountSats + 2100; // include buffer for fees
                     const toAddress = await getBTCAddress();
-                    await fundWallet(wallet, amountSats + 2100);
+                    await fundWallet(fundAmount);
                     const initialArkBalance = await wallet.getBalance();
                     const initialBtcTxs = await getBTCAddressTxs(toAddress);
 
@@ -305,6 +331,164 @@ describe("ArkadeChainSwap", () => {
                 const balance = await wallet.getBalance();
                 const expected = amountSats - 1000; // accounting for fees
                 expect(balance.available).toBeGreaterThanOrEqual(expected);
+            });
+        });
+    });
+
+    describe("Swap Storage and History", () => {
+        describe("getPendingChainSwaps", () => {
+            it("should return empty array when no chain swaps exist", async () => {
+                // act
+                const result = await chainSwap.getPendingChainSwaps();
+
+                // assert
+                expect(result).toEqual([]);
+            });
+
+            it("should return the swap when createChainSwap is called for a Ark to Btc swap", async () => {
+                // arrange
+                const pendingSwap = await chainSwap.createChainSwap({
+                    to: "BTC",
+                    from: "ARK",
+                    feeSatsPerByte: 1,
+                    userLockAmount: 10_000,
+                    toAddress: await getBTCAddress(),
+                });
+
+                // act
+                const result = await chainSwap.getPendingChainSwaps();
+
+                // assert
+                expect(result).toHaveLength(1);
+                expect(result[0]).toEqual(pendingSwap);
+            });
+
+            it("should return the swap when createChainSwap is called for a Btc to Ark swap", async () => {
+                // arrange
+                const pendingSwap = await chainSwap.createChainSwap({
+                    to: "ARK",
+                    from: "BTC",
+                    feeSatsPerByte: 1,
+                    userLockAmount: 10_000,
+                    toAddress: await wallet.getAddress(),
+                });
+
+                // act
+                const result = await chainSwap.getPendingChainSwaps();
+
+                // assert
+                expect(result).toHaveLength(1);
+                expect(result[0]).toEqual(pendingSwap);
+            });
+        });
+
+        describe("getSwapHistory", () => {
+            it("should return empty array when no swaps exist", async () => {
+                // act
+                const result = await chainSwap.getSwapHistory();
+
+                // assert
+                expect(result).toEqual([]);
+            });
+
+            it(
+                "should return the swap when arkToBtc is called",
+                { timeout: 10_000 },
+                async () => {
+                    // arrange
+                    const amount = 10_000;
+                    await fundWallet(amount + 2000); // include buffer for fees
+
+                    // act
+                    await chainSwap.arkToBtc({
+                        amountSats: amount,
+                        toAddress: await getBTCAddress(),
+                    });
+
+                    // assert
+                    const pendingSwaps = await chainSwap.getSwapHistory();
+
+                    expect(pendingSwaps).toHaveLength(1);
+                    expect(pendingSwaps[0].type).toBe("chain");
+                    expect(pendingSwaps[0].status).toBe("transaction.claimed");
+                    expect(pendingSwaps[0].request.userLockAmount).toBe(amount);
+                }
+            );
+
+            it(
+                "should return the swap when btcToArk is called",
+                { timeout: 10_000 },
+                async () => {
+                    // arrange
+                    const amount = 10_000;
+
+                    // act
+                    await chainSwap.btcToArk({
+                        amountSats: amount,
+                        toAddress: await wallet.getAddress(),
+                        onAddressGenerated: async (address: string) => {
+                            await fundBtcAddress(address, amount);
+                            await generateBlocks(1); // confirm the funding transaction
+                        },
+                    });
+
+                    // assert
+                    const pendingSwaps = await chainSwap.getSwapHistory();
+
+                    expect(pendingSwaps).toHaveLength(1);
+                    expect(pendingSwaps[0].type).toBe("chain");
+                    expect(pendingSwaps[0].status).toBe("transaction.claimed");
+                    expect(pendingSwaps[0].request.userLockAmount).toBe(amount);
+                }
+            );
+
+            it("should return all swaps sorted by creation date (newest first)", async () => {
+                // arrange
+                await chainSwap.createChainSwap({
+                    to: "BTC",
+                    from: "ARK",
+                    feeSatsPerByte: 1,
+                    userLockAmount: 10_000,
+                    toAddress: await getBTCAddress(),
+                });
+
+                await sleep(1000); // ensure different timestamps
+
+                await chainSwap.createChainSwap({
+                    to: "ARK",
+                    from: "BTC",
+                    feeSatsPerByte: 1,
+                    userLockAmount: 20_000,
+                    toAddress: await wallet.getAddress(),
+                });
+
+                await sleep(1000); // ensure different timestamps
+
+                await chainSwap.createChainSwap({
+                    to: "BTC",
+                    from: "ARK",
+                    feeSatsPerByte: 1,
+                    userLockAmount: 30_000,
+                    toAddress: await getBTCAddress(),
+                });
+
+                // act
+                const result = await chainSwap.getSwapHistory();
+
+                // assert
+                expect(result).toHaveLength(3);
+
+                // Should be sorted by createdAt desc (newest first)
+                expect(result[0].request.userLockAmount).toBe(30_000); // newest
+                expect(result[1].request.userLockAmount).toBe(20_000);
+                expect(result[2].request.userLockAmount).toBe(10_000); // oldest
+
+                // Verify the sort order
+                for (let i = 0; i < result.length - 1; i++) {
+                    expect(result[i].createdAt).toBeGreaterThanOrEqual(
+                        result[i + 1].createdAt
+                    );
+                }
             });
         });
     });

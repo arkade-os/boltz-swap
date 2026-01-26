@@ -11,26 +11,16 @@ import {
     ArkAddress,
     ArkProvider,
     IndexerProvider,
-    buildOffchainTx,
-    CSVMultisigTapscript,
-    TapLeafScript,
     Wallet,
     VHTLC,
     ServiceWorkerWallet,
-    combineTapscriptSigs,
-    Intent,
-    VtxoScript,
     ArkTxInput,
     Identity,
-    Batch,
     ArkInfo,
-    networks,
     isRecoverable,
-    VtxoTaprootTree,
-    getSequence,
 } from "@arkade-os/sdk";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { base64, hex } from "@scure/base";
+import { hex } from "@scure/base";
 import type {
     ArkadeLightningConfig,
     CreateLightningInvoiceResponse,
@@ -54,11 +44,9 @@ import {
     isRestoredReverseSwap,
     isRestoredSubmarineSwap,
 } from "./boltz-swap-provider";
-import { Address, OutScript, Transaction } from "@scure/btc-signer";
-import { TransactionInput, TransactionOutput } from "@scure/btc-signer/psbt.js";
-import { ripemd160 } from "@noble/hashes/legacy.js";
+import { TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
-import { normalizeToXOnlyKey, verifySignatures } from "./utils/signatures";
+import { normalizeToXOnlyKey } from "./utils/signatures";
 import {
     extractInvoiceAmount,
     extractTimeLockFromLeafOutput,
@@ -71,7 +59,12 @@ import {
 } from "./utils/swap-helpers";
 import { logger } from "./logger";
 import { claimVHTLCIdentity } from "./utils/identity";
-import { createVHTLCBatchHandler } from "./batch";
+import {
+    claimVHTLCwithOffchainTx,
+    createVHTLCScript,
+    joinBatch,
+    refundVHTLCwithOffchainTx,
+} from "./utils/vhtlc";
 
 export class ArkadeLightning {
     private readonly wallet: Wallet | ServiceWorkerWallet;
@@ -425,7 +418,7 @@ export class ArkadeLightning {
             throw new Error("Preimage is required to claim VHTLC");
 
         const preimage = hex.decode(pendingSwap.preimage);
-        const aspInfo = await this.arkProvider.getInfo();
+        const arkInfo = await this.arkProvider.getInfo();
         const address = await this.wallet.getAddress();
 
         // validate we are using a x-only receiver public key
@@ -444,14 +437,14 @@ export class ArkadeLightning {
 
         // validate we are using a x-only server public key
         const serverXOnlyPublicKey = normalizeToXOnlyKey(
-            hex.decode(aspInfo.signerPubkey),
+            hex.decode(arkInfo.signerPubkey),
             "server",
             pendingSwap.id
         );
 
         // build expected VHTLC script
         const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
-            network: aspInfo.network,
+            network: arkInfo.network,
             preimageHash: sha256(preimage),
             receiverPubkey: hex.encode(ourXOnlyPublicKey),
             senderPubkey: hex.encode(boltzXOnlyPublicKey),
@@ -502,16 +495,17 @@ export class ArkadeLightning {
 
         // if the vtxo is recoverable, we need to claim in batch
         if (isRecoverable(vtxo)) {
-            await this.joinBatch(vhtlcIdentity, input, output, aspInfo);
+            await this.joinBatch(vhtlcIdentity, input, output, arkInfo);
             finalStatus = "transaction.claimed";
         } else {
-            await this.claimVHTLCwithOffchainTx(
+            await claimVHTLCwithOffchainTx(
                 vhtlcIdentity,
                 vhtlcScript,
                 serverXOnlyPublicKey,
                 input,
                 output,
-                aspInfo
+                arkInfo,
+                this.arkProvider
             );
             finalStatus = (await this.getSwapStatus(pendingSwap.id)).status;
         }
@@ -558,7 +552,7 @@ export class ArkadeLightning {
         }
 
         // prepare variables for claiming the VHTLC
-        const aspInfo = await this.arkProvider.getInfo();
+        const arkInfo = await this.arkProvider.getInfo();
         const address = await this.wallet.getAddress();
         if (!address) throw new Error("Failed to get ark address from wallet");
 
@@ -571,7 +565,7 @@ export class ArkadeLightning {
 
         // validate we are using a x-only server public key
         const serverXOnlyPublicKey = normalizeToXOnlyKey(
-            hex.decode(aspInfo.signerPubkey),
+            hex.decode(arkInfo.signerPubkey),
             "server",
             pendingSwap.id
         );
@@ -584,7 +578,7 @@ export class ArkadeLightning {
         );
 
         const { vhtlcScript } = this.createVHTLCScript({
-            network: aspInfo.network,
+            network: arkInfo.network,
             preimageHash: hex.decode(preimageHash),
             receiverPubkey: hex.encode(boltzXOnlyPublicKey),
             senderPubkey: hex.encode(ourXOnlyPublicKey),
@@ -611,16 +605,19 @@ export class ArkadeLightning {
         };
 
         if (isRecoverableVtxo) {
-            await this.joinBatch(this.wallet.identity, input, output, aspInfo);
+            await this.joinBatch(this.wallet.identity, input, output, arkInfo);
         } else {
-            await this.refundVHTLCwithOffchainTx(
-                pendingSwap,
+            await refundVHTLCwithOffchainTx(
+                pendingSwap.id,
+                this.wallet.identity,
+                this.arkProvider,
                 boltzXOnlyPublicKey,
                 ourXOnlyPublicKey,
                 serverXOnlyPublicKey,
                 input,
                 output,
-                aspInfo
+                arkInfo,
+                this.swapProvider.refundSubmarineSwap
             );
         }
 
@@ -645,107 +642,17 @@ export class ArkadeLightning {
         identity: Identity,
         input: ArkTxInput,
         output: TransactionOutput,
-        {
-            forfeitPubkey,
-            forfeitAddress,
-            network,
-        }: Pick<ArkInfo, "forfeitPubkey" | "forfeitAddress" | "network">,
+        arkInfo: ArkInfo,
         isRecoverable = true
     ): Promise<string> {
-        const signerSession = identity.signerSession();
-        const signerPublicKey = await signerSession.getPublicKey();
-
-        const intentMessage: Intent.RegisterMessage = {
-            type: "register",
-            onchain_output_indexes: [],
-            valid_at: 0,
-            expire_at: 0,
-            cosigners_public_keys: [hex.encode(signerPublicKey)],
-        };
-
-        const deleteMessage: Intent.DeleteMessage = {
-            type: "delete",
-            expire_at: 0,
-        };
-
-        const intentInput: TransactionInput = {
-            txid: hex.decode(input.txid),
-            index: input.vout,
-            witnessUtxo: {
-                amount: BigInt(input.value),
-                script: VtxoScript.decode(input.tapTree).pkScript,
-            },
-            tapLeafScript: [input.tapLeafScript],
-            unknown: [VtxoTaprootTree.encode(input.tapTree)],
-            sequence: getSequence(input.tapLeafScript),
-        };
-
-        const registerIntent = Intent.create(
-            intentMessage,
-            [intentInput],
-            [output]
+        return joinBatch(
+            this.arkProvider,
+            identity,
+            input,
+            output,
+            arkInfo,
+            isRecoverable
         );
-        const deleteIntent = Intent.create(deleteMessage, [intentInput]);
-
-        const [signedRegisterIntent, signedDeleteIntent] = await Promise.all([
-            identity.sign(registerIntent),
-            identity.sign(deleteIntent),
-        ]);
-
-        const abortController = new AbortController();
-
-        const intentId = await this.arkProvider.registerIntent({
-            message: intentMessage,
-            proof: base64.encode(signedRegisterIntent.toPSBT()),
-        });
-
-        const decodedAddress = Address(
-            network in networks
-                ? networks[network as keyof typeof networks]
-                : networks.bitcoin
-        ).decode(forfeitAddress);
-
-        try {
-            const handler = createVHTLCBatchHandler(
-                intentId,
-                input,
-                this.arkProvider,
-                identity,
-                signerSession,
-                hex.decode(forfeitPubkey).slice(1),
-                isRecoverable ? undefined : OutScript.encode(decodedAddress)
-            );
-
-            const topics = [
-                hex.encode(signerPublicKey),
-                `${input.txid}:${input.vout}`,
-            ];
-            const eventStream = this.arkProvider.getEventStream(
-                abortController.signal,
-                topics
-            );
-
-            const commitmentTxid = await Batch.join(eventStream, handler, {
-                abortController,
-            });
-            logger.log(
-                "Batch joined with commitment transaction:",
-                commitmentTxid
-            );
-            return commitmentTxid;
-        } catch (error) {
-            abortController.abort();
-            logger.error("Failed to join batch:", error);
-            try {
-                await this.arkProvider.deleteIntent({
-                    message: deleteMessage,
-                    proof: base64.encode(signedDeleteIntent.toPSBT()),
-                });
-            } catch (error) {
-                logger.error("Failed to delete intent:", error);
-            }
-            throw error;
-        }
     }
 
     /**
@@ -1128,208 +1035,6 @@ export class ArkadeLightning {
         return swap;
     }
 
-    private async claimVHTLCwithOffchainTx(
-        vhtlcIdentity: Identity,
-        vhtlcScript: VHTLC.Script,
-        serverXOnlyPublicKey: Uint8Array,
-        input: ArkTxInput,
-        output: TransactionOutput,
-        arkInfos: Pick<ArkInfo, "checkpointTapscript">
-    ): Promise<void> {
-        // create the server unroll script for checkpoint transactions
-        const rawCheckpointTapscript = hex.decode(arkInfos.checkpointTapscript);
-        const serverUnrollScript = CSVMultisigTapscript.decode(
-            rawCheckpointTapscript
-        );
-
-        // create the offchain transaction to claim the VHTLC
-        const { arkTx, checkpoints } = buildOffchainTx(
-            [input],
-            [output],
-            serverUnrollScript
-        );
-
-        // sign and submit the virtual transaction
-        const signedArkTx = await vhtlcIdentity.sign(arkTx);
-        const { arkTxid, finalArkTx, signedCheckpointTxs } =
-            await this.arkProvider.submitTx(
-                base64.encode(signedArkTx.toPSBT()),
-                checkpoints.map((c) => base64.encode(c.toPSBT()))
-            );
-
-        // verify the server signed the transaction with correct key
-        if (
-            !this.validFinalArkTx(
-                finalArkTx,
-                serverXOnlyPublicKey,
-                vhtlcScript.leaves
-            )
-        ) {
-            throw new Error("Invalid final Ark transaction");
-        }
-
-        // sign the checkpoint transactions pre signed by the server
-        const finalCheckpoints = await Promise.all(
-            signedCheckpointTxs.map(async (c) => {
-                const tx = Transaction.fromPSBT(base64.decode(c), {
-                    allowUnknown: true,
-                });
-                const signedCheckpoint = await vhtlcIdentity.sign(tx, [0]);
-                return base64.encode(signedCheckpoint.toPSBT());
-            })
-        );
-
-        // submit the final transaction to the Ark provider
-        await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
-    }
-
-    private async refundVHTLCwithOffchainTx(
-        pendingSwap: PendingSubmarineSwap,
-        boltzXOnlyPublicKey: Uint8Array,
-        ourXOnlyPublicKey: Uint8Array,
-        serverXOnlyPublicKey: Uint8Array,
-        input: ArkTxInput,
-        output: TransactionOutput,
-        arkInfos: Pick<ArkInfo, "checkpointTapscript">
-    ): Promise<void> {
-        // create the server unroll script for checkpoint transactions
-        const rawCheckpointTapscript = hex.decode(arkInfos.checkpointTapscript);
-        const serverUnrollScript = CSVMultisigTapscript.decode(
-            rawCheckpointTapscript
-        );
-
-        // create the virtual transaction to claim the VHTLC
-        const { arkTx: unsignedRefundTx, checkpoints: checkpointPtxs } =
-            buildOffchainTx([input], [output], serverUnrollScript);
-
-        // validate we have one checkpoint transaction
-        if (checkpointPtxs.length !== 1)
-            throw new Error(
-                `Expected one checkpoint transaction, got ${checkpointPtxs.length}`
-            );
-
-        const unsignedCheckpointTx = checkpointPtxs[0];
-
-        // get Boltz to sign its part
-        const {
-            transaction: boltzSignedRefundTx,
-            checkpoint: boltzSignedCheckpointTx,
-        } = await this.swapProvider.refundSubmarineSwap(
-            pendingSwap.id,
-            unsignedRefundTx,
-            unsignedCheckpointTx
-        );
-
-        // Verify Boltz signatures before combining
-        const boltzXOnlyPublicKeyHex = hex.encode(boltzXOnlyPublicKey);
-        if (
-            !verifySignatures(boltzSignedRefundTx, 0, [boltzXOnlyPublicKeyHex])
-        ) {
-            throw new Error("Invalid Boltz signature in refund transaction");
-        }
-        if (
-            !verifySignatures(boltzSignedCheckpointTx, 0, [
-                boltzXOnlyPublicKeyHex,
-            ])
-        ) {
-            throw new Error(
-                "Invalid Boltz signature in checkpoint transaction"
-            );
-        }
-
-        // sign our part
-        const signedRefundTx =
-            await this.wallet.identity.sign(unsignedRefundTx);
-        const signedCheckpointTx =
-            await this.wallet.identity.sign(unsignedCheckpointTx);
-
-        // combine transactions
-        const combinedSignedRefundTx = combineTapscriptSigs(
-            boltzSignedRefundTx,
-            signedRefundTx
-        );
-        const combinedSignedCheckpointTx = combineTapscriptSigs(
-            boltzSignedCheckpointTx,
-            signedCheckpointTx
-        );
-
-        // get server to sign its part of the combined transaction
-        const { arkTxid, finalArkTx, signedCheckpointTxs } =
-            await this.arkProvider.submitTx(
-                base64.encode(combinedSignedRefundTx.toPSBT()),
-                [base64.encode(unsignedCheckpointTx.toPSBT())]
-            );
-
-        // verify the final tx is properly signed
-        const tx = Transaction.fromPSBT(base64.decode(finalArkTx));
-        const inputIndex = 0;
-        const requiredSigners = [
-            hex.encode(ourXOnlyPublicKey),
-            hex.encode(boltzXOnlyPublicKey),
-            hex.encode(serverXOnlyPublicKey),
-        ];
-
-        if (!verifySignatures(tx, inputIndex, requiredSigners)) {
-            throw new Error("Invalid refund transaction");
-        }
-
-        // validate we received exactly one checkpoint transaction
-        if (signedCheckpointTxs.length !== 1) {
-            throw new Error(
-                `Expected one signed checkpoint transaction, got ${signedCheckpointTxs.length}`
-            );
-        }
-
-        // combine the checkpoint signatures
-        const serverSignedCheckpointTx = Transaction.fromPSBT(
-            base64.decode(signedCheckpointTxs[0])
-        );
-
-        const finalCheckpointTx = combineTapscriptSigs(
-            combinedSignedCheckpointTx,
-            serverSignedCheckpointTx
-        );
-
-        // finalize the transaction
-        await this.arkProvider.finalizeTx(arkTxid, [
-            base64.encode(finalCheckpointTx.toPSBT()),
-        ]);
-    }
-
-    // validators
-
-    /**
-     * Validates the final Ark transaction.
-     * checks that all inputs have a signature for the given pubkey
-     * and the signature is correct for the given tapscript leaf
-     * TODO: This is a simplified check, we should verify the actual signatures
-     * @param finalArkTx The final Ark transaction in PSBT format.
-     * @param _pubkey The public key of the user.
-     * @param _tapLeaves The taproot script leaves.
-     * @returns True if the final Ark transaction is valid, false otherwise.
-     */
-    private validFinalArkTx = (
-        finalArkTx: string,
-        _pubkey: Uint8Array,
-        _tapLeaves: TapLeafScript[]
-    ): boolean => {
-        // decode the final Ark transaction
-        const tx = Transaction.fromPSBT(base64.decode(finalArkTx), {
-            allowUnknown: true,
-        });
-        if (!tx) return false;
-
-        // push all inputs to an array
-        const inputs: TransactionInput[] = [];
-        for (let i = 0; i < tx.inputsLength; i++) {
-            inputs.push(tx.getInput(i));
-        }
-
-        // basic check that all inputs have a witnessUtxo
-        // this is a simplified check, we should verify the actual signatures
-        return inputs.every((input) => input.witnessUtxo);
-    };
-
     /**
      * Creates a VHTLC script for the swap.
      * works for submarine swaps and reverse swaps
@@ -1339,14 +1044,7 @@ export class ArkadeLightning {
      * @param param0 - The parameters for creating the VHTLC script.
      * @returns The created VHTLC script.
      */
-    createVHTLCScript({
-        network,
-        preimageHash,
-        receiverPubkey,
-        senderPubkey,
-        serverPubkey,
-        timeoutBlockHeights,
-    }: {
+    createVHTLCScript(args: {
         network: string;
         preimageHash: Uint8Array;
         receiverPubkey: string;
@@ -1359,60 +1057,7 @@ export class ArkadeLightning {
             unilateralRefundWithoutReceiver: number;
         };
     }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string } {
-        // validate we are using a x-only receiver public key
-        const receiverXOnlyPublicKey = normalizeToXOnlyKey(
-            hex.decode(receiverPubkey),
-            "receiver"
-        );
-
-        // validate we are using a x-only sender public key
-        const senderXOnlyPublicKey = normalizeToXOnlyKey(
-            hex.decode(senderPubkey),
-            "sender"
-        );
-
-        // validate we are using a x-only server public key
-        const serverXOnlyPublicKey = normalizeToXOnlyKey(
-            hex.decode(serverPubkey),
-            "server"
-        );
-
-        const delayType = (num: number) => (num < 512 ? "blocks" : "seconds");
-
-        const vhtlcScript = new VHTLC.Script({
-            preimageHash: ripemd160(preimageHash),
-            sender: senderXOnlyPublicKey,
-            receiver: receiverXOnlyPublicKey,
-            server: serverXOnlyPublicKey,
-            refundLocktime: BigInt(timeoutBlockHeights.refund),
-            unilateralClaimDelay: {
-                type: delayType(timeoutBlockHeights.unilateralClaim),
-                value: BigInt(timeoutBlockHeights.unilateralClaim),
-            },
-            unilateralRefundDelay: {
-                type: delayType(timeoutBlockHeights.unilateralRefund),
-                value: BigInt(timeoutBlockHeights.unilateralRefund),
-            },
-            unilateralRefundWithoutReceiverDelay: {
-                type: delayType(
-                    timeoutBlockHeights.unilateralRefundWithoutReceiver
-                ),
-                value: BigInt(
-                    timeoutBlockHeights.unilateralRefundWithoutReceiver
-                ),
-            },
-        });
-
-        if (!vhtlcScript.claimScript)
-            throw new Error("Failed to create VHTLC script");
-
-        // validate vhtlc script
-        const hrp = network === "bitcoin" ? "ark" : "tark";
-        const vhtlcAddress = vhtlcScript
-            .address(hrp, serverXOnlyPublicKey)
-            .encode();
-
-        return { vhtlcScript, vhtlcAddress };
+        return createVHTLCScript(args);
     }
 
     /**

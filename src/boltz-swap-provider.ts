@@ -418,6 +418,27 @@ export const isRefundSubmarineSwapResponse = (
     );
 };
 
+export type RefundChainSwapRequest = {
+    transaction: string;
+    checkpoint: string;
+};
+
+export type RefundChainSwapResponse = {
+    transaction: string;
+    checkpoint: string;
+};
+
+export const isRefundChainSwapResponse = (
+    data: any
+): data is RefundSubmarineSwapResponse => {
+    return (
+        data &&
+        typeof data === "object" &&
+        typeof data.transaction === "string" &&
+        typeof data.checkpoint === "string"
+    );
+};
+
 type GetChainPairsResponse = Record<
     Chain,
     Record<
@@ -528,7 +549,7 @@ type ChainSwapDetailsResponse = {
     amount: number;
     lockupAddress: string;
     timeoutBlockHeight: number;
-    serverPublicKey?: string;
+    serverPublicKey: string;
     swapTree?: SwapTree;
     timeouts?: Timeouts;
     bip21?: string;
@@ -542,12 +563,11 @@ const isChainSwapDetailsResponse = (
         typeof data === "object" &&
         typeof data.amount === "number" &&
         typeof data.lockupAddress === "string" &&
+        typeof data.serverPublicKey === "string" &&
         typeof data.timeoutBlockHeight === "number" &&
         (data.swapTree === undefined || isSwapTree(data.swapTree)) &&
         (data.timeouts === undefined || isTimeouts(data.timeouts)) &&
-        (data.bip21 === undefined || typeof data.bip21 === "string") &&
-        (data.serverPublicKey === undefined ||
-            typeof data.serverPublicKey === "string")
+        (data.bip21 === undefined || typeof data.bip21 === "string")
     );
 };
 
@@ -1062,6 +1082,38 @@ export class BoltzSwapProvider {
         if (!isRefundSubmarineSwapResponse(response))
             throw new SchemaError({
                 message: "Error refunding submarine swap",
+            });
+
+        return {
+            transaction: Transaction.fromPSBT(
+                base64.decode(response.transaction)
+            ),
+            checkpoint: Transaction.fromPSBT(
+                base64.decode(response.checkpoint)
+            ),
+        };
+    }
+
+    async refundChainSwap(
+        swapId: string,
+        transaction: Transaction,
+        checkpoint: Transaction
+    ): Promise<{ transaction: Transaction; checkpoint: Transaction }> {
+        // make refund swap request
+        const requestBody: RefundSubmarineSwapRequest = {
+            checkpoint: base64.encode(checkpoint.toPSBT()),
+            transaction: base64.encode(transaction.toPSBT()),
+        };
+
+        const response = await this.request<RefundChainSwapResponse>(
+            `/v2/swap/chain/${swapId}/refund/ark`,
+            "POST",
+            requestBody
+        );
+
+        if (!isRefundChainSwapResponse(response))
+            throw new SchemaError({
+                message: "Error refunding chain swap",
             });
 
         return {

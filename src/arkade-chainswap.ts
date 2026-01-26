@@ -18,6 +18,9 @@ import {
     VHTLC,
     TapLeafScript,
     ArkInfo,
+    isRecoverable,
+    ArkTxInput,
+    Identity,
 } from "@arkade-os/sdk";
 import type {
     Chain,
@@ -34,7 +37,7 @@ import {
 } from "./boltz-swap-provider";
 import { base64, hex } from "@scure/base";
 import { ripemd160 } from "@noble/hashes/legacy.js";
-import { TransactionInput } from "@scure/btc-signer/psbt.js";
+import { TransactionInput, TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import {
@@ -51,6 +54,7 @@ import { randomBytes } from "crypto";
 import { Address, OutScript, SigHash, Transaction } from "@scure/btc-signer";
 import { normalizeToXOnlyKey } from "./utils/signatures";
 import { isValidArkAddress } from "./utils/decoding";
+import { joinBatch, refundVHTLCwithOffchainTx } from "./utils/vhtlc";
 
 function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
@@ -95,6 +99,11 @@ export class ArkadeChainSwap {
         this.swapProvider = config.swapProvider;
     }
 
+    /**
+     * Creates a chain swap from ARK to BTC.
+     * @param args
+     * @returns
+     */
     async arkToBtc(args: {
         toAddress: string;
         amountSats: number;
@@ -145,12 +154,22 @@ export class ArkadeChainSwap {
         });
 
         // wait for the swap to be ready and claim the HTLC
-        await this.waitAndClaimBtc({
-            arkInfo,
-            pendingSwap,
-        });
+        try {
+            await this.waitAndClaimBtc({
+                arkInfo,
+                pendingSwap,
+            });
+        } catch (error: any) {
+            if (error.isRefundable) {
+                await this.refundVHTLC({ arkInfo, pendingSwap });
+                const { status } = await this.getSwapStatus(pendingSwap.id);
+                this.savePendingChainSwap({ ...pendingSwap, status });
+            }
+            throw new TransactionFailedError();
+        }
 
         const { status } = await this.getSwapStatus(pendingSwap.id);
+        await this.savePendingChainSwap({ ...pendingSwap, status });
         return { ...pendingSwap, status };
     }
 
@@ -211,7 +230,9 @@ export class ArkadeChainSwap {
                         break;
                     case "transaction.failed":
                         await updateSwapStatus(status);
-                        reject(new TransactionFailedError());
+                        reject(
+                            new TransactionFailedError({ isRefundable: true })
+                        );
                         break;
                     case "transaction.refunded":
                         await updateSwapStatus(status);
@@ -338,6 +359,200 @@ export class ArkadeChainSwap {
         await this.swapProvider.postBtcTransaction(claimTx.hex);
     }
 
+    /**
+     * Case the Ark to Btc fails, claim sats on ARK chain by claiming the VHTLC.
+     * @param pendingSwap
+     */
+    async refundVHTLC(args: {
+        arkInfo: ArkInfo;
+        pendingSwap: PendingChainSwap;
+    }): Promise<void> {
+        const { arkInfo, pendingSwap } = args;
+
+        const preimage = hex.decode(pendingSwap.preimage);
+        const address = await this.wallet.getAddress();
+
+        if (!pendingSwap.response.lockupDetails.serverPublicKey)
+            throw new Error("Missing server public key in lockup details");
+
+        if (!pendingSwap.response.lockupDetails.timeouts)
+            throw new Error("Missing timeouts in lockup details");
+
+        // validate we are using a x-only public key
+        const ourXOnlyPublicKey = await this.wallet.identity.xOnlyPublicKey();
+
+        // validate we are using a x-only server public key
+        const serverXOnlyPublicKey = normalizeToXOnlyKey(
+            hex.decode(arkInfo.signerPubkey),
+            "server",
+            pendingSwap.id
+        );
+
+        // validate we are using a x-only boltz public key
+        const boltzXOnlyPublicKey = normalizeToXOnlyKey(
+            hex.decode(pendingSwap.response.lockupDetails.serverPublicKey),
+            "boltz",
+            pendingSwap.id
+        );
+
+        const vhtlcPkScript = ArkAddress.decode(
+            pendingSwap.response.lockupDetails.lockupAddress
+        ).pkScript;
+
+        // get spendable VTXOs from the lockup address
+        const { vtxos } = await this.indexerProvider.getVtxos({
+            scripts: [hex.encode(vhtlcPkScript)],
+        });
+
+        if (vtxos.length === 0) {
+            throw new Error(
+                `VHTLC not found for address ${pendingSwap.response.lockupDetails.lockupAddress}`
+            );
+        }
+
+        const vtxo = vtxos[0];
+
+        if (vtxo.isSpent) {
+            throw new Error("VHTLC is already spent");
+        }
+
+        // build expected VHTLC script
+
+        const { vhtlcAddress, vhtlcScript } = this.createVHTLCScript({
+            network: arkInfo.network,
+            preimageHash: hex.decode(pendingSwap.request.preimageHash),
+            serverPubkey: hex.encode(serverXOnlyPublicKey),
+            senderPubkey: hex.encode(ourXOnlyPublicKey),
+            receiverPubkey: hex.encode(boltzXOnlyPublicKey),
+            timeoutBlockHeights: pendingSwap.response.lockupDetails.timeouts!,
+        });
+
+        if (!vhtlcScript.refundScript)
+            throw new Error("Failed to create VHTLC script for chain swap");
+
+        if (pendingSwap.response.lockupDetails.lockupAddress !== vhtlcAddress) {
+            throw new SwapError({
+                message: "Unable to claim: invalid VHTLC address",
+            });
+        }
+
+        const isRecoverableVtxo = isRecoverable(vtxo);
+
+        const input = {
+            ...vtxo,
+            tapLeafScript: isRecoverableVtxo
+                ? vhtlcScript.refundWithoutReceiver()
+                : vhtlcScript.refund(),
+            tapTree: vhtlcScript.encode(),
+        };
+
+        const output = {
+            amount: BigInt(vtxo.value),
+            script: ArkAddress.decode(address).pkScript,
+        };
+
+        if (isRecoverableVtxo) {
+            await this.joinBatch(this.wallet.identity, input, output, arkInfo);
+        } else {
+            await refundVHTLCwithOffchainTx(
+                pendingSwap.id,
+                this.wallet.identity,
+                this.arkProvider,
+                boltzXOnlyPublicKey,
+                ourXOnlyPublicKey,
+                serverXOnlyPublicKey,
+                input,
+                output,
+                arkInfo,
+                this.swapProvider.refundChainSwap
+            );
+        }
+
+        // signing a VTHLC needs an extra witness element to be added to the PSBT input
+        // reveal the secret in the PSBT, thus the server can verify the claim script
+        // this witness must satisfy the preimageHash condition
+        const vhtlcIdentity = {
+            sign: async (tx: any, inputIndexes?: number[]) => {
+                const cpy = tx.clone();
+                let signedTx = await this.wallet.identity.sign(
+                    cpy,
+                    inputIndexes
+                );
+                signedTx = ARKTransaction.fromPSBT(signedTx.toPSBT(), {
+                    allowUnknown: true,
+                });
+                setArkPsbtField(signedTx, 0, ConditionWitness, [preimage]);
+                return signedTx;
+            },
+            xOnlyPublicKey: pendingSwap.request.claimPublicKey,
+            signerSession: getSignerSession(this.wallet),
+        };
+
+        // create the server unroll script for checkpoint transactions
+        const rawCheckpointTapscript = hex.decode(arkInfo.checkpointTapscript);
+        const serverUnrollScript = CSVMultisigTapscript.decode(
+            rawCheckpointTapscript
+        );
+
+        // create the offchain transaction to claim the VHTLC
+        const { arkTx, checkpoints } = buildOffchainTx(
+            [
+                {
+                    ...vtxo,
+                    tapLeafScript: vhtlcScript.claim(),
+                    tapTree: vhtlcScript.encode(),
+                },
+            ],
+            [
+                {
+                    amount: BigInt(vtxo.value),
+                    script: ArkAddress.decode(address).pkScript,
+                },
+            ],
+            serverUnrollScript
+        );
+
+        // sign and submit the virtual transaction
+        const signedArkTx = await vhtlcIdentity.sign(arkTx);
+        const { arkTxid, finalArkTx, signedCheckpointTxs } =
+            await this.arkProvider.submitTx(
+                base64.encode(signedArkTx.toPSBT()),
+                checkpoints.map((c) => base64.encode(c.toPSBT()))
+            );
+
+        // verify the server signed the transaction with correct key
+        if (
+            !this.validFinalArkTx(
+                finalArkTx,
+                hex.decode(arkInfo.signerPubkey),
+                vhtlcScript.leaves
+            )
+        ) {
+            throw new Error("Invalid final Ark transaction");
+        }
+
+        // sign the checkpoint transactions pre signed by the server
+        const finalCheckpoints = await Promise.all(
+            signedCheckpointTxs.map(async (c) => {
+                const tx = ARKTransaction.fromPSBT(base64.decode(c), {
+                    allowUnknown: true,
+                });
+                const signedCheckpoint = await vhtlcIdentity.sign(tx, [0]);
+                return base64.encode(signedCheckpoint.toPSBT());
+            })
+        );
+
+        // submit the final transaction to the Ark provider
+        await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
+
+        // update the pending swap on storage if available
+        const finalStatus = await this.getSwapStatus(pendingSwap.id);
+        await this.savePendingChainSwap({
+            ...pendingSwap,
+            status: finalStatus.status,
+        });
+    }
+
     async btcToArk(args: {
         toAddress: string;
         amountSats: number;
@@ -347,11 +562,13 @@ export class ArkadeChainSwap {
         // deconstruct args and validate
         const feeSatsPerByte = args.feeSatsPerByte ?? 1;
         const { amountSats, toAddress, onAddressGenerated } = args;
+
         if (!toAddress || !isValidArkAddress(toAddress)) {
             throw new SwapError({
                 message: "Invalid Ark address in btcToArk",
             });
         }
+
         if (amountSats <= 0) {
             throw new SwapError({
                 message: "Invalid amount in btcToArk",
@@ -391,6 +608,7 @@ export class ArkadeChainSwap {
         });
 
         const { status } = await this.getSwapStatus(pendingSwap.id);
+        await this.savePendingChainSwap({ ...pendingSwap, status });
         return { ...pendingSwap, status };
     }
 
@@ -996,6 +1214,7 @@ export class ArkadeChainSwap {
             swap,
             "id"
         );
+        console.warn(`Saved chain swap ${swap.id} with status ${swap.status}`);
     }
 
     private async getPendingChainSwapsFromStorage(): Promise<
@@ -1037,4 +1256,29 @@ export class ArkadeChainSwap {
         // this is a simplified check, we should verify the actual signatures
         return inputs.every((input) => input.witnessUtxo);
     };
+
+    /**
+     * Joins a batch to spend the vtxo via commitment transaction
+     * @param identity - The identity to use for signing the forfeit transaction.
+     * @param input - The input vtxo.
+     * @param output - The output script.
+     * @param forfeitPublicKey - The forfeit public key.
+     * @returns The commitment transaction ID.
+     */
+    async joinBatch(
+        identity: Identity,
+        input: ArkTxInput,
+        output: TransactionOutput,
+        arkInfo: ArkInfo,
+        isRecoverable = true
+    ): Promise<string> {
+        return joinBatch(
+            this.arkProvider,
+            identity,
+            input,
+            output,
+            arkInfo,
+            isRecoverable
+        );
+    }
 }
