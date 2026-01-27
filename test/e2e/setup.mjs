@@ -310,7 +310,7 @@ async function setupBoltz() {
 
         console.log("\nCreating Fulmine wallet...");
         await execCommand(
-            `curl -s -X POST http://localhost:7003/api/v1/wallet/create -H "Content-Type: application/json" -d '{"private_key": "5b9902c1098cc0f4c7e91066ef3227e292d994a50ebc33961ac6daa656fd242e", "password": "password", "server_url": "http://arkd:7070"}'`,
+            `curl -s -X POST http://localhost:7003/api/v1/wallet/create -H "Content-Type: application/json" -d '{"private_key": "5b9902c1098cc0f4c7e91066ef3227e292d994a50ebc33961ac6daa656fd242e", "password": "secret", "server_url": "http://arkd:7070"}'`,
             true
         );
         console.log("  ✔ Wallet created");
@@ -319,7 +319,7 @@ async function setupBoltz() {
 
         console.log("\nUnlocking Fulmine wallet...");
         await execCommand(
-            `curl -s -X POST http://localhost:7003/api/v1/wallet/unlock -H "Content-Type: application/json" -d '{"password": "password"}'`,
+            `curl -s -X POST http://localhost:7003/api/v1/wallet/unlock -H "Content-Type: application/json" -d '{"password": "secret"}'`,
             true
         );
         console.log("  ✔ Wallet unlocked");

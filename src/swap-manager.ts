@@ -7,10 +7,21 @@ import {
     isSubmarineFinalStatus,
     isReverseClaimableStatus,
     isSubmarineRefundableStatus,
+    isPendingChainSwap,
+    isChainClaimableStatus,
+    isChainRefundableStatus,
+    isChainFinalStatus,
 } from "./boltz-swap-provider";
-import { PendingReverseSwap, PendingSubmarineSwap } from "./types";
+import {
+    PendingChainSwap,
+    PendingReverseSwap,
+    PendingSubmarineSwap,
+    PendingSwap,
+} from "./types";
 import { NetworkError } from "./errors";
 import { logger } from "./logger";
+
+type Actions = "claim" | "refund" | "claimArk" | "claimBtc" | "refundArk";
 
 export interface SwapManagerConfig {
     /** Auto claim/refund swaps (default: true) */
@@ -30,43 +41,24 @@ export interface SwapManagerConfig {
 }
 
 export interface SwapManagerEvents {
-    onSwapUpdate?: (
-        swap: PendingReverseSwap | PendingSubmarineSwap,
-        oldStatus: BoltzSwapStatus
-    ) => void;
-    onSwapCompleted?: (swap: PendingReverseSwap | PendingSubmarineSwap) => void;
-    onSwapFailed?: (
-        swap: PendingReverseSwap | PendingSubmarineSwap,
-        error: Error
-    ) => void;
-    onActionExecuted?: (
-        swap: PendingReverseSwap | PendingSubmarineSwap,
-        action: "claim" | "refund"
-    ) => void;
+    onSwapUpdate?: (swap: PendingSwap, oldStatus: BoltzSwapStatus) => void;
+    onSwapCompleted?: (swap: PendingSwap) => void;
+    onSwapFailed?: (swap: PendingSwap, error: Error) => void;
+    onActionExecuted?: (swap: PendingSwap, action: Actions) => void;
     onWebSocketConnected?: () => void;
     onWebSocketDisconnected?: (error?: Error) => void;
 }
 
 // Event listener types
 type SwapUpdateListener = (
-    swap: PendingReverseSwap | PendingSubmarineSwap,
+    swap: PendingSwap,
     oldStatus: BoltzSwapStatus
 ) => void;
-type SwapCompletedListener = (
-    swap: PendingReverseSwap | PendingSubmarineSwap
-) => void;
-type SwapFailedListener = (
-    swap: PendingReverseSwap | PendingSubmarineSwap,
-    error: Error
-) => void;
-type ActionExecutedListener = (
-    swap: PendingReverseSwap | PendingSubmarineSwap,
-    action: "claim" | "refund"
-) => void;
+type SwapCompletedListener = (swap: PendingSwap) => void;
+type SwapFailedListener = (swap: PendingSwap, error: Error) => void;
+type ActionExecutedListener = (swap: PendingSwap, action: Actions) => void;
 type WebSocketConnectedListener = () => void;
 type WebSocketDisconnectedListener = (error?: Error) => void;
-
-type PendingSwap = PendingReverseSwap | PendingSubmarineSwap;
 
 type SwapUpdateCallback = (
     swap: PendingSwap,
@@ -110,6 +102,22 @@ export class SwapManager {
     private refundCallback:
         | ((swap: PendingSubmarineSwap) => Promise<void>)
         | null = null;
+
+    // Callbacks for actions (injected by ArkadeChainSwap)
+    private claimArkCallback:
+        | ((swap: PendingChainSwap) => Promise<void>)
+        | null = null;
+    private claimBtcCallback:
+        | ((
+              swap: PendingChainSwap,
+              data: { transaction: { hex: string } }
+          ) => Promise<void>)
+        | null = null;
+    private refundArkCallback:
+        | ((swap: PendingChainSwap) => Promise<void>)
+        | null = null;
+
+    // Callback injected by ArkadeChainSwap and ArkadeLightning)
     private saveSwapCallback: ((swap: PendingSwap) => Promise<void>) | null =
         null;
 
@@ -166,6 +174,25 @@ export class SwapManager {
     }): void {
         this.claimCallback = callbacks.claim;
         this.refundCallback = callbacks.refund;
+        this.saveSwapCallback = callbacks.saveSwap;
+    }
+
+    /**
+     * Set callbacks for claim, refund, and save operations
+     * These are called by the manager when autonomous actions are needed
+     */
+    setChainCallbacks(callbacks: {
+        claimArk: (swap: PendingChainSwap) => Promise<void>;
+        claimBtc: (
+            swap: PendingChainSwap,
+            data: { transaction: { hex: string } }
+        ) => Promise<void>;
+        refundArk: (swap: PendingChainSwap) => Promise<void>;
+        saveSwap: (swap: PendingSwap) => Promise<void>;
+    }): void {
+        this.claimArkCallback = callbacks.claimArk;
+        this.claimBtcCallback = callbacks.claimBtc;
+        this.refundArkCallback = callbacks.refundArk;
         this.saveSwapCallback = callbacks.saveSwap;
     }
 
@@ -416,8 +443,10 @@ export class SwapManager {
                         .getReverseSwapTxId(swap.id)
                         .then((response) => resolve({ txid: response.id }))
                         .catch((error) => reject(error));
-                } else {
+                } else if (isPendingSubmarineSwap(swap)) {
                     reject(new Error("Submarine swap already completed"));
+                } else if (isPendingChainSwap(swap)) {
+                    reject(new Error("Chain swap already completed"));
                 }
                 return;
             }
@@ -447,6 +476,17 @@ export class SwapManager {
                                 );
                             }
                         } else if (isPendingSubmarineSwap(updatedSwap)) {
+                            // Check if successfully completed
+                            if (updatedSwap.status === "transaction.claimed") {
+                                resolve({ txid: updatedSwap.id });
+                            } else {
+                                reject(
+                                    new Error(
+                                        `Swap failed with status: ${updatedSwap.status}`
+                                    )
+                                );
+                            }
+                        } else if (isPendingChainSwap(updatedSwap)) {
                             // Check if successfully completed
                             if (updatedSwap.status === "transaction.claimed") {
                                 resolve({ txid: updatedSwap.id });
@@ -640,7 +680,7 @@ export class SwapManager {
             }
 
             const newStatus = msg.args[0].status as BoltzSwapStatus;
-            await this.handleSwapStatusUpdate(swap, newStatus);
+            await this.handleSwapStatusUpdate(swap, newStatus, msg.args[0]);
         } catch (error) {
             logger.error("Error handling WebSocket message:", error);
         }
@@ -652,7 +692,8 @@ export class SwapManager {
      */
     private async handleSwapStatusUpdate(
         swap: PendingSwap,
-        newStatus: BoltzSwapStatus
+        newStatus: BoltzSwapStatus,
+        data?: any
     ): Promise<void> {
         const oldStatus = swap.status;
 
@@ -689,7 +730,7 @@ export class SwapManager {
 
         // Execute autonomous actions if enabled
         if (this.config.enableAutoActions) {
-            await this.executeAutonomousAction(swap);
+            await this.executeAutonomousAction(swap, data);
         }
 
         // Remove from monitoring if final status
@@ -706,7 +747,10 @@ export class SwapManager {
      * Execute autonomous action based on swap status
      * Uses locking to prevent race conditions with manual operations
      */
-    private async executeAutonomousAction(swap: PendingSwap): Promise<void> {
+    private async executeAutonomousAction(
+        swap: PendingSwap,
+        data?: any
+    ): Promise<void> {
         // Skip if already processing this swap
         if (this.swapsInProgress.has(swap.id)) {
             logger.log(
@@ -756,6 +800,37 @@ export class SwapManager {
                         listener(swap, "refund")
                     );
                 }
+            } else if (isPendingChainSwap(swap)) {
+                if (isChainClaimableStatus(swap.status)) {
+                    // Determine if it's Ark or BTC claim
+                    if (swap.request.to === "ARK") {
+                        logger.log(`Auto-claiming ARK chain swap ${swap.id}`);
+                        await this.executeClaimArkAction(swap);
+                        // Emit action executed event to all listeners
+                        this.actionExecutedListeners.forEach((listener) =>
+                            listener(swap, "claimArk")
+                        );
+                    } else if (swap.request.to === "BTC") {
+                        logger.log(`Auto-claiming BTC chain swap ${swap.id}`);
+                        await this.executeClaimBtcAction(swap, data);
+                        // Emit action executed event to all listeners
+                        this.actionExecutedListeners.forEach((listener) =>
+                            listener(swap, "claimBtc")
+                        );
+                    }
+                } else if (isChainRefundableStatus(swap.status)) {
+                    if (swap.request.from === "ARK") {
+                        logger.log(`Auto-refunding ARK chain swap ${swap.id}`);
+                        await this.executeRefundArkAction(swap);
+                        // Emit action executed event to all listeners
+                        this.actionExecutedListeners.forEach((listener) =>
+                            listener(swap, "refundArk")
+                        );
+                    }
+                    if (swap.request.from === "BTC") {
+                        // TODO: Implement BTC refund if needed
+                    }
+                }
             }
         } catch (error) {
             logger.error(
@@ -799,6 +874,47 @@ export class SwapManager {
     }
 
     /**
+     * Execute claim action for chain swap Btc to Ark
+     */
+    private async executeClaimArkAction(swap: PendingChainSwap): Promise<void> {
+        if (!this.claimArkCallback) {
+            logger.error("claimArk callback not set");
+            return;
+        }
+
+        await this.claimArkCallback(swap);
+    }
+
+    /**
+     * Execute claim action for chain swap Ark to Btc
+     */
+    private async executeClaimBtcAction(
+        swap: PendingChainSwap,
+        data: { transaction: { hex: string } }
+    ): Promise<void> {
+        if (!this.claimBtcCallback) {
+            logger.error("claimBtc callback not set");
+            return;
+        }
+
+        await this.claimBtcCallback(swap, data);
+    }
+
+    /**
+     * Execute refund action for chain swap Ark to Btc
+     */
+    private async executeRefundArkAction(
+        swap: PendingChainSwap
+    ): Promise<void> {
+        if (!this.refundArkCallback) {
+            logger.error("refundArk callback not set");
+            return;
+        }
+
+        await this.refundArkCallback(swap);
+    }
+
+    /**
      * Save swap to storage
      */
     private async saveSwap(swap: PendingSwap): Promise<void> {
@@ -836,6 +952,18 @@ export class SwapManager {
                     isSubmarineRefundableStatus(swap.status)
                 ) {
                     logger.log(`Resuming refund for swap ${swap.id}`);
+                    await this.executeAutonomousAction(swap);
+                } else if (
+                    isPendingChainSwap(swap) &&
+                    isChainClaimableStatus(swap.status)
+                ) {
+                    logger.log(`Resuming chain claim for swap ${swap.id}`);
+                    await this.executeAutonomousAction(swap);
+                } else if (
+                    isPendingChainSwap(swap) &&
+                    isChainRefundableStatus(swap.status)
+                ) {
+                    logger.log(`Resuming chain refund for swap ${swap.id}`);
                     await this.executeAutonomousAction(swap);
                 }
             } catch (error) {
@@ -930,7 +1058,11 @@ export class SwapManager {
      * Check if a status is final (no more updates expected)
      */
     private isFinalStatus(status: BoltzSwapStatus): boolean {
-        return isReverseFinalStatus(status) || isSubmarineFinalStatus(status);
+        return (
+            isReverseFinalStatus(status) ||
+            isSubmarineFinalStatus(status) ||
+            isChainFinalStatus(status)
+        );
     }
 
     /**

@@ -1,16 +1,23 @@
-import { PendingReverseSwap, PendingSubmarineSwap } from "./types";
+import {
+    PendingChainSwap,
+    PendingReverseSwap,
+    PendingSubmarineSwap,
+} from "./types";
 
 interface ErrorOptions {
     message?: string;
     isClaimable?: boolean;
     isRefundable?: boolean;
-    pendingSwap?: PendingReverseSwap | PendingSubmarineSwap;
+    pendingSwap?: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap;
 }
 
 export class SwapError extends Error {
     public isClaimable: boolean;
     public isRefundable: boolean;
-    public pendingSwap?: PendingReverseSwap | PendingSubmarineSwap;
+    public pendingSwap?:
+        | PendingReverseSwap
+        | PendingSubmarineSwap
+        | PendingChainSwap;
 
     constructor(options: ErrorOptions = {}) {
         super(options.message ?? "Error during swap.");
