@@ -509,12 +509,14 @@ describe("ArkadeChainSwap", () => {
                     toAddress: undefined,
                 };
 
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+
                 // act & assert
                 await expect(
-                    chainSwap.claimBtc({
-                        pendingSwap,
-                        arkInfo: mockArkInfo,
-                        data: {},
+                    chainSwap.claimBtc(pendingSwap, {
+                        transaction: { hex: "" },
                     })
                 ).rejects.toThrow("Destination address is required");
             });
@@ -721,10 +723,7 @@ describe("ArkadeChainSwap", () => {
                 );
 
                 // act
-                const resultPromise = chainSwap.waitAndClaimBtc({
-                    arkInfo: mockArkInfo,
-                    pendingSwap,
-                });
+                const resultPromise = chainSwap.waitAndClaimBtc(pendingSwap);
 
                 // assert
                 await expect(resultPromise).resolves.toEqual({
@@ -745,10 +744,7 @@ describe("ArkadeChainSwap", () => {
                 );
 
                 // act
-                const resultPromise = chainSwap.waitAndClaimBtc({
-                    arkInfo: mockArkInfo,
-                    pendingSwap,
-                });
+                const resultPromise = chainSwap.waitAndClaimBtc(pendingSwap);
 
                 // assert
                 await expect(resultPromise).rejects.toThrow(
@@ -772,10 +768,7 @@ describe("ArkadeChainSwap", () => {
                 );
 
                 // act
-                const resultPromise = chainSwap.waitAndClaimBtc({
-                    arkInfo: mockArkInfo,
-                    pendingSwap,
-                });
+                const resultPromise = chainSwap.waitAndClaimBtc(pendingSwap);
 
                 // assert
                 await expect(resultPromise).rejects.toThrow(
@@ -799,10 +792,7 @@ describe("ArkadeChainSwap", () => {
                 );
 
                 // act
-                const resultPromise = chainSwap.waitAndClaimBtc({
-                    arkInfo: mockArkInfo,
-                    pendingSwap,
-                });
+                const resultPromise = chainSwap.waitAndClaimBtc(pendingSwap);
 
                 // assert
                 await expect(resultPromise).rejects.toThrow(
@@ -888,6 +878,9 @@ describe("ArkadeChainSwap", () => {
                     ...mockBtcArkChainSwap,
                     preimage: hex.encode(mockPreimage),
                 };
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
                 vi.spyOn(chainSwap, "createVHTLCScript").mockReturnValueOnce(
                     mockBtcArkVHTLC
                 );
@@ -896,12 +889,9 @@ describe("ArkadeChainSwap", () => {
                 });
 
                 // act & assert
-                await expect(
-                    chainSwap.claimArk({
-                        arkInfo: mockArkInfo,
-                        pendingSwap,
-                    })
-                ).rejects.toThrow("No spendable virtual coins found");
+                await expect(chainSwap.claimArk(pendingSwap)).rejects.toThrow(
+                    "No spendable virtual coins found"
+                );
             });
         });
 
@@ -1093,10 +1083,7 @@ describe("ArkadeChainSwap", () => {
                 );
 
                 // act
-                const resultPromise = chainSwap.waitAndClaimArk({
-                    arkInfo: mockArkInfo,
-                    pendingSwap,
-                });
+                const resultPromise = chainSwap.waitAndClaimArk(pendingSwap);
 
                 // assert
                 await expect(resultPromise).resolves.toEqual({
@@ -1117,10 +1104,7 @@ describe("ArkadeChainSwap", () => {
                 );
 
                 // act
-                const resultPromise = chainSwap.waitAndClaimArk({
-                    arkInfo: mockArkInfo,
-                    pendingSwap,
-                });
+                const resultPromise = chainSwap.waitAndClaimArk(pendingSwap);
 
                 // assert
                 await expect(resultPromise).rejects.toThrow(
@@ -1144,10 +1128,7 @@ describe("ArkadeChainSwap", () => {
                 );
 
                 // act
-                const resultPromise = chainSwap.waitAndClaimArk({
-                    arkInfo: mockArkInfo,
-                    pendingSwap,
-                });
+                const resultPromise = chainSwap.waitAndClaimArk(pendingSwap);
 
                 // assert
                 await expect(resultPromise).rejects.toThrow(
@@ -1171,10 +1152,7 @@ describe("ArkadeChainSwap", () => {
                 );
 
                 // act
-                const resultPromise = chainSwap.waitAndClaimArk({
-                    arkInfo: mockArkInfo,
-                    pendingSwap,
-                });
+                const resultPromise = chainSwap.waitAndClaimArk(pendingSwap);
 
                 // assert
                 await expect(resultPromise).rejects.toThrow(

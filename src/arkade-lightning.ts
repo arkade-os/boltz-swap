@@ -31,6 +31,7 @@ import type {
     CreateLightningInvoiceRequest,
     LimitsResponse,
     FeesResponse,
+    PendingSwap,
 } from "./types";
 import { randomBytes } from "@noble/hashes/utils.js";
 import {
@@ -122,9 +123,7 @@ export class ArkadeLightning {
                 refund: async (swap: PendingSubmarineSwap) => {
                     await this.refundVHTLC(swap);
                 },
-                saveSwap: async (
-                    swap: PendingReverseSwap | PendingSubmarineSwap
-                ) => {
+                saveSwap: async (swap: PendingSwap) => {
                     await saveSwap(swap, {
                         saveReverseSwap: this.savePendingReverseSwap.bind(this),
                         saveSubmarineSwap:

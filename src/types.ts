@@ -93,6 +93,11 @@ export interface PendingChainSwap {
     toAddress?: string;
 }
 
+export type PendingSwap =
+    | PendingReverseSwap
+    | PendingSubmarineSwap
+    | PendingChainSwap;
+
 export interface RefundHandler {
     onRefundNeeded: (swapData: PendingSubmarineSwap) => Promise<void>;
 }
@@ -102,6 +107,13 @@ export interface ArkadeChainSwapConfig {
     arkProvider?: ArkProvider;
     swapProvider: BoltzSwapProvider;
     indexerProvider?: IndexerProvider;
+    /**
+     * Enable background swap monitoring and autonomous actions.
+     * - `false` or `undefined`: SwapManager disabled
+     * - `true`: SwapManager enabled with default configuration
+     * - `SwapManagerConfig` object: SwapManager enabled with custom configuration
+     */
+    swapManager?: boolean | (SwapManagerConfig & { autoStart?: boolean });
 }
 
 export interface ArkadeLightningConfig {

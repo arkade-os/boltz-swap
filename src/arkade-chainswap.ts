@@ -28,6 +28,7 @@ import type {
     PendingChainSwap,
     ChainFeesResponse,
     ArkadeChainSwapConfig,
+    PendingSwap,
 } from "./types";
 import {
     BoltzSwapProvider,
@@ -55,6 +56,9 @@ import { Address, OutScript, SigHash, Transaction } from "@scure/btc-signer";
 import { normalizeToXOnlyKey } from "./utils/signatures";
 import { isValidArkAddress } from "./utils/decoding";
 import { joinBatch, refundVHTLCwithOffchainTx } from "./utils/vhtlc";
+import { SwapManager } from "./swap-manager";
+import { saveSwap } from "./utils/swap-helpers";
+import { logger } from "./logger";
 
 function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
@@ -73,6 +77,7 @@ export class ArkadeChainSwap {
     private readonly arkProvider: ArkProvider;
     private readonly swapProvider: BoltzSwapProvider;
     private readonly indexerProvider: IndexerProvider;
+    private readonly swapManager: SwapManager | null = null;
 
     constructor(config: ArkadeChainSwapConfig) {
         if (!config.wallet) throw new Error("Wallet is required.");
@@ -97,6 +102,53 @@ export class ArkadeChainSwap {
         this.indexerProvider = indexerProvider;
 
         this.swapProvider = config.swapProvider;
+
+        // Initialize SwapManager if config is provided
+        // - true: use defaults
+        // - object: use provided config
+        // - false/undefined: disabled
+        if (config.swapManager) {
+            const swapManagerConfig =
+                config.swapManager === true ? {} : config.swapManager;
+
+            // Extract autostart (defaults to true) before passing to SwapManager
+            // SwapManager doesn't need it - only ArkadeLightning uses it
+            const shouldAutostart = swapManagerConfig.autoStart ?? true;
+
+            this.swapManager = new SwapManager(
+                this.swapProvider,
+                swapManagerConfig
+            );
+
+            // Set up callbacks for claim, refund, and save operations
+            this.swapManager.setChainCallbacks({
+                claimArk: async (swap: PendingChainSwap) => {
+                    await this.claimArk(swap);
+                },
+                claimBtc: async (
+                    swap: PendingChainSwap,
+                    data: { transaction: { hex: string } }
+                ) => {
+                    await this.claimBtc(swap, data);
+                },
+                refundArk: async (swap: PendingChainSwap) => {
+                    await this.refundArk(swap);
+                },
+                saveSwap: async (swap: PendingSwap) => {
+                    await saveSwap(swap, {
+                        saveChainSwap: this.savePendingChainSwap.bind(this),
+                    });
+                },
+            });
+
+            // Autostart if configured (defaults to true)
+            if (shouldAutostart) {
+                // Start in background without blocking constructor
+                this.startSwapManager().catch((error) => {
+                    logger.error("Failed to autostart SwapManager:", error);
+                });
+            }
+        }
     }
 
     /**
@@ -108,7 +160,7 @@ export class ArkadeChainSwap {
         toAddress: string;
         amountSats: number;
         feeSatsPerByte?: number;
-    }) {
+    }): Promise<PendingChainSwap> {
         // deconstruct args and validate
         const feeSatsPerByte = args.feeSatsPerByte ?? 1;
         const { toAddress, amountSats } = args;
@@ -155,13 +207,10 @@ export class ArkadeChainSwap {
 
         // wait for the swap to be ready and claim the HTLC
         try {
-            await this.waitAndClaimBtc({
-                arkInfo,
-                pendingSwap,
-            });
+            await this.waitAndClaimBtc(pendingSwap);
         } catch (error: any) {
             if (error.isRefundable) {
-                await this.refundVHTLC({ arkInfo, pendingSwap });
+                await this.refundArk(pendingSwap);
                 const { status } = await this.getSwapStatus(pendingSwap.id);
                 this.savePendingChainSwap({ ...pendingSwap, status });
             }
@@ -185,12 +234,9 @@ export class ArkadeChainSwap {
      * @throws TransactionRefundedError if the transaction has been refunded.
      * @throws Error if claim function fails.
      */
-    async waitAndClaimBtc(args: {
-        arkInfo: ArkInfo;
-        pendingSwap: PendingChainSwap;
-    }): Promise<{ txid: string }> {
-        const { arkInfo, pendingSwap } = args;
-
+    async waitAndClaimBtc(
+        pendingSwap: PendingChainSwap
+    ): Promise<{ txid: string }> {
         return new Promise<{ txid: string }>((resolve, reject) => {
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
             const onStatusUpdate = async (
@@ -211,9 +257,7 @@ export class ArkadeChainSwap {
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
                         await updateSwapStatus(status);
-                        this.claimBtc({ pendingSwap, arkInfo, data }).catch(
-                            reject
-                        );
+                        this.claimBtc(pendingSwap, data).catch(reject);
                         break;
                     case "transaction.claimed":
                         await updateSwapStatus(status);
@@ -252,13 +296,10 @@ export class ArkadeChainSwap {
      * Claim sats on BTC chain by claiming the HTLC.
      * @param pendingSwap
      */
-    async claimBtc(args: {
-        pendingSwap: PendingChainSwap;
-        arkInfo: ArkInfo;
-        data: any;
-    }): Promise<void> {
-        const { pendingSwap, arkInfo, data } = args;
-
+    async claimBtc(
+        pendingSwap: PendingChainSwap,
+        data: { transaction: { hex: string } }
+    ): Promise<void> {
         if (!pendingSwap.toAddress)
             throw new Error("Destination address is required");
 
@@ -269,6 +310,8 @@ export class ArkadeChainSwap {
             throw new Error("Missing server public key in claim details");
 
         const lockupTx = Transaction.fromRaw(hex.decode(data.transaction.hex));
+
+        const arkInfo = await this.arkProvider.getInfo();
 
         const network =
             arkInfo.network === "bitcoin" ? Networks.bitcoin : Networks.regtest;
@@ -363,12 +406,8 @@ export class ArkadeChainSwap {
      * Case the Ark to Btc fails, claim sats on ARK chain by claiming the VHTLC.
      * @param pendingSwap
      */
-    async refundVHTLC(args: {
-        arkInfo: ArkInfo;
-        pendingSwap: PendingChainSwap;
-    }): Promise<void> {
-        const { arkInfo, pendingSwap } = args;
-
+    async refundArk(pendingSwap: PendingChainSwap): Promise<void> {
+        const arkInfo = await this.arkProvider.getInfo();
         const preimage = hex.decode(pendingSwap.preimage);
         const address = await this.wallet.getAddress();
 
@@ -558,7 +597,7 @@ export class ArkadeChainSwap {
         amountSats: number;
         feeSatsPerByte?: number;
         onAddressGenerated: (address: string) => void;
-    }) {
+    }): Promise<PendingChainSwap> {
         // deconstruct args and validate
         const feeSatsPerByte = args.feeSatsPerByte ?? 1;
         const { amountSats, toAddress, onAddressGenerated } = args;
@@ -602,10 +641,7 @@ export class ArkadeChainSwap {
         onAddressGenerated(pendingSwap.response.lockupDetails.lockupAddress);
 
         // wait for the swap to be ready and claim the VHTLC
-        await this.waitAndClaimArk({
-            arkInfo,
-            pendingSwap,
-        });
+        await this.waitAndClaimArk(pendingSwap);
 
         const { status } = await this.getSwapStatus(pendingSwap.id);
         await this.savePendingChainSwap({ ...pendingSwap, status });
@@ -617,12 +653,9 @@ export class ArkadeChainSwap {
      * @param args - The arguments containing arkInfo and pendingSwap.
      * @returns the transaction ID of the claimed VHTLC.
      */
-    async waitAndClaimArk(args: {
-        arkInfo: ArkInfo;
-        pendingSwap: PendingChainSwap;
-    }): Promise<{ txid: string }> {
-        const { arkInfo, pendingSwap } = args;
-
+    async waitAndClaimArk(
+        pendingSwap: PendingChainSwap
+    ): Promise<{ txid: string }> {
         return new Promise<{ txid: string }>((resolve, reject) => {
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
             const onStatusUpdate = async (status: BoltzSwapStatus) => {
@@ -636,7 +669,7 @@ export class ArkadeChainSwap {
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
                         await updateSwapStatus(status);
-                        this.claimArk({ pendingSwap, arkInfo }).catch(reject);
+                        this.claimArk(pendingSwap).catch(reject);
                         break;
                     case "transaction.claimed":
                         await updateSwapStatus(status);
@@ -683,13 +716,8 @@ export class ArkadeChainSwap {
      * Claim sats on ARK chain by claiming the VHTLC.
      * @param args - The arguments containing arkInfo and pendingSwap.
      */
-    async claimArk(args: {
-        arkInfo: ArkInfo;
-        pendingSwap: PendingChainSwap;
-    }): Promise<void> {
-        const { arkInfo, pendingSwap } = args;
-        const { request, response } = pendingSwap;
-
+    async claimArk(pendingSwap: PendingChainSwap): Promise<void> {
+        const arkInfo = await this.arkProvider.getInfo();
         const preimage = hex.decode(pendingSwap.preimage);
         const address = await this.wallet.getAddress();
 
@@ -701,12 +729,12 @@ export class ArkadeChainSwap {
 
         // build expected VHTLC script
         const receiverXOnlyPublicKey = normalizeToXOnlyKey(
-            request.claimPublicKey,
+            pendingSwap.request.claimPublicKey,
             "receiver"
         );
 
         const senderXOnlyPublicKey = normalizeToXOnlyKey(
-            response.claimDetails.serverPublicKey!,
+            pendingSwap.response.claimDetails.serverPublicKey!,
             "sender"
         );
 
@@ -717,11 +745,11 @@ export class ArkadeChainSwap {
 
         const { vhtlcAddress, vhtlcScript } = this.createVHTLCScript({
             network: arkInfo.network,
-            preimageHash: hex.decode(request.preimageHash),
+            preimageHash: hex.decode(pendingSwap.request.preimageHash),
             serverPubkey: hex.encode(serverXOnlyPublicKey),
             senderPubkey: hex.encode(senderXOnlyPublicKey),
             receiverPubkey: hex.encode(receiverXOnlyPublicKey),
-            timeoutBlockHeights: response.claimDetails.timeouts!,
+            timeoutBlockHeights: pendingSwap.response.claimDetails.timeouts!,
         });
 
         if (!vhtlcScript.claimScript)
@@ -761,7 +789,7 @@ export class ArkadeChainSwap {
                 setArkPsbtField(signedTx, 0, ConditionWitness, [preimage]);
                 return signedTx;
             },
-            xOnlyPublicKey: request.claimPublicKey,
+            xOnlyPublicKey: pendingSwap.request.claimPublicKey,
             signerSession: getSignerSession(this.wallet),
         };
 
@@ -1200,6 +1228,43 @@ export class ArkadeChainSwap {
         }
     }
 
+    // SwapManager methods
+
+    /**
+     * Start the background swap manager
+     * This will load all pending swaps and begin monitoring them
+     * Automatically called when SwapManager is enabled
+     */
+    async startSwapManager(): Promise<void> {
+        if (!this.swapManager) {
+            throw new Error(
+                "SwapManager is not enabled. Provide 'swapManager' config in ArkadeLightningConfig."
+            );
+        }
+
+        // Load all pending swaps from storage
+        const chainSwaps = await this.getPendingChainSwapsFromStorage();
+
+        // Start the manager with all pending swaps
+        await this.swapManager.start(chainSwaps);
+    }
+
+    /**
+     * Stop the background swap manager
+     */
+    async stopSwapManager(): Promise<void> {
+        if (!this.swapManager) return;
+        await this.swapManager.stop();
+    }
+
+    /**
+     * Get the SwapManager instance
+     * Useful for accessing manager stats or manually controlling swaps
+     */
+    getSwapManager(): SwapManager | null {
+        return this.swapManager;
+    }
+
     // Storage helper methods using contract repository
     private async savePendingChainSwap(swap: PendingChainSwap): Promise<void> {
         await this.wallet.contractRepository.saveToContractCollection(
@@ -1272,5 +1337,15 @@ export class ArkadeChainSwap {
             arkInfo,
             isRecoverable
         );
+    }
+
+    /**
+     * Dispose of resources (stops SwapManager and cleans up)
+     * Can be called manually or automatically with `await using` syntax (TypeScript 5.2+)
+     */
+    async dispose(): Promise<void> {
+        if (this.swapManager) {
+            await this.stopSwapManager();
+        }
     }
 }

@@ -6,6 +6,7 @@ import {
     FeesResponse,
     LimitsResponse,
     Network,
+    PendingChainSwap,
     PendingReverseSwap,
     PendingSubmarineSwap,
 } from "./types";
@@ -66,6 +67,16 @@ export const isSubmarinePendingStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
+export const isSubmarineRefundableStatus = (
+    status: BoltzSwapStatus
+): boolean => {
+    return [
+        "invoice.failedToPay",
+        "transaction.lockupFailed",
+        "swap.expired",
+    ].includes(status);
+};
+
 export const isSubmarineSuccessStatus = (status: BoltzSwapStatus): boolean => {
     return status === "transaction.claimed";
 };
@@ -104,6 +115,10 @@ export const isReverseSuccessStatus = (status: BoltzSwapStatus): boolean => {
     return status === "invoice.settled";
 };
 
+export const isChainClaimableStatus = (status: BoltzSwapStatus): boolean => {
+    return ["transaction.mempool", "transaction.confirmed"].includes(status);
+};
+
 export const isChainFinalStatus = (status: BoltzSwapStatus): boolean => {
     return [
         "transaction.refunded",
@@ -123,8 +138,8 @@ export const isChainPendingStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
-export const isChainClaimableStatus = (status: BoltzSwapStatus): boolean => {
-    return ["transaction.mempool", "transaction.confirmed"].includes(status);
+export const isChainRefundableStatus = (status: BoltzSwapStatus): boolean => {
+    return ["transaction.lockupFailed", "swap.expired"].includes(status);
 };
 
 export const isChainSuccessStatus = (status: BoltzSwapStatus): boolean => {
@@ -134,28 +149,24 @@ export const isChainSuccessStatus = (status: BoltzSwapStatus): boolean => {
 // type guards
 
 export const isPendingReverseSwap = (
-    swap: PendingSubmarineSwap | PendingReverseSwap
+    swap: PendingSubmarineSwap | PendingReverseSwap | PendingChainSwap
 ): swap is PendingReverseSwap => {
     return swap.type === "reverse";
 };
 
 export const isPendingSubmarineSwap = (
-    swap: PendingSubmarineSwap | PendingReverseSwap
+    swap: PendingSubmarineSwap | PendingReverseSwap | PendingChainSwap
 ): swap is PendingSubmarineSwap => {
     return swap.type === "submarine";
 };
 
-// refundable submarine swaps are those that have failed and can be refunded
-
-export const isSubmarineRefundableStatus = (
-    status: BoltzSwapStatus
-): boolean => {
-    return [
-        "invoice.failedToPay",
-        "transaction.lockupFailed",
-        "swap.expired",
-    ].includes(status);
+export const isPendingChainSwap = (
+    swap: PendingSubmarineSwap | PendingReverseSwap | PendingChainSwap
+): swap is PendingChainSwap => {
+    return swap.type === "chain";
 };
+
+// refundable submarine swaps are those that have failed and can be refunded
 
 export const isSubmarineSwapRefundable = (
     swap: PendingSubmarineSwap | PendingReverseSwap
@@ -165,6 +176,16 @@ export const isSubmarineSwapRefundable = (
         isPendingSubmarineSwap(swap) &&
         swap.refundable !== false &&
         swap.refunded !== true
+    );
+};
+
+export const isChainSwapRefundable = (
+    swap: PendingChainSwap
+): swap is PendingChainSwap => {
+    return (
+        isChainRefundableStatus(swap.status) &&
+        isPendingChainSwap(swap) &&
+        swap.request.from === "ARK"
     );
 };
 
