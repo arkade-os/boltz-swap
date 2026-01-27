@@ -196,6 +196,23 @@ describe("ArkadeLightning", () => {
         });
     });
 
+    describe("Fees and Limits", () => {
+        it("should fetch fees", async () => {
+            const fees = await lightning.getFees();
+            expect(typeof fees.reverse.percentage).toBe("number");
+            expect(typeof fees.reverse.minerFees.claim).toBe("number");
+            expect(typeof fees.reverse.minerFees.lockup).toBe("number");
+            expect(typeof fees.submarine.percentage).toBe("number");
+            expect(typeof fees.submarine.minerFees).toBe("number");
+        });
+
+        it("should fetch limits", async () => {
+            const limits = await lightning.getLimits();
+            expect(typeof limits.min).toBe("number");
+            expect(typeof limits.max).toBe("number");
+        });
+    });
+
     describe("Receive from Lightning", () => {
         describe("createLightningInvoice", () => {
             it("should throw if amount is not > 0", async () => {
@@ -245,6 +262,24 @@ describe("ArkadeLightning", () => {
             it("should return a valid response object", async () => {
                 // arrange
                 const amount = 1500;
+                const description = "Another test payment";
+
+                // act
+                const result = await lightning.createLightningInvoice({
+                    amount,
+                    description,
+                });
+
+                // assert
+                expect(result.expiry).toBeTypeOf("number");
+                expect(result.invoice).toMatch(/^lnbcrt/);
+                expect(result.paymentHash).toHaveLength(64);
+                expect(result.preimage).toHaveLength(64);
+            });
+
+            it("should create a invoice with minimal amount", async () => {
+                // arrange
+                const { min: amount } = await lightning.getLimits();
                 const description = "Another test payment";
 
                 // act
@@ -382,6 +417,38 @@ describe("ArkadeLightning", () => {
             it("should send a Lightning payment", async () => {
                 // arrange
                 const amount = 1000;
+                const fundAmount = amount + 10;
+                await fundWallet(fundAmount);
+
+                const balanceBefore = await wallet.getBalance();
+
+                const { invoice, r_hash } =
+                    await getNewLightningInvoice(amount);
+
+                // act
+                const result = await lightning.sendLightningPayment({
+                    invoice,
+                });
+
+                const preimageHash = hex.encode(
+                    sha256(hex.decode(result.preimage))
+                );
+
+                // assert
+                expect(result.amount).toBeGreaterThan(amount);
+                expect(result.txid).toHaveLength(64);
+                expect(r_hash).toBe(preimageHash);
+
+                expect(balanceBefore.available).toEqual(fundAmount);
+                const balanceAfter = await wallet.getBalance();
+                expect(balanceAfter.available).toBeLessThan(
+                    balanceBefore.available - amount
+                );
+            });
+
+            it("should send a Lightning payment with minimal amount", async () => {
+                // arrange
+                const { min: amount } = await lightning.getLimits();
                 const fundAmount = amount + 10;
                 await fundWallet(fundAmount);
 

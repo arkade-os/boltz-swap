@@ -460,8 +460,8 @@ describe("ArkadeChainSwap", () => {
             expect(chainSwap.verifyChainSwap).toBeInstanceOf(Function);
             expect(chainSwap.waitAndClaimArk).toBeInstanceOf(Function);
             expect(chainSwap.waitAndClaimBtc).toBeInstanceOf(Function);
-            expect(chainSwap.claimBTC).toBeInstanceOf(Function);
-            expect(chainSwap.claimARK).toBeInstanceOf(Function);
+            expect(chainSwap.claimBtc).toBeInstanceOf(Function);
+            expect(chainSwap.claimArk).toBeInstanceOf(Function);
             expect(chainSwap.createVHTLCScript).toBeInstanceOf(Function);
             expect(chainSwap.getFees).toBeInstanceOf(Function);
             expect(chainSwap.getLimits).toBeInstanceOf(Function);
@@ -472,337 +472,715 @@ describe("ArkadeChainSwap", () => {
         });
     });
 
-    describe("VHTLC Script Creation", () => {
-        it("should create a VHTLC script", () => {
-            // act
-            const { vhtlcScript, vhtlcAddress } = chainSwap.createVHTLCScript({
-                network: "regtest",
-                preimageHash: mockPreimageHash,
-                receiverPubkey: compressedPubkeys.alice,
-                senderPubkey: compressedPubkeys.boltz,
-                serverPubkey: hex.encode(mock.pubkeys.server),
-                timeoutBlockHeights: {
-                    refund: 17,
-                    unilateralClaim: 21,
-                    unilateralRefund: 42,
-                    unilateralRefundWithoutReceiver: 63,
-                },
+    describe("Ark to Btc", () => {
+        describe("arkToBtc", () => {
+            it("should throw if amount is not > 0", async () => {
+                // act & assert
+                await expect(
+                    chainSwap.arkToBtc({
+                        toAddress: mock.address.btc,
+                        amountSats: 0,
+                    })
+                ).rejects.toThrow("Invalid amount in arkToBtc");
+                await expect(
+                    chainSwap.arkToBtc({
+                        toAddress: mock.address.btc,
+                        amountSats: -1,
+                    })
+                ).rejects.toThrow("Invalid amount in arkToBtc");
             });
 
-            // assert
-            expect(vhtlcScript).toBeDefined();
-            expect(vhtlcScript.pkScript).toBeDefined();
-            expect(vhtlcAddress).toBeDefined();
-            expect(vhtlcAddress).toContain("tark");
+            it("should throw if toAddress is empty", async () => {
+                // act & assert
+                await expect(
+                    chainSwap.arkToBtc({
+                        toAddress: "",
+                        amountSats: mock.amount,
+                    })
+                ).rejects.toThrow("Invalid Btc address in arkToBtc");
+            });
         });
 
-        it("should create a VHTLC script for mainnet", () => {
-            // act
-            const { vhtlcAddress } = chainSwap.createVHTLCScript({
-                network: "bitcoin",
-                preimageHash: mockPreimageHash,
-                receiverPubkey: compressedPubkeys.alice,
-                senderPubkey: compressedPubkeys.boltz,
-                serverPubkey: hex.encode(mock.pubkeys.server),
-                timeoutBlockHeights: {
-                    refund: 17,
-                    unilateralClaim: 21,
-                    unilateralRefund: 42,
-                    unilateralRefundWithoutReceiver: 63,
-                },
+        describe("claimBtc", () => {
+            it("should throw error when toAddress is missing", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockBtcArkChainSwap,
+                    toAddress: undefined,
+                };
+
+                // act & assert
+                await expect(
+                    chainSwap.claimBtc({
+                        pendingSwap,
+                        arkInfo: mockArkInfo,
+                        data: {},
+                    })
+                ).rejects.toThrow("Destination address is required");
             });
-
-            // assert
-            expect(vhtlcAddress).toContain("ark");
-        });
-    });
-
-    describe("Create Chain Swap", () => {
-        it("should create a chain swap from ARK to BTC", async () => {
-            // arrange
-            vi.spyOn(swapProvider, "createChainSwap").mockResolvedValueOnce(
-                createArkBtcChainSwapResponse
-            );
-
-            // act
-            const pendingSwap = await chainSwap.createChainSwap({
-                to: "BTC",
-                from: "ARK",
-                feeSatsPerByte: 1,
-                userLockAmount: mock.amount,
-                toAddress: mock.address.btc,
-            });
-
-            // assert
-            expect(pendingSwap.request.from).toBe("ARK");
-            expect(pendingSwap.request.to).toBe("BTC");
-            expect(pendingSwap.request.userLockAmount).toBe(mock.amount);
-            expect(pendingSwap.request.preimageHash).toHaveLength(64);
-            expect(pendingSwap.response.id).toBe(mock.id);
-            expect(pendingSwap.response.lockupDetails.lockupAddress).toBe(
-                mock.address.ark
-            );
-            expect(pendingSwap.status).toEqual("swap.created");
-            expect(pendingSwap.toAddress).toBe(mock.address.btc);
         });
 
-        it("should create a chain swap from BTC to ARK", async () => {
-            // arrange
-            const btcToArkResponse = {
-                ...createBtcArkChainSwapResponse,
-                lockupDetails: {
-                    ...createBtcArkChainSwapResponse.lockupDetails,
-                    lockupAddress: "bc1q-mock-btc-address",
-                },
-            };
-            vi.spyOn(swapProvider, "createChainSwap").mockResolvedValueOnce(
-                btcToArkResponse
-            );
+        describe("createChainSwap", () => {
+            it("should create a chain swap from Ark to Btc", async () => {
+                // arrange
+                vi.spyOn(swapProvider, "createChainSwap").mockResolvedValueOnce(
+                    createArkBtcChainSwapResponse
+                );
 
-            // act
-            const pendingSwap = await chainSwap.createChainSwap({
-                to: "ARK",
-                from: "BTC",
-                feeSatsPerByte: 1,
-                userLockAmount: mock.amount,
-            });
-
-            // assert
-            expect(pendingSwap.request.to).toBe("ARK");
-            expect(pendingSwap.request.from).toBe("BTC");
-            expect(pendingSwap.request.userLockAmount).toBe(mock.amount);
-            expect(pendingSwap.response.lockupDetails.lockupAddress).toBe(
-                "bc1q-mock-btc-address"
-            );
-        });
-    });
-
-    describe("Verify Chain Swap", () => {
-        it("should verify a chain swap successfully", async () => {
-            // arrange
-            vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(mockArkInfo);
-            vi.spyOn(chainSwap, "createVHTLCScript").mockReturnValueOnce({
-                vhtlcScript: {} as any,
-                vhtlcAddress: mock.address.ark,
-            });
-
-            const pendingSwap: PendingChainSwap = {
-                ...mockArkBtcChainSwap,
-                response: createArkBtcChainSwapResponse,
-            };
-
-            // act & assert
-            await expect(
-                chainSwap.verifyChainSwap({
+                // act
+                const pendingSwap = await chainSwap.createChainSwap({
                     to: "BTC",
                     from: "ARK",
-                    swap: pendingSwap,
-                    arkInfo: mockArkInfo,
-                })
-            ).resolves.toBe(true);
-        });
-
-        it("should throw error if lockup address doesn't match", async () => {
-            // arrange
-            vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(mockArkInfo);
-            vi.spyOn(chainSwap, "createVHTLCScript").mockReturnValueOnce({
-                vhtlcScript: {} as any,
-                vhtlcAddress: "different-address",
-            });
-
-            const pendingSwap: PendingChainSwap = {
-                ...mockArkBtcChainSwap,
-                response: createArkBtcChainSwapResponse,
-            };
-
-            // act & assert
-            await expect(
-                chainSwap.verifyChainSwap({
-                    to: "BTC",
-                    from: "ARK",
-                    swap: pendingSwap,
-                    arkInfo: mockArkInfo,
-                })
-            ).rejects.toThrow("Boltz is trying to scam us (invalid address)");
-        });
-
-        it("should throw error if claim address doesn't match", async () => {
-            // arrange
-            vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(mockArkInfo);
-            vi.spyOn(chainSwap, "createVHTLCScript").mockReturnValueOnce({
-                vhtlcScript: {} as any,
-                vhtlcAddress: mock.address.ark + "...",
-            });
-
-            const pendingSwap: PendingChainSwap = {
-                ...mockArkBtcChainSwap,
-                response: createArkBtcChainSwapResponse,
-            };
-
-            // act & assert
-            await expect(
-                chainSwap.verifyChainSwap({
-                    to: "BTC",
-                    from: "ARK",
-                    swap: pendingSwap,
-                    arkInfo: mockArkInfo,
-                })
-            ).rejects.toThrow("Boltz is trying to scam us (invalid address)");
-        });
-    });
-
-    describe("ARK to BTC", () => {
-        it("should throw if amount is not > 0", async () => {
-            // act & assert
-            await expect(
-                chainSwap.arkToBtc({
+                    feeSatsPerByte: 1,
+                    userLockAmount: mock.amount,
                     toAddress: mock.address.btc,
-                    amountSats: 0,
-                })
-            ).rejects.toThrow("Invalid amount in arkToBtc");
-            await expect(
-                chainSwap.arkToBtc({
-                    toAddress: mock.address.btc,
-                    amountSats: -1,
-                })
-            ).rejects.toThrow("Invalid amount in arkToBtc");
-        });
+                });
 
-        it("should throw if toAddress is empty", async () => {
-            // act & assert
-            await expect(
-                chainSwap.arkToBtc({
-                    toAddress: "",
-                    amountSats: mock.amount,
-                })
-            ).rejects.toThrow("Invalid BTC address in arkToBtc");
-        });
-    });
-
-    describe("BTC to ARK", () => {
-        const toAddress = mock.address.ark;
-        it("should throw on invalid Ark address", async () => {
-            // act & assert
-            await expect(
-                chainSwap.btcToArk({
-                    amountSats: 0,
-                    toAddress: "",
-                    onAddressGenerated: vi.fn(),
-                })
-            ).rejects.toThrow("Invalid Ark address in btcToArk");
-        });
-
-        it("should throw if amount is 0", async () => {
-            // act & assert
-            await expect(
-                chainSwap.btcToArk({
-                    amountSats: 0,
-                    toAddress: toAddress,
-                    onAddressGenerated: vi.fn(),
-                })
-            ).rejects.toThrow("Invalid amount in btcToArk");
-        });
-
-        it("should throw if amount is < 0", async () => {
-            // act & assert
-            await expect(
-                chainSwap.btcToArk({
-                    amountSats: -1,
-                    toAddress: toAddress,
-                    onAddressGenerated: vi.fn(),
-                })
-            ).rejects.toThrow("Invalid amount in btcToArk");
-        });
-
-        it("should call onAddressGenerated with lockup address", async () => {
-            // arrange
-            const onAddressGenerated = vi.fn();
-            vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(mockArkInfo);
-            vi.spyOn(swapProvider, "createChainSwap").mockResolvedValueOnce(
-                createBtcArkChainSwapResponse
-            );
-            vi.spyOn(chainSwap, "verifyChainSwap").mockResolvedValueOnce(true);
-            vi.spyOn(chainSwap, "waitAndClaimArk").mockResolvedValueOnce({
-                txid: mock.txid,
+                // assert
+                expect(pendingSwap.request.from).toBe("ARK");
+                expect(pendingSwap.request.to).toBe("BTC");
+                expect(pendingSwap.request.userLockAmount).toBe(mock.amount);
+                expect(pendingSwap.request.preimageHash).toHaveLength(64);
+                expect(pendingSwap.response.id).toBe(mock.id);
+                expect(pendingSwap.response.lockupDetails.lockupAddress).toBe(
+                    mock.address.ark
+                );
+                expect(pendingSwap.status).toEqual("swap.created");
+                expect(pendingSwap.toAddress).toBe(mock.address.btc);
             });
-            vi.spyOn(chainSwap, "getSwapStatus").mockResolvedValueOnce({
-                status: "transaction.claimed",
-            });
-
-            // act
-            await chainSwap.btcToArk({
-                toAddress: mock.address.ark,
-                amountSats: mock.amount,
-                onAddressGenerated,
-            });
-
-            // assert
-            expect(onAddressGenerated).toHaveBeenCalledWith(mock.address.btc);
         });
-    });
 
-    describe("Fees and Limits", () => {
-        it("should get fees for chain swap", async () => {
-            // arrange
-            const mockFees: ChainFeesResponse = {
-                minerFees: {
-                    server: 50,
-                    user: {
-                        claim: 21,
-                        lockup: 30,
+        describe("createVHTLCScript", () => {
+            it("should create a VHTLC script", () => {
+                // act
+                const { vhtlcScript, vhtlcAddress } =
+                    chainSwap.createVHTLCScript({
+                        network: "regtest",
+                        preimageHash: mockPreimageHash,
+                        receiverPubkey: compressedPubkeys.boltz,
+                        senderPubkey: compressedPubkeys.alice,
+                        serverPubkey: hex.encode(mock.pubkeys.server),
+                        timeoutBlockHeights: {
+                            refund: 17,
+                            unilateralClaim: 21,
+                            unilateralRefund: 42,
+                            unilateralRefundWithoutReceiver: 63,
+                        },
+                    });
+
+                // assert
+                expect(vhtlcScript).toBeDefined();
+                expect(vhtlcScript.pkScript).toBeDefined();
+                expect(vhtlcAddress).toBeDefined();
+                expect(vhtlcAddress).toContain("tark");
+            });
+        });
+
+        describe("getFees", () => {
+            it("should get fees for a Ark to Btc chain swap", async () => {
+                // arrange
+                const mockFees: ChainFeesResponse = {
+                    minerFees: {
+                        server: 50,
+                        user: {
+                            claim: 21,
+                            lockup: 30,
+                        },
                     },
-                },
-                percentage: 0.5,
-            };
-            vi.spyOn(swapProvider, "getChainFees").mockResolvedValueOnce(
-                mockFees
-            );
+                    percentage: 0.5,
+                };
+                vi.spyOn(swapProvider, "getChainFees").mockResolvedValueOnce(
+                    mockFees
+                );
 
-            // act
-            const fees = await chainSwap.getFees("ARK", "BTC");
+                // act
+                const fees = await chainSwap.getFees("ARK", "BTC");
 
-            // assert
-            expect(fees).toEqual(mockFees);
-            expect(swapProvider.getChainFees).toHaveBeenCalledWith(
-                "ARK",
-                "BTC"
-            );
+                // assert
+                expect(fees).toEqual(mockFees);
+                expect(swapProvider.getChainFees).toHaveBeenCalledWith(
+                    "ARK",
+                    "BTC"
+                );
+            });
         });
 
-        it("should get limits for chain swap", async () => {
-            // arrange
-            const mockLimits: LimitsResponse = {
-                min: 10000,
-                max: 1000000,
-            };
-            vi.spyOn(swapProvider, "getChainLimits").mockResolvedValueOnce(
-                mockLimits
-            );
+        describe("getLimits", () => {
+            it("should get limits for a Ark to Btc chain swap", async () => {
+                // arrange
+                const mockLimits: LimitsResponse = {
+                    min: 10000,
+                    max: 1000000,
+                };
+                vi.spyOn(swapProvider, "getChainLimits").mockResolvedValueOnce(
+                    mockLimits
+                );
 
-            // act
-            const limits = await chainSwap.getLimits("ARK", "BTC");
+                // act
+                const limits = await chainSwap.getLimits("ARK", "BTC");
 
-            // assert
-            expect(limits).toEqual(mockLimits);
-            expect(swapProvider.getChainLimits).toHaveBeenCalledWith(
-                "ARK",
-                "BTC"
-            );
+                // assert
+                expect(limits).toEqual(mockLimits);
+                expect(swapProvider.getChainLimits).toHaveBeenCalledWith(
+                    "ARK",
+                    "BTC"
+                );
+            });
+        });
+
+        describe("getSwapStatus", () => {
+            it("should get correct swap status", async () => {
+                // arrange
+                vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValueOnce({
+                    status: "swap.created",
+                });
+
+                // act
+                const status = await chainSwap.getSwapStatus(mock.id);
+
+                // assert
+                expect(status.status).toBe("swap.created");
+            });
+        });
+
+        describe("verifyChainSwap", () => {
+            it("should verify a chain swap successfully", async () => {
+                // arrange
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+                vi.spyOn(chainSwap, "createVHTLCScript").mockReturnValueOnce({
+                    vhtlcScript: {} as any,
+                    vhtlcAddress: mock.address.ark,
+                });
+
+                const pendingSwap: PendingChainSwap = {
+                    ...mockArkBtcChainSwap,
+                    response: createArkBtcChainSwapResponse,
+                };
+
+                // act & assert
+                await expect(
+                    chainSwap.verifyChainSwap({
+                        to: "BTC",
+                        from: "ARK",
+                        swap: pendingSwap,
+                        arkInfo: mockArkInfo,
+                    })
+                ).resolves.toBe(true);
+            });
+
+            it("should throw error if lockup address doesn't match", async () => {
+                // arrange
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+                vi.spyOn(chainSwap, "createVHTLCScript").mockReturnValueOnce({
+                    vhtlcScript: {} as any,
+                    vhtlcAddress: "different-address",
+                });
+
+                const pendingSwap: PendingChainSwap = {
+                    ...mockArkBtcChainSwap,
+                    response: createArkBtcChainSwapResponse,
+                };
+
+                // act & assert
+                await expect(
+                    chainSwap.verifyChainSwap({
+                        to: "BTC",
+                        from: "ARK",
+                        swap: pendingSwap,
+                        arkInfo: mockArkInfo,
+                    })
+                ).rejects.toThrow(
+                    "Boltz is trying to scam us (invalid address)"
+                );
+            });
+        });
+
+        describe("waitAndClaimBtc", () => {
+            it("should resolve with txid when transaction is claimed", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockArkBtcChainSwap,
+                };
+                vi.spyOn(chainSwap, "claimBtc").mockResolvedValue();
+                vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
+                    async (_id, callback) => {
+                        // Simulate status updates
+                        setTimeout(
+                            () => callback("transaction.server.mempool", {}),
+                            10
+                        );
+                        setTimeout(
+                            () => callback("transaction.claimed", {}),
+                            20
+                        );
+                    }
+                );
+
+                // act
+                const resultPromise = chainSwap.waitAndClaimBtc({
+                    arkInfo: mockArkInfo,
+                    pendingSwap,
+                });
+
+                // assert
+                await expect(resultPromise).resolves.toEqual({
+                    txid: mock.id,
+                });
+            });
+
+            it("should reject with SwapExpiredError when swap expires", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockArkBtcChainSwap,
+                };
+                vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
+                    async (_id, callback) => {
+                        // Simulate swap expiration
+                        setTimeout(() => callback("swap.expired", {}), 10);
+                    }
+                );
+
+                // act
+                const resultPromise = chainSwap.waitAndClaimBtc({
+                    arkInfo: mockArkInfo,
+                    pendingSwap,
+                });
+
+                // assert
+                await expect(resultPromise).rejects.toThrow(
+                    "The swap has expired"
+                );
+            });
+
+            it("should reject with TransactionFailedError when transaction fails", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockArkBtcChainSwap,
+                };
+                vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
+                    async (_id, callback) => {
+                        // Simulate transaction failure
+                        setTimeout(
+                            () => callback("transaction.failed", {}),
+                            10
+                        );
+                    }
+                );
+
+                // act
+                const resultPromise = chainSwap.waitAndClaimBtc({
+                    arkInfo: mockArkInfo,
+                    pendingSwap,
+                });
+
+                // assert
+                await expect(resultPromise).rejects.toThrow(
+                    "The transaction has failed."
+                );
+            });
+
+            it("should reject with TransactionRefundedError when transaction is refunded", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockArkBtcChainSwap,
+                };
+                vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
+                    async (_id, callback) => {
+                        // Simulate transaction refund
+                        setTimeout(
+                            () => callback("transaction.refunded", {}),
+                            10
+                        );
+                    }
+                );
+
+                // act
+                const resultPromise = chainSwap.waitAndClaimBtc({
+                    arkInfo: mockArkInfo,
+                    pendingSwap,
+                });
+
+                // assert
+                await expect(resultPromise).rejects.toThrow(
+                    "The transaction has been refunded."
+                );
+            });
         });
     });
 
-    describe("Swap Status", () => {
-        it("should get correct swap status", async () => {
-            // arrange
-            vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValueOnce({
-                status: "swap.created",
+    describe("Btc to Ark", () => {
+        describe("btcToArk", () => {
+            const toAddress = mock.address.ark;
+            it("should throw on invalid Ark address", async () => {
+                // act & assert
+                await expect(
+                    chainSwap.btcToArk({
+                        amountSats: 0,
+                        toAddress: "",
+                        onAddressGenerated: vi.fn(),
+                    })
+                ).rejects.toThrow("Invalid Ark address in btcToArk");
             });
 
-            // act
-            const status = await chainSwap.getSwapStatus(mock.id);
+            it("should throw if amount is 0", async () => {
+                // act & assert
+                await expect(
+                    chainSwap.btcToArk({
+                        amountSats: 0,
+                        toAddress: toAddress,
+                        onAddressGenerated: vi.fn(),
+                    })
+                ).rejects.toThrow("Invalid amount in btcToArk");
+            });
 
-            // assert
-            expect(status.status).toBe("swap.created");
+            it("should throw if amount is < 0", async () => {
+                // act & assert
+                await expect(
+                    chainSwap.btcToArk({
+                        amountSats: -1,
+                        toAddress: toAddress,
+                        onAddressGenerated: vi.fn(),
+                    })
+                ).rejects.toThrow("Invalid amount in btcToArk");
+            });
+
+            it("should call onAddressGenerated with lockup address", async () => {
+                // arrange
+                const onAddressGenerated = vi.fn();
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+                vi.spyOn(swapProvider, "createChainSwap").mockResolvedValueOnce(
+                    createBtcArkChainSwapResponse
+                );
+                vi.spyOn(chainSwap, "verifyChainSwap").mockResolvedValueOnce(
+                    true
+                );
+                vi.spyOn(chainSwap, "waitAndClaimArk").mockResolvedValueOnce({
+                    txid: mock.txid,
+                });
+                vi.spyOn(chainSwap, "getSwapStatus").mockResolvedValueOnce({
+                    status: "transaction.claimed",
+                });
+
+                // act
+                await chainSwap.btcToArk({
+                    toAddress: mock.address.ark,
+                    amountSats: mock.amount,
+                    onAddressGenerated,
+                });
+
+                // assert
+                expect(onAddressGenerated).toHaveBeenCalledWith(
+                    mock.address.btc
+                );
+            });
+        });
+
+        describe("claimArk", () => {
+            it("should throw error when no spendable VTXOs found", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockBtcArkChainSwap,
+                    preimage: hex.encode(mockPreimage),
+                };
+                vi.spyOn(chainSwap, "createVHTLCScript").mockReturnValueOnce(
+                    mockBtcArkVHTLC
+                );
+                vi.spyOn(indexerProvider, "getVtxos").mockResolvedValueOnce({
+                    vtxos: [],
+                });
+
+                // act & assert
+                await expect(
+                    chainSwap.claimArk({
+                        arkInfo: mockArkInfo,
+                        pendingSwap,
+                    })
+                ).rejects.toThrow("No spendable virtual coins found");
+            });
+        });
+
+        describe("createChainSwap", () => {
+            it("should create a chain swap from Btc to Ark", async () => {
+                // arrange
+                const btcToArkResponse = {
+                    ...createBtcArkChainSwapResponse,
+                    lockupDetails: {
+                        ...createBtcArkChainSwapResponse.lockupDetails,
+                        lockupAddress: "bc1q-mock-btc-address",
+                    },
+                };
+                vi.spyOn(swapProvider, "createChainSwap").mockResolvedValueOnce(
+                    btcToArkResponse
+                );
+
+                // act
+                const pendingSwap = await chainSwap.createChainSwap({
+                    to: "ARK",
+                    from: "BTC",
+                    feeSatsPerByte: 1,
+                    userLockAmount: mock.amount,
+                });
+
+                // assert
+                expect(pendingSwap.request.to).toBe("ARK");
+                expect(pendingSwap.request.from).toBe("BTC");
+                expect(pendingSwap.request.userLockAmount).toBe(mock.amount);
+                expect(pendingSwap.response.lockupDetails.lockupAddress).toBe(
+                    "bc1q-mock-btc-address"
+                );
+            });
+        });
+
+        describe("createVHTLCScript", () => {
+            it("should create a VHTLC script", () => {
+                // act
+                const { vhtlcScript, vhtlcAddress } =
+                    chainSwap.createVHTLCScript({
+                        network: "regtest",
+                        preimageHash: mockPreimageHash,
+                        receiverPubkey: compressedPubkeys.alice,
+                        senderPubkey: compressedPubkeys.boltz,
+                        serverPubkey: hex.encode(mock.pubkeys.server),
+                        timeoutBlockHeights: {
+                            refund: 17,
+                            unilateralClaim: 21,
+                            unilateralRefund: 42,
+                            unilateralRefundWithoutReceiver: 63,
+                        },
+                    });
+
+                // assert
+                expect(vhtlcScript).toBeDefined();
+                expect(vhtlcScript.pkScript).toBeDefined();
+                expect(vhtlcAddress).toBeDefined();
+                expect(vhtlcAddress).toContain("tark");
+            });
+        });
+
+        describe("getFees", () => {
+            it("should get fees for a Btc to Ark chain swap", async () => {
+                // arrange
+                const mockFees: ChainFeesResponse = {
+                    minerFees: {
+                        server: 50,
+                        user: {
+                            claim: 21,
+                            lockup: 30,
+                        },
+                    },
+                    percentage: 0.5,
+                };
+                vi.spyOn(swapProvider, "getChainFees").mockResolvedValueOnce(
+                    mockFees
+                );
+
+                // act
+                const fees = await chainSwap.getFees("BTC", "ARK");
+
+                // assert
+                expect(fees).toEqual(mockFees);
+                expect(swapProvider.getChainFees).toHaveBeenCalledWith(
+                    "BTC",
+                    "ARK"
+                );
+            });
+        });
+
+        describe("getLimits", () => {
+            it("should get limits for a Btc to Ark chain swap", async () => {
+                // arrange
+                const mockLimits: LimitsResponse = {
+                    min: 10000,
+                    max: 1000000,
+                };
+                vi.spyOn(swapProvider, "getChainLimits").mockResolvedValueOnce(
+                    mockLimits
+                );
+
+                // act
+                const limits = await chainSwap.getLimits("BTC", "ARK");
+
+                // assert
+                expect(limits).toEqual(mockLimits);
+                expect(swapProvider.getChainLimits).toHaveBeenCalledWith(
+                    "BTC",
+                    "ARK"
+                );
+            });
+        });
+
+        describe("verifyChainSwap", () => {
+            it("should verify a chain swap successfully", async () => {
+                // arrange
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+                vi.spyOn(chainSwap, "createVHTLCScript").mockReturnValueOnce({
+                    vhtlcScript: {} as any,
+                    vhtlcAddress: mock.address.ark,
+                });
+
+                const pendingSwap: PendingChainSwap = {
+                    ...mockBtcArkChainSwap,
+                    response: createBtcArkChainSwapResponse,
+                };
+
+                // act & assert
+                await expect(
+                    chainSwap.verifyChainSwap({
+                        to: "ARK",
+                        from: "BTC",
+                        swap: pendingSwap,
+                        arkInfo: mockArkInfo,
+                    })
+                ).resolves.toBe(true);
+            });
+
+            it("should throw error if claim address doesn't match", async () => {
+                // arrange
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+                vi.spyOn(chainSwap, "createVHTLCScript").mockReturnValueOnce({
+                    vhtlcScript: {} as any,
+                    vhtlcAddress: mock.address.ark + "...",
+                });
+
+                const pendingSwap: PendingChainSwap = {
+                    ...mockArkBtcChainSwap,
+                    response: createArkBtcChainSwapResponse,
+                };
+
+                // act & assert
+                await expect(
+                    chainSwap.verifyChainSwap({
+                        to: "BTC",
+                        from: "ARK",
+                        swap: pendingSwap,
+                        arkInfo: mockArkInfo,
+                    })
+                ).rejects.toThrow(
+                    "Boltz is trying to scam us (invalid address)"
+                );
+            });
+        });
+
+        describe("waitAndClaimArk", () => {
+            it("should resolve with txid when transaction is claimed", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockBtcArkChainSwap,
+                };
+                vi.spyOn(chainSwap, "claimArk").mockResolvedValue();
+                vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
+                    async (_id, callback) => {
+                        // Simulate status updates
+                        setTimeout(
+                            () => callback("transaction.server.mempool", {}),
+                            10
+                        );
+                        setTimeout(
+                            () => callback("transaction.claimed", {}),
+                            20
+                        );
+                    }
+                );
+
+                // act
+                const resultPromise = chainSwap.waitAndClaimArk({
+                    arkInfo: mockArkInfo,
+                    pendingSwap,
+                });
+
+                // assert
+                await expect(resultPromise).resolves.toEqual({
+                    txid: mock.id,
+                });
+            });
+
+            it("should reject with SwapExpiredError when swap expires", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockBtcArkChainSwap,
+                };
+                vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
+                    async (_id, callback) => {
+                        // Simulate swap expiration
+                        setTimeout(() => callback("swap.expired", {}), 10);
+                    }
+                );
+
+                // act
+                const resultPromise = chainSwap.waitAndClaimArk({
+                    arkInfo: mockArkInfo,
+                    pendingSwap,
+                });
+
+                // assert
+                await expect(resultPromise).rejects.toThrow(
+                    "The swap has expired"
+                );
+            });
+
+            it("should reject with TransactionFailedError when transaction fails", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockBtcArkChainSwap,
+                };
+                vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
+                    async (_id, callback) => {
+                        // Simulate transaction failure
+                        setTimeout(
+                            () => callback("transaction.failed", {}),
+                            10
+                        );
+                    }
+                );
+
+                // act
+                const resultPromise = chainSwap.waitAndClaimArk({
+                    arkInfo: mockArkInfo,
+                    pendingSwap,
+                });
+
+                // assert
+                await expect(resultPromise).rejects.toThrow(
+                    "The transaction has failed."
+                );
+            });
+
+            it("should reject with TransactionRefundedError when transaction is refunded", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockBtcArkChainSwap,
+                };
+                vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
+                    async (_id, callback) => {
+                        // Simulate transaction refund
+                        setTimeout(
+                            () => callback("transaction.refunded", {}),
+                            10
+                        );
+                    }
+                );
+
+                // act
+                const resultPromise = chainSwap.waitAndClaimArk({
+                    arkInfo: mockArkInfo,
+                    pendingSwap,
+                });
+
+                // assert
+                await expect(resultPromise).rejects.toThrow(
+                    "The transaction has been refunded."
+                );
+            });
         });
     });
 
@@ -821,6 +1199,21 @@ describe("ArkadeChainSwap", () => {
                     return [];
                 }
                 return [];
+            });
+        });
+
+        describe("getSwapStatus", () => {
+            it("should get correct swap status", async () => {
+                // arrange
+                vi.spyOn(swapProvider, "getSwapStatus").mockResolvedValueOnce({
+                    status: "swap.created",
+                });
+
+                // act
+                const status = await chainSwap.getSwapStatus(mock.id);
+
+                // assert
+                expect(status.status).toBe("swap.created");
             });
         });
 
@@ -979,150 +1372,6 @@ describe("ArkadeChainSwap", () => {
                     "swap3"
                 );
             });
-        });
-    });
-
-    describe("Wait and Claim", () => {
-        it("should resolve with txid when transaction is claimed", async () => {
-            // arrange
-            const pendingSwap: PendingChainSwap = {
-                ...mockArkBtcChainSwap,
-            };
-            vi.spyOn(chainSwap, "claimBTC").mockResolvedValue();
-            vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
-                async (_id, callback) => {
-                    // Simulate status updates
-                    setTimeout(
-                        () => callback("transaction.server.mempool", {}),
-                        10
-                    );
-                    setTimeout(() => callback("transaction.claimed", {}), 20);
-                }
-            );
-
-            // act
-            const resultPromise = chainSwap.waitAndClaimBtc({
-                arkInfo: mockArkInfo,
-                pendingSwap,
-            });
-
-            // assert
-            await expect(resultPromise).resolves.toEqual({
-                txid: mock.id,
-            });
-        });
-
-        it("should reject with SwapExpiredError when swap expires", async () => {
-            // arrange
-            const pendingSwap: PendingChainSwap = {
-                ...mockArkBtcChainSwap,
-            };
-            vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
-                async (_id, callback) => {
-                    // Simulate swap expiration
-                    setTimeout(() => callback("swap.expired", {}), 10);
-                }
-            );
-
-            // act
-            const resultPromise = chainSwap.waitAndClaimBtc({
-                arkInfo: mockArkInfo,
-                pendingSwap,
-            });
-
-            // assert
-            await expect(resultPromise).rejects.toThrow("The swap has expired");
-        });
-
-        it("should reject with TransactionFailedError when transaction fails", async () => {
-            // arrange
-            const pendingSwap: PendingChainSwap = {
-                ...mockArkBtcChainSwap,
-            };
-            vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
-                async (_id, callback) => {
-                    // Simulate transaction failure
-                    setTimeout(() => callback("transaction.failed", {}), 10);
-                }
-            );
-
-            // act
-            const resultPromise = chainSwap.waitAndClaimBtc({
-                arkInfo: mockArkInfo,
-                pendingSwap,
-            });
-
-            // assert
-            await expect(resultPromise).rejects.toThrow(
-                "The transaction has failed."
-            );
-        });
-
-        it("should reject with TransactionRefundedError when transaction is refunded", async () => {
-            // arrange
-            const pendingSwap: PendingChainSwap = {
-                ...mockArkBtcChainSwap,
-            };
-            vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
-                async (_id, callback) => {
-                    // Simulate transaction refund
-                    setTimeout(() => callback("transaction.refunded", {}), 10);
-                }
-            );
-
-            // act
-            const resultPromise = chainSwap.waitAndClaimBtc({
-                arkInfo: mockArkInfo,
-                pendingSwap,
-            });
-
-            // assert
-            await expect(resultPromise).rejects.toThrow(
-                "The transaction has been refunded."
-            );
-        });
-    });
-
-    describe("Claim ARK", () => {
-        it("should throw error when no spendable VTXOs found", async () => {
-            // arrange
-            const pendingSwap: PendingChainSwap = {
-                ...mockBtcArkChainSwap,
-                preimage: hex.encode(mockPreimage),
-            };
-            vi.spyOn(chainSwap, "createVHTLCScript").mockReturnValueOnce(
-                mockBtcArkVHTLC
-            );
-            vi.spyOn(indexerProvider, "getVtxos").mockResolvedValueOnce({
-                vtxos: [],
-            });
-
-            // act & assert
-            await expect(
-                chainSwap.claimARK({
-                    arkInfo: mockArkInfo,
-                    pendingSwap,
-                })
-            ).rejects.toThrow("No spendable virtual coins found");
-        });
-    });
-
-    describe("Claim BTC", () => {
-        it("should throw error when toAddress is missing", async () => {
-            // arrange
-            const pendingSwap: PendingChainSwap = {
-                ...mockBtcArkChainSwap,
-                toAddress: undefined,
-            };
-
-            // act & assert
-            await expect(
-                chainSwap.claimBTC({
-                    pendingSwap,
-                    arkInfo: mockArkInfo,
-                    data: {},
-                })
-            ).rejects.toThrow("Destination address is required");
         });
     });
 });

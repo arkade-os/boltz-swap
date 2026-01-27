@@ -100,7 +100,7 @@ export class ArkadeChainSwap {
     }
 
     /**
-     * Creates a chain swap from ARK to BTC.
+     * Creates a chain swap from Ark to Btc.
      * @param args
      * @returns
      */
@@ -114,7 +114,7 @@ export class ArkadeChainSwap {
         const { toAddress, amountSats } = args;
         if (!toAddress) {
             throw new SwapError({
-                message: "Invalid BTC address in arkToBtc",
+                message: "Invalid Btc address in arkToBtc",
             });
         }
         if (amountSats <= 0) {
@@ -211,7 +211,7 @@ export class ArkadeChainSwap {
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
                         await updateSwapStatus(status);
-                        this.claimBTC({ pendingSwap, arkInfo, data }).catch(
+                        this.claimBtc({ pendingSwap, arkInfo, data }).catch(
                             reject
                         );
                         break;
@@ -252,7 +252,7 @@ export class ArkadeChainSwap {
      * Claim sats on BTC chain by claiming the HTLC.
      * @param pendingSwap
      */
-    async claimBTC(args: {
+    async claimBtc(args: {
         pendingSwap: PendingChainSwap;
         arkInfo: ArkInfo;
         data: any;
@@ -614,15 +614,8 @@ export class ArkadeChainSwap {
 
     /**
      * Waits for the swap to be confirmed and claims it.
-     * @param arkInfo - The Ark information.
-     * @param pendingSwap - The pending chain swap.
-     * @param claimFunction - The function to claim the swap.
-     * @param beNiceFunction - Optional function to be called in BTC => ARK transaction.claim.pending.
-     * @returns The transaction ID of the claimed VHTLC.
-     * @throws SwapExpiredError if the swap has expired.
-     * @throws TransactionFailedError if the transaction has failed.
-     * @throws TransactionRefundedError if the transaction has been refunded.
-     * @throws Error if claim function fails.
+     * @param args - The arguments containing arkInfo and pendingSwap.
+     * @returns the transaction ID of the claimed VHTLC.
      */
     async waitAndClaimArk(args: {
         arkInfo: ArkInfo;
@@ -643,7 +636,7 @@ export class ArkadeChainSwap {
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
                         await updateSwapStatus(status);
-                        this.claimARK({ pendingSwap, arkInfo }).catch(reject);
+                        this.claimArk({ pendingSwap, arkInfo }).catch(reject);
                         break;
                     case "transaction.claimed":
                         await updateSwapStatus(status);
@@ -688,9 +681,9 @@ export class ArkadeChainSwap {
 
     /**
      * Claim sats on ARK chain by claiming the VHTLC.
-     * @param pendingSwap
+     * @param args - The arguments containing arkInfo and pendingSwap.
      */
-    async claimARK(args: {
+    async claimArk(args: {
         arkInfo: ArkInfo;
         pendingSwap: PendingChainSwap;
     }): Promise<void> {
@@ -1214,7 +1207,6 @@ export class ArkadeChainSwap {
             swap,
             "id"
         );
-        console.warn(`Saved chain swap ${swap.id} with status ${swap.status}`);
     }
 
     private async getPendingChainSwapsFromStorage(): Promise<
