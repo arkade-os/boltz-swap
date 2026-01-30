@@ -2,8 +2,8 @@ import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
 import { BoltzSwapStatus } from "../boltz-swap-provider";
 
 export type GetSwapsFilter = {
-    id: string | string[];
-    status: BoltzSwapStatus | BoltzSwapStatus[];
+    id?: string | string[];
+    status?: BoltzSwapStatus | BoltzSwapStatus[];
 }
 
 export interface SwapRepository extends AsyncDisposable {

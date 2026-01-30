@@ -48,7 +48,7 @@
     "author": "Arkade-OS",
     "license": "MIT",
     "dependencies": {
-        "@arkade-os/sdk": "0.3.12",
+        "@arkade-os/sdk": "file:../ts-sdk",
         "@noble/hashes": "2.0.1",
         "@scure/base": "2.0.0",
         "@scure/btc-signer": "2.0.1",
@@ -64,6 +64,7 @@
         "@typescript-eslint/parser": "^8.43.0",
         "eslint": "^9.35.0",
         "eventsource": "^4.1.0",
+        "indexeddbshim": "^16.1.0",
         "prettier": "3.6.2",
         "tsup": "^8.5.0",
         "typescript": "^5.9.2",
@@ -76,5 +77,10 @@
     "publishConfig": {
         "access": "public"
     },
-    "packageManager": "pnpm@10.25.0"
+    "packageManager": "pnpm@10.25.0",
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "sqlite3"
+        ]
+    }
 }

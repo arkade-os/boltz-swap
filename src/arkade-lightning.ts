@@ -73,7 +73,7 @@ import { logger } from "./logger";
 import { claimVHTLCIdentity } from "./utils/identity";
 import { createVHTLCBatchHandler } from "./batch";
 import { IndexedDbSwapRepository } from "./repositories/IndexedDb/swap-repository";
-import { SwapRepository } from "./repositories/swap-repository";
+import {  SwapRepository } from "./repositories/swap-repository";
 
 export class ArkadeLightning {
     private readonly wallet: Wallet | ServiceWorkerWallet;
@@ -172,18 +172,6 @@ export class ArkadeLightning {
         await this.swapRepository.saveSubmarineSwap(swap);
     }
 
-    private async getPendingReverseSwapsFromStorage(): Promise<
-        PendingReverseSwap[]
-    > {
-        return this.swapRepository.getAllReverseSwaps();
-    }
-
-    private async getPendingSubmarineSwapsFromStorage(): Promise<
-        PendingSubmarineSwap[]
-    > {
-       return this.swapRepository.getAllSubmarineSwaps();
-    }
-
     // SwapManager methods
 
     /**
@@ -199,8 +187,8 @@ export class ArkadeLightning {
         }
 
         // Load all pending swaps from storage
-        const reverseSwaps = await this.getPendingReverseSwapsFromStorage();
-        const submarineSwaps = await this.getPendingSubmarineSwapsFromStorage();
+        const reverseSwaps = await  this.swapRepository.getAllReverseSwaps();
+        const submarineSwaps = await this.swapRepository.getAllSubmarineSwaps();
         const allSwaps = [...reverseSwaps, ...submarineSwaps];
 
         // Start the manager with all pending swaps
@@ -1441,28 +1429,22 @@ export class ArkadeLightning {
      * Retrieves all pending submarine swaps from storage.
      * This method filters the pending swaps to return only those with a status of 'invoice.set'.
      * It is useful for checking the status of all pending submarine swaps in the system.
+     *
      * @returns PendingSubmarineSwap[]. If no swaps are found, it returns an empty array.
      */
     async getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[]> {
-        const swaps = await this.getPendingSubmarineSwapsFromStorage();
-        if (!swaps) return [];
-        return swaps.filter(
-            (swap: PendingSubmarineSwap) => swap.status === "invoice.set"
-        );
+        return this.swapRepository.getAllSubmarineSwaps({status: 'invoice.set'});
     }
 
     /**
      * Retrieves all pending reverse swaps from storage.
      * This method filters the pending swaps to return only those with a status of 'swap.created'.
      * It is useful for checking the status of all pending reverse swaps in the system.
+     *
      * @returns PendingReverseSwap[]. If no swaps are found, it returns an empty array.
      */
     async getPendingReverseSwaps(): Promise<PendingReverseSwap[]> {
-        const swaps = await this.getPendingReverseSwapsFromStorage();
-        if (!swaps) return [];
-        return swaps.filter(
-            (swap: PendingReverseSwap) => swap.status === "swap.created"
-        );
+        return this.swapRepository.getAllReverseSwaps({status: "swap.created"});
     }
 
     /**
@@ -1472,8 +1454,8 @@ export class ArkadeLightning {
     async getSwapHistory(): Promise<
         (PendingReverseSwap | PendingSubmarineSwap)[]
     > {
-        const reverseSwaps = await this.getPendingReverseSwapsFromStorage();
-        const submarineSwaps = await this.getPendingSubmarineSwapsFromStorage();
+        const reverseSwaps = await this.getPendingReverseSwaps();
+        const submarineSwaps = await this.getPendingSubmarineSwaps();
         const allSwaps = [...(reverseSwaps || []), ...(submarineSwaps || [])];
         return allSwaps.sort(
             (
@@ -1496,7 +1478,8 @@ export class ArkadeLightning {
      */
     async refreshSwapsStatus() {
         // refresh status of all pending reverse swaps
-        for (const swap of await this.getPendingReverseSwapsFromStorage()) {
+        for (const swap of await this.swapRepository.getAllReverseSwaps()) {
+            // TODO: filter by status
             if (isReverseFinalStatus(swap.status)) continue;
             this.getSwapStatus(swap.id)
                 .then(({ status }) => {
@@ -1513,7 +1496,8 @@ export class ArkadeLightning {
                     );
                 });
         }
-        for (const swap of await this.getPendingSubmarineSwapsFromStorage()) {
+        for (const swap of await this.swapRepository.getAllSubmarineSwaps()) {
+            // TODO: filter by status
             if (isSubmarineFinalStatus(swap.status)) continue;
             this.getSwapStatus(swap.id)
                 .then(({ status }) => {
