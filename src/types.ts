@@ -4,6 +4,7 @@ import {
     NetworkName,
     ServiceWorkerWallet,
     Wallet,
+    IContractManager,
 } from "@arkade-os/sdk";
 import {
     CreateReverseSwapResponse,
@@ -14,6 +15,7 @@ import {
     BoltzSwapStatus,
 } from "./boltz-swap-provider";
 import { SwapManagerConfig } from "./swap-manager";
+import { SwapRepository } from "./repositories/swap-repository";
 
 // TODO: replace with better data structure
 export interface Vtxo {
@@ -96,6 +98,13 @@ export interface ArkadeLightningConfig {
      * - `SwapManagerConfig` object: SwapManager enabled with custom configuration
      */
     swapManager?: boolean | (SwapManagerConfig & { autoStart?: boolean });
+    contractManager?: IContractManager;
+    /**
+     * Optional swap repository to use for persisting swap data.
+     * - `undefined`: fallback to default IndexedDbSwapRepository
+     * - `SwapRepository` object: SwapRepository enabled with custom configuration
+     */
+    swapRepository?: SwapRepository;
 }
 
 export interface TimeoutConfig {

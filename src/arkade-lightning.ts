@@ -72,6 +72,8 @@ import {
 import { logger } from "./logger";
 import { claimVHTLCIdentity } from "./utils/identity";
 import { createVHTLCBatchHandler } from "./batch";
+import { IndexedDbSwapRepository } from "./repositories/IndexedDb/swap-repository";
+import { SwapRepository } from "./repositories/swap-repository";
 
 export class ArkadeLightning {
     private readonly wallet: Wallet | ServiceWorkerWallet;
@@ -79,6 +81,7 @@ export class ArkadeLightning {
     private readonly swapProvider: BoltzSwapProvider;
     private readonly indexerProvider: IndexerProvider;
     private readonly swapManager: SwapManager | null = null;
+    private readonly swapRepository: SwapRepository
 
     constructor(config: ArkadeLightningConfig) {
         if (!config.wallet) throw new Error("Wallet is required.");
@@ -103,6 +106,12 @@ export class ArkadeLightning {
         this.indexerProvider = indexerProvider;
 
         this.swapProvider = config.swapProvider;
+
+        if (config.swapRepository) {
+            this.swapRepository = config.swapRepository;
+        } else {
+            this.swapRepository = new IndexedDbSwapRepository();
+        }
 
         // Initialize SwapManager if config is provided
         // - true: use defaults
@@ -150,41 +159,29 @@ export class ArkadeLightning {
         }
     }
 
-    // Storage helper methods using contract repository
+    // Storage helper methods using swap repository
     private async savePendingReverseSwap(
         swap: PendingReverseSwap
     ): Promise<void> {
-        await this.wallet.contractRepository.saveToContractCollection(
-            "reverseSwaps",
-            swap,
-            "id"
-        );
+        await this.swapRepository.saveReverseSwap(swap);
     }
 
     private async savePendingSubmarineSwap(
         swap: PendingSubmarineSwap
     ): Promise<void> {
-        await this.wallet.contractRepository.saveToContractCollection(
-            "submarineSwaps",
-            swap,
-            "id"
-        );
+        await this.swapRepository.saveSubmarineSwap(swap);
     }
 
     private async getPendingReverseSwapsFromStorage(): Promise<
         PendingReverseSwap[]
     > {
-        return (await this.wallet.contractRepository.getContractCollection(
-            "reverseSwaps"
-        )) as PendingReverseSwap[];
+        return this.swapRepository.getReverseSwaps();
     }
 
     private async getPendingSubmarineSwapsFromStorage(): Promise<
         PendingSubmarineSwap[]
     > {
-        return (await this.wallet.contractRepository.getContractCollection(
-            "submarineSwaps"
-        )) as PendingSubmarineSwap[];
+       return this.swapRepository.getSubmarineSwaps();
     }
 
     // SwapManager methods
