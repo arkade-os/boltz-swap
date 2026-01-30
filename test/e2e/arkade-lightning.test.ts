@@ -25,6 +25,7 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { decodeInvoice } from "../../src/utils/decoding";
 import { pubECDSA } from "@scure/btc-signer/utils.js";
 import { randomBytes } from "crypto";
+import { SwapRepository } from "../../src/repositories/swap-repository";
 
 // Scaffolding test file for ArkadeLightning
 // This file will be updated when implementing features from README.md
@@ -50,6 +51,7 @@ describe("ArkadeLightning", () => {
     let lightning: ArkadeLightning;
     let identity: Identity;
     let wallet: Wallet;
+    let swapRepository: SwapRepository;
 
     const seckeys = {
         alice: schnorr.utils.randomSecretKey(),
@@ -165,6 +167,16 @@ describe("ArkadeLightning", () => {
         indexerProvider = new RestIndexerProvider(url);
         swapProvider = new BoltzSwapProvider({ network: "regtest" });
 
+        swapRepository = {
+            saveReverseSwap: vi.fn(),
+            saveSubmarineSwap: vi.fn(),
+            deleteReverseSwap: vi.fn(),
+            deleteSubmarineSwap: vi.fn(),
+            getAllReverseSwaps: vi.fn(async () => []),
+            getAllSubmarineSwaps: vi.fn(async () => []),
+            clear: vi.fn(),
+        } as any;
+
         // Create wallet
         wallet = await Wallet.create({
             identity,
@@ -177,6 +189,7 @@ describe("ArkadeLightning", () => {
             swapProvider,
             arkProvider,
             indexerProvider,
+            swapRepository,
         };
 
         // Create ArkadeLightning instance
@@ -185,6 +198,7 @@ describe("ArkadeLightning", () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+        swapRepository.clear();
     });
 
     describe("Initialization", () => {
@@ -277,7 +291,7 @@ describe("ArkadeLightning", () => {
         });
     });
 
-    describe.skip("Reverse Swaps", () => {
+    describe("Reverse Swaps", () => {
         it("should create a reverse swap", async () => {
             // act
             const pendingSwap = await lightning.createReverseSwap({
@@ -346,7 +360,7 @@ describe("ArkadeLightning", () => {
         });
     });
 
-    describe.skip("Decoding lightning invoices", () => {
+    describe("Decoding lightning invoices", () => {
         it("should decode a lightning invoice", async () => {
             // act
             const decoded = decodeInvoice(mock.invoice.address);
@@ -365,7 +379,7 @@ describe("ArkadeLightning", () => {
         });
     });
 
-    describe.skip("Sending Lightning Payments", () => {
+    describe("Sending Lightning Payments", () => {
         it("should send a Lightning payment", async () => {
             // arrange
             const pendingSwap = mockSubmarineSwap;
@@ -416,166 +430,22 @@ describe("ArkadeLightning", () => {
     // - Retry logic
     // - Custom refund handler
 
-    describe.skip("Swap Storage and History", () => {
+    describe("Swap Storage and History", () => {
         beforeEach(() => {
             // Mock the contract repository methods
-            vi.spyOn(
-                wallet.contractRepository,
-                "saveToContractCollection"
-            ).mockResolvedValue();
-            vi.spyOn(
-                wallet.contractRepository,
-                "getContractCollection"
-            ).mockImplementation(async (collectionName) => {
-                if (collectionName === "reverseSwaps") {
-                    return [];
-                }
-                if (collectionName === "submarineSwaps") {
-                    return [];
-                }
-                return [];
-            });
+            vi.spyOn(swapRepository, "getAllReverseSwaps").mockResolvedValue([])
+            vi.spyOn(swapRepository, "getAllSubmarineSwaps").mockResolvedValue([])
         });
 
-        describe.skip("getPendingReverseSwaps", () => {
-            it("should return empty array when no reverse swaps exist", async () => {
-                // act
-                const result = await lightning.getPendingReverseSwaps();
-
-                // assert
-                expect(result).toEqual([]);
-                expect(
-                    wallet.contractRepository.getContractCollection
-                ).toHaveBeenCalledWith("reverseSwaps");
-            });
-
-            it("should return only reverse swaps with swap.created status", async () => {
-                // arrange
-                const mockReverseSwaps: PendingReverseSwap[] = [
-                    {
-                        ...mockReverseSwap,
-                        createdAt: Date.now() - 2000,
-                        preimage: "preimage1",
-                        response: { ...createReverseSwapResponse, id: "swap1" },
-                        status: "swap.created",
-                    },
-                    {
-                        ...mockReverseSwap,
-                        createdAt: Date.now() - 1000,
-                        preimage: "preimage2",
-                        response: { ...createReverseSwapResponse, id: "swap2" },
-                        status: "invoice.settled",
-                    },
-                    {
-                        ...mockReverseSwap,
-                        preimage: "preimage3",
-                        response: { ...createReverseSwapResponse, id: "swap3" },
-                        status: "swap.created",
-                    },
-                ];
-
-                vi.spyOn(
-                    wallet.contractRepository,
-                    "getContractCollection"
-                ).mockImplementation(async (collectionName) => {
-                    if (collectionName === "reverseSwaps") {
-                        return mockReverseSwaps;
-                    }
-                    return [];
-                });
-
-                // act
-                const result = await lightning.getPendingReverseSwaps();
-
-                // assert
-                expect(result).toHaveLength(2);
-                expect(result[0].id).toBe("swap1");
-                expect(result[1].id).toBe("swap3");
-                expect(
-                    result.every((swap) => swap.status === "swap.created")
-                ).toBe(true);
-            });
-        });
-
-        describe.skip("getPendingSubmarineSwaps", () => {
-            it("should return empty array when no submarine swaps exist", async () => {
-                // act
-                const result = await lightning.getPendingSubmarineSwaps();
-
-                // assert
-                expect(result).toEqual([]);
-                expect(
-                    wallet.contractRepository.getContractCollection
-                ).toHaveBeenCalledWith("submarineSwaps");
-            });
-
-            it("should return only submarine swaps with invoice.set status", async () => {
-                // arrange
-                const mockSubmarineSwaps: PendingSubmarineSwap[] = [
-                    {
-                        ...mockSubmarineSwap,
-                        createdAt: Date.now() - 2000,
-                        response: {
-                            ...createSubmarineSwapResponse,
-                            id: "swap1",
-                        },
-                        status: "invoice.set",
-                    },
-                    {
-                        ...mockSubmarineSwap,
-                        createdAt: Date.now() - 1000,
-                        response: {
-                            ...createSubmarineSwapResponse,
-                            id: "swap2",
-                        },
-                        status: "swap.created",
-                    },
-                    {
-                        ...mockSubmarineSwap,
-                        response: {
-                            ...createSubmarineSwapResponse,
-                            id: "swap3",
-                        },
-                        status: "invoice.set",
-                    },
-                ];
-
-                vi.spyOn(
-                    wallet.contractRepository,
-                    "getContractCollection"
-                ).mockImplementation(async (collectionName) => {
-                    if (collectionName === "submarineSwaps") {
-                        return mockSubmarineSwaps;
-                    }
-                    return [];
-                });
-
-                // act
-                const result = await lightning.getPendingSubmarineSwaps();
-
-                // assert
-                expect(result).toHaveLength(2);
-                expect(result[0].id).toBe("swap1");
-                expect(result[1].id).toBe("swap3");
-                expect(
-                    result.every((swap) => swap.status === "invoice.set")
-                ).toBe(true);
-            });
-        });
-
-        describe.skip("getSwapHistory", () => {
+        describe("getSwapHistory", () => {
             it("should return empty array when no swaps exist", async () => {
                 // act
                 const result = await lightning.getSwapHistory();
 
                 // assert
                 expect(result).toEqual([]);
-                expect(
-                    wallet.contractRepository.getContractCollection
-                ).toHaveBeenCalledWith("reverseSwaps");
-                expect(
-                    wallet.contractRepository.getContractCollection
-                ).toHaveBeenCalledWith("submarineSwaps");
+                expect(swapRepository.getAllReverseSwaps).toHaveBeenCalled();
+                expect(swapRepository.getAllSubmarineSwaps).toHaveBeenCalled();
             });
 
             it("should return all swaps sorted by creation date (newest first)", async () => {
@@ -584,6 +454,7 @@ describe("ArkadeLightning", () => {
                 const mockReverseSwaps: PendingReverseSwap[] = [
                     {
                         ...mockReverseSwap,
+                        id: "reverse1",
                         createdAt: now - 3000, // oldest
                         preimage: "preimage1",
                         response: {
@@ -594,6 +465,7 @@ describe("ArkadeLightning", () => {
                     },
                     {
                         ...mockReverseSwap,
+                        id: "reverse2",
                         createdAt: now - 1000, // newest reverse
                         preimage: "preimage2",
                         response: {
@@ -607,6 +479,7 @@ describe("ArkadeLightning", () => {
                 const mockSubmarineSwaps: PendingSubmarineSwap[] = [
                     {
                         ...mockSubmarineSwap,
+                        id: "submarine1",
                         createdAt: now - 2000, // middle
                         response: {
                             ...createSubmarineSwapResponse,
@@ -616,6 +489,7 @@ describe("ArkadeLightning", () => {
                     },
                     {
                         ...mockSubmarineSwap,
+                        id: "submarine2",
                         createdAt: now, // newest overall
                         response: {
                             ...createSubmarineSwapResponse,
@@ -626,17 +500,13 @@ describe("ArkadeLightning", () => {
                 ];
 
                 vi.spyOn(
-                    wallet.contractRepository,
-                    "getContractCollection"
-                ).mockImplementation(async (collectionName) => {
-                    if (collectionName === "reverseSwaps") {
-                        return mockReverseSwaps;
-                    }
-                    if (collectionName === "submarineSwaps") {
-                        return mockSubmarineSwaps;
-                    }
-                    return [];
-                });
+                    swapRepository,
+                    "getAllReverseSwaps"
+                ).mockResolvedValueOnce(mockReverseSwaps);
+                vi.spyOn(
+                    swapRepository,
+                    "getAllSubmarineSwaps"
+                ).mockResolvedValueOnce(mockSubmarineSwaps);
 
                 // act
                 const result = await lightning.getSwapHistory();
@@ -684,17 +554,13 @@ describe("ArkadeLightning", () => {
                 ];
 
                 vi.spyOn(
-                    wallet.contractRepository,
-                    "getContractCollection"
-                ).mockImplementation(async (collectionName) => {
-                    if (collectionName === "reverseSwaps") {
-                        return mockReverseSwaps;
-                    }
-                    if (collectionName === "submarineSwaps") {
-                        return mockSubmarineSwaps;
-                    }
-                    return [];
-                });
+                    swapRepository,
+                    "getAllReverseSwaps"
+                ).mockResolvedValueOnce(mockReverseSwaps);
+                vi.spyOn(
+                    swapRepository,
+                    "getAllSubmarineSwaps"
+                ).mockResolvedValueOnce(mockSubmarineSwaps);
 
                 // act
                 const result = await lightning.getSwapHistory();
@@ -706,7 +572,7 @@ describe("ArkadeLightning", () => {
             });
         });
 
-        describe.skip("swap persistence during operations", () => {
+        describe("swap persistence during operations", () => {
             it("should save reverse swap when creating lightning invoice", async () => {
                 // arrange
                 vi.spyOn(lightning, "createReverseSwap").mockResolvedValueOnce(
@@ -736,9 +602,8 @@ describe("ArkadeLightning", () => {
 
                 // assert
                 expect(
-                    wallet.contractRepository.saveToContractCollection
+                   swapRepository.saveSubmarineSwap
                 ).toHaveBeenCalledWith(
-                    "submarineSwaps",
                     expect.objectContaining({
                         type: "submarine",
                         status: "invoice.set",
@@ -747,7 +612,6 @@ describe("ArkadeLightning", () => {
                         }),
                         response: createSubmarineSwapResponse,
                     }),
-                    "type"
                 );
                 expect(result.type).toBe("submarine");
                 expect(result.status).toBe("invoice.set");
@@ -767,9 +631,8 @@ describe("ArkadeLightning", () => {
 
                 // assert
                 expect(
-                    wallet.contractRepository.saveToContractCollection
+                    swapRepository.saveReverseSwap
                 ).toHaveBeenCalledWith(
-                    "reverseSwaps",
                     expect.objectContaining({
                         type: "reverse",
                         status: "swap.created",
@@ -778,7 +641,6 @@ describe("ArkadeLightning", () => {
                         }),
                         response: createReverseSwapResponse,
                     }),
-                    "type"
                 );
                 expect(result.type).toBe("reverse");
                 expect(result.status).toBe("swap.created");
@@ -786,7 +648,7 @@ describe("ArkadeLightning", () => {
         });
     });
 
-    describe.skip("waitAndClaim", () => {
+    describe("waitAndClaim", () => {
         it("should return valid txid when transaction is available", async () => {
             // arrange
             const pendingSwap = mockReverseSwap;
@@ -805,7 +667,7 @@ describe("ArkadeLightning", () => {
 
             // Mock monitorSwap to directly trigger the invoice.settled case
             vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
-                async (swapId, update) => {
+                async (_swapId, update) => {
                     setTimeout(() => update("invoice.settled"), 10);
                 }
             );
@@ -840,7 +702,7 @@ describe("ArkadeLightning", () => {
 
             // Mock monitorSwap to directly trigger the invoice.settled case
             vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
-                async (swapId, update) => {
+                async (_swapId, update) => {
                     setTimeout(() => update("invoice.settled"), 10);
                 }
             );
@@ -1393,17 +1255,10 @@ describe("ArkadeLightning", () => {
 
                 // Mock storage to return pending swaps
                 vi.spyOn(
-                    wallet.contractRepository,
-                    "getContractCollection"
-                ).mockImplementation(async (collectionName) => {
-                    if (collectionName === "reverseSwaps") {
-                        return [mockReverseSwap];
-                    }
-                    if (collectionName === "submarineSwaps") {
-                        return [mockSubmarineSwap];
-                    }
-                    return [];
-                });
+                    swapRepository,
+                    "getAllReverseSwaps"
+                ).mockResolvedValueOnce( [mockReverseSwap]);
+                vi.spyOn(swapRepository, "getAllSubmarineSwaps").mockResolvedValueOnce([mockSubmarineSwap   ])
 
                 // act
                 await swapManagerLightning.startSwapManager();
@@ -1439,17 +1294,13 @@ describe("ArkadeLightning", () => {
 
                 // Mock storage to return mix of pending and completed swaps
                 vi.spyOn(
-                    wallet.contractRepository,
-                    "getContractCollection"
-                ).mockImplementation(async (collectionName) => {
-                    if (collectionName === "reverseSwaps") {
-                        return [mockReverseSwap, completedSwap];
-                    }
-                    if (collectionName === "submarineSwaps") {
-                        return [mockSubmarineSwap, expiredSwap];
-                    }
-                    return [];
-                });
+                    swapRepository,
+                    "getAllReverseSwaps"
+                ).mockResolvedValueOnce([mockReverseSwap, completedSwap]);
+                vi.spyOn(
+                    swapRepository,
+                    "getAllSubmarineSwaps"
+                ).mockResolvedValueOnce([mockSubmarineSwap, expiredSwap]);
 
                 // act
                 await swapManagerLightning.startSwapManager();

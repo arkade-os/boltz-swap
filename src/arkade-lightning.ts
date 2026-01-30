@@ -191,6 +191,7 @@ export class ArkadeLightning {
         const submarineSwaps = await this.swapRepository.getAllSubmarineSwaps();
         const allSwaps = [...reverseSwaps, ...submarineSwaps];
 
+        console.log("Starting SwapManager with", allSwaps.length, "swaps");
         // Start the manager with all pending swaps
         await this.swapManager.start(allSwaps);
     }
@@ -1456,7 +1457,7 @@ export class ArkadeLightning {
     > {
         const reverseSwaps = await this.getPendingReverseSwaps();
         const submarineSwaps = await this.getPendingSubmarineSwaps();
-        const allSwaps = [...(reverseSwaps || []), ...(submarineSwaps || [])];
+        const allSwaps = [...reverseSwaps, ...submarineSwaps];
         return allSwaps.sort(
             (
                 a: PendingReverseSwap | PendingSubmarineSwap,
