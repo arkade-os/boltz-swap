@@ -1,10 +1,10 @@
-import { SwapRepository } from "../swap-repository";
+import { GetSwapsFilter, SwapRepository } from "../swap-repository";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../../types";
 
-export class InMemorySwapRepository implements SwapRepository{
+export class InMemorySwapRepository implements SwapRepository {
     private readonly reverseSwaps: Map<string, PendingReverseSwap> = new Map();
-    private readonly submarineSwaps: Map<string, PendingSubmarineSwap> = new Map();
-
+    private readonly submarineSwaps: Map<string, PendingSubmarineSwap> =
+        new Map();
 
     async saveReverseSwap(swap: PendingReverseSwap): Promise<void> {
         this.reverseSwaps.set(swap.id, swap);
@@ -22,25 +22,43 @@ export class InMemorySwapRepository implements SwapRepository{
         this.submarineSwaps.delete(id);
     }
 
-    async getReverseSwap(id: string): Promise<PendingReverseSwap | undefined> {
-        return this.reverseSwaps.get(id);
+
+    async getAllReverseSwaps(
+        filter?: GetSwapsFilter
+    ): Promise<PendingReverseSwap[]> {
+        const swaps = this.reverseSwaps.values();
+        if (!filter) return [...swaps]
+        return this.applySwapsFilter([...swaps], filter);
     }
 
-    async getSubmarineSwap(id: string): Promise<PendingSubmarineSwap | undefined> {
-        return this.submarineSwaps.get(id);
-    }
-
-    async getAllReverseSwaps(): Promise<PendingReverseSwap[]> {
-        return Array.from(this.reverseSwaps.values());
-    }
-
-    async getAllSubmarineSwaps(): Promise<PendingSubmarineSwap[]> {
-        return Array.from(this.submarineSwaps.values());
+    async getAllSubmarineSwaps(
+        filter?: GetSwapsFilter
+    ): Promise<PendingSubmarineSwap[]> {
+        const swaps = this.submarineSwaps.values();
+        if (!filter) return [...swaps];
+        return this.applySwapsFilter([...swaps], filter);
     }
 
     async clear(): Promise<void> {
         this.reverseSwaps.clear();
         this.submarineSwaps.clear();
+    }
+
+    private applySwapsFilter<T extends { id: string; status: string }>(
+        swaps: (T | undefined)[],
+        filter: GetSwapsFilter
+    ): T[] {
+        const matches = <T>(value: T, criterion?: T | T[])  => {
+            if (criterion === undefined) {
+                return true;
+            }
+            return Array.isArray(criterion)
+                ? criterion.includes(value)
+                : value === criterion;
+        };
+        return swaps.filter((swap): swap is T =>
+            !!swap && (!matches(swap.id, filter.id) || matches(swap.status, filter.status))
+        )
     }
 
     async [Symbol.asyncDispose](): Promise<void> {

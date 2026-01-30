@@ -175,13 +175,13 @@ export class ArkadeLightning {
     private async getPendingReverseSwapsFromStorage(): Promise<
         PendingReverseSwap[]
     > {
-        return this.swapRepository.getReverseSwaps();
+        return this.swapRepository.getAllReverseSwaps();
     }
 
     private async getPendingSubmarineSwapsFromStorage(): Promise<
         PendingSubmarineSwap[]
     > {
-       return this.swapRepository.getSubmarineSwaps();
+       return this.swapRepository.getAllSubmarineSwaps();
     }
 
     // SwapManager methods
