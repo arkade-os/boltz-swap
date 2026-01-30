@@ -548,3 +548,20 @@ try {
   }
 }
 ```
+
+### Releasing
+
+```bash
+# Release new version (will prompt for version patch, minor, major)
+pnpm release
+
+# You can test release process without making changes
+pnpm release:dry-run
+
+# Cleanup: checkout version commit and remove release branch
+pnpm release:cleanup
+```
+
+## License
+
+MIT
