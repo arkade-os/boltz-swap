@@ -52,7 +52,7 @@ const arkadeLightning = new ArkadeLightning({
 });
 ```
 
-### ServiceWorkerWallet with IndexDB
+### ServiceWorkerWallet with IndexedDB
 
 ```typescript
 import { ServiceWorkerWallet, SingleKey, RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
@@ -411,7 +411,18 @@ console.log('swap status = ', response.status);
 
 ## Storage
 
-This library automatically stores pending swaps using the wallet's built-in contract repository. All swap data is persisted automatically and can be retrieved using the following methods:
+This library stores pending swaps via a **SwapRepository**. By default, `ArkadeLightning` uses an IndexedDB-backed repository in browser contexts, so swap data persists across reloads. You can inject your own repository (for tests, Node.js, or custom storage) via the `swapRepository` option.
+
+```typescript
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+  // Optional: override storage
+  // swapRepository: myCustomSwapRepository,
+});
+```
+
+All swap data is persisted automatically and can be retrieved using the following methods:
 
 ```typescript
 // Get all pending submarine swaps (those waiting for Lightning payment)
@@ -424,7 +435,7 @@ const pendingPaymentsFromLightning = await arkadeLightning.getPendingReverseSwap
 const swapHistory = await arkadeLightning.getSwapHistory();
 ```
 
-**Note**: All swap data is automatically persisted and retrieved through the wallet's contract repository. No additional storage configuration is required.
+**Note**: If IndexedDB is not available (e.g., in Node.js), provide a custom `swapRepository` implementation.
 
 ## Receiving Lightning Payments
 

@@ -11,13 +11,13 @@ function initDatabase(db: IDBDatabase) {
         const reverseStore = db.createObjectStore(STORE_REVERSE_SWAPS_STATE, {
             keyPath: "id",
         });
-        reverseStore.createIndex("statusIndex", "status", { unique: false });
+        reverseStore.createIndex("status", "status", { unique: false });
     }
     if (!db.objectStoreNames.contains(STORE_SUBMARINE_SWAPS_STATE)) {
         const submarineStore = db.createObjectStore(STORE_SUBMARINE_SWAPS_STATE, {
             keyPath: "id",
         });
-        submarineStore.createIndex("statusIndex", "status", { unique: false });
+        submarineStore.createIndex("status", "status", { unique: false });
     }
 }
 
@@ -275,7 +275,7 @@ export class IndexedDbSwapRepository implements SwapRepository {
     }
 }
 
-const FILTER_FIELDS = ["id", "state"] as (keyof GetSwapsFilter)[];
+const FILTER_FIELDS = ["id", "status"] as (keyof GetSwapsFilter)[];
 
 // Transform all filter fields into an array of values
 function normalizeFilter(filter: GetSwapsFilter) {

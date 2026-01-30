@@ -57,7 +57,7 @@ export class InMemorySwapRepository implements SwapRepository {
                 : value === criterion;
         };
         return swaps.filter((swap): swap is T =>
-            !!swap && (!matches(swap.id, filter.id) || matches(swap.status, filter.status))
+            !!swap && (matches(swap.id, filter.id) && matches(swap.status, filter.status))
         )
     }
 
