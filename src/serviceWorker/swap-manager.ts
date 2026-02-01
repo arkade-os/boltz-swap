@@ -1,15 +1,10 @@
 import { PendingSwap, SwapManagerConfig } from "../swap-manager";
 import {
-    BoltzSwapProvider,
     BoltzSwapStatus,
-    GetReverseSwapTxIdResponse,
-    SwapProviderConfig,
 } from "../boltz-swap-provider";
 
 import {
-    Request,
     RequestEnvelope,
-    Response,
     ResponseEnvelope,
 } from "@arkade-os/sdk";
 import {
@@ -30,7 +25,6 @@ import {
 } from "./swap-updater";
 import { hex } from "@scure/base";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
-import { logger } from "../logger";
 
 // Event listener types
 export type SwapUpdateListener = (
@@ -57,10 +51,10 @@ export class ServiceWorkerSwapManager {
 
     constructor(
         public readonly serviceWorker: ServiceWorker,
-        private config: SwapManagerConfig
+        config: SwapManagerConfig
     ) {
         navigator.serviceWorker.addEventListener("message", (m) => {
-            if (m.data.prefix !== SwapUpdater.messagePrefix) return;
+            if (m.data.prefix !== SwapUpdater.messageTag) return;
             console.debug("[Swap Manager] broadcast received", m);
             this.onBroadcastMessage(m)
         });
@@ -156,7 +150,7 @@ export class ServiceWorkerSwapManager {
             navigator.serviceWorker.addEventListener("message", messageHandler);
             console.log("Sending message to SW:", message);
             this.serviceWorker.postMessage({
-                prefix: SwapUpdater.messagePrefix,
+                prefix: SwapUpdater.messageTag,
                 id: id,
                 type: "type" in message ? message.type : "NO_TYPE",
                 payload: "payload" in message ? message.payload : undefined,
