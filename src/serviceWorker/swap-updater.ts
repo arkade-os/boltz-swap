@@ -1,16 +1,15 @@
 import {
     IUpdater,
     RequestEnvelope,
-    Response,
     ResponseEnvelope
 } from "@arkade-os/sdk";
-import { PendingSwap, SwapManager, SwapManagerConfig } from "../swap-manager";
+import { PendingSwap } from "../swap-manager";
 import { logger } from "../logger";
 import {
     BoltzSwapProvider,
     BoltzSwapStatus,
     isReverseFinalStatus,
-    isSubmarineFinalStatus, SwapProviderConfig,
+    isSubmarineFinalStatus,
 } from "../boltz-swap-provider";
 import { NetworkName } from "@arkade-os/sdk";
 
@@ -89,8 +88,8 @@ export class SwapUpdater
             SwapUpdaterResponse
         >
 {
-    static messagePrefix = "SwapUpdater";
-    readonly messagePrefix = SwapUpdater.messagePrefix;
+    static messageTag = "SwapUpdater";
+    readonly messageTag = SwapUpdater.messageTag;
 
     private monitoredSwaps = new Map<string, PendingSwap>();
     private swapProvider: BoltzSwapProvider | undefined;
@@ -104,7 +103,7 @@ export class SwapUpdater
     }
 
     private prefixed(res: Partial<SwapUpdaterResponse>) {
-        return { prefix: SwapUpdater.messagePrefix, ...res } as SwapUpdaterResponse;
+        return { tag: SwapUpdater.messageTag, ...res } as SwapUpdaterResponse;
     }
 
     async handleMessage(
@@ -112,7 +111,7 @@ export class SwapUpdater
     ): Promise<SwapUpdaterResponse> {
         const id = message.id;
         if (message.type === "INIT") {
-            console.log(`[${this.messagePrefix}] INIT`, message.payload);
+            console.log(`[${this.messageTag}] INIT`, message.payload);
             this.handleInit(message);
             return this.prefixed({ id, type: "INITIALIZED"})
         }
@@ -186,7 +185,7 @@ export class SwapUpdater
             }
             default:
                 console.warn(
-                    `[${SwapUpdater.messagePrefix}] Unhandled message:`,
+                    `[${SwapUpdater.messageTag}] Unhandled message:`,
                     message
                 );
                 throw new Error(`Unhandled message: ${message}`);
@@ -218,7 +217,7 @@ export class SwapUpdater
                     return result.value;
                 } else {
                     console.error(
-                        `[${SwapUpdater.messagePrefix}] tick failed`,
+                        `[${SwapUpdater.messageTag}] tick failed`,
                         result.reason
                     );
                     // TODO: how to deliver errors down the stream? a broadcast?

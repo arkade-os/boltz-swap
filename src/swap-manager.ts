@@ -1,5 +1,4 @@
 import {
-    BoltzSwapProvider,
     BoltzSwapStatus,
     isPendingReverseSwap,
     isPendingSubmarineSwap,
@@ -14,8 +13,6 @@ import { logger } from "./logger";
 import {
     ActionExecutedListener,
     ServiceWorkerSwapManager,
-    SwapCompletedListener,
-    SwapUpdateListener,
 } from "./serviceWorker/swap-manager";
 
 export interface SwapManagerConfig {
@@ -116,6 +113,7 @@ export class SwapManager {
             serviceWorker,
             config
         );
+        this.svcSwapManager.init(config)
         this.svcSwapManager.onSwapUpdate(async (swap, oldStatus) => {
             // Notify per-swap subscribers
             const subscribers = this.swapSubscriptions.get(swap.id);
@@ -144,6 +142,7 @@ export class SwapManager {
         });
         this.svcSwapManager.onSwapFailed((swap, error) => {
             // TODO
+            console.error("swap failed: ", swap, error);
         });
 
         // Note: autostart is not stored - it's only used by ArkadeLightning
