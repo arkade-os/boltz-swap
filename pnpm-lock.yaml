@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@arkade-os/sdk':
-        specifier: file:../ts-sdk
-        version: file:../ts-sdk
+        specifier: https://github.com/arkade-os/ts-sdk.git#next
+        version: https://codeload.github.com/arkade-os/ts-sdk/tar.gz/43ec25af22280fdeb3c8da7d2ea1a2f40205a6cf
       '@noble/hashes':
         specifier: 2.0.1
         version: 2.0.1
@@ -72,8 +72,9 @@ importers:
 
 packages:
 
-  '@arkade-os/sdk@file:../ts-sdk':
-    resolution: {directory: ../ts-sdk, type: directory}
+  '@arkade-os/sdk@https://codeload.github.com/arkade-os/ts-sdk/tar.gz/43ec25af22280fdeb3c8da7d2ea1a2f40205a6cf':
+    resolution: {tarball: https://codeload.github.com/arkade-os/ts-sdk/tar.gz/43ec25af22280fdeb3c8da7d2ea1a2f40205a6cf}
+    version: 0.3.12
     engines: {node: '>=20.0.0'}
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -1855,7 +1856,7 @@ packages:
 
 snapshots:
 
-  '@arkade-os/sdk@file:../ts-sdk':
+  '@arkade-os/sdk@https://codeload.github.com/arkade-os/ts-sdk/tar.gz/43ec25af22280fdeb3c8da7d2ea1a2f40205a6cf':
     dependencies:
       '@marcbachmann/cel-js': 7.0.0
       '@noble/curves': 2.0.0
