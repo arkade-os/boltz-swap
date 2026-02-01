@@ -73,7 +73,7 @@ import { logger } from "./logger";
 import { claimVHTLCIdentity } from "./utils/identity";
 import { createVHTLCBatchHandler } from "./batch";
 import { IndexedDbSwapRepository } from "./repositories/IndexedDb/swap-repository";
-import {  SwapRepository } from "./repositories/swap-repository";
+import { SwapRepository } from "./repositories/swap-repository";
 
 export class ArkadeLightning {
     private readonly wallet: Wallet | ServiceWorkerWallet;
@@ -81,7 +81,7 @@ export class ArkadeLightning {
     private readonly swapProvider: BoltzSwapProvider;
     private readonly indexerProvider: IndexerProvider;
     private readonly swapManager: SwapManager | null = null;
-    private readonly swapRepository: SwapRepository
+    private readonly swapRepository: SwapRepository;
 
     constructor(config: ArkadeLightningConfig) {
         if (!config.wallet) throw new Error("Wallet is required.");
@@ -187,7 +187,7 @@ export class ArkadeLightning {
         }
 
         // Load all pending swaps from storage
-        const reverseSwaps = await  this.swapRepository.getAllReverseSwaps();
+        const reverseSwaps = await this.swapRepository.getAllReverseSwaps();
         const submarineSwaps = await this.swapRepository.getAllSubmarineSwaps();
         const allSwaps = [...reverseSwaps, ...submarineSwaps];
 
@@ -1434,7 +1434,9 @@ export class ArkadeLightning {
      * @returns PendingSubmarineSwap[]. If no swaps are found, it returns an empty array.
      */
     async getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[]> {
-        return this.swapRepository.getAllSubmarineSwaps({status: 'invoice.set'});
+        return this.swapRepository.getAllSubmarineSwaps({
+            status: "invoice.set",
+        });
     }
 
     /**
@@ -1445,7 +1447,9 @@ export class ArkadeLightning {
      * @returns PendingReverseSwap[]. If no swaps are found, it returns an empty array.
      */
     async getPendingReverseSwaps(): Promise<PendingReverseSwap[]> {
-        return this.swapRepository.getAllReverseSwaps({status: "swap.created"});
+        return this.swapRepository.getAllReverseSwaps({
+            status: "swap.created",
+        });
     }
 
     /**

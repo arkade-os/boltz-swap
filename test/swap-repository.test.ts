@@ -73,10 +73,7 @@ describe("SwapRepository implementations", () => {
 
         it("saves and retrieves swaps", async () => {
             const reverse = createReverseSwap("reverse-1", "swap.created");
-            const submarine = createSubmarineSwap(
-                "submarine-1",
-                "invoice.set"
-            );
+            const submarine = createSubmarineSwap("submarine-1", "invoice.set");
 
             await repo.saveReverseSwap(reverse);
             await repo.saveSubmarineSwap(submarine);
@@ -120,10 +117,7 @@ describe("SwapRepository implementations", () => {
 
         it("deletes swaps", async () => {
             const reverse = createReverseSwap("reverse-1", "swap.created");
-            const submarine = createSubmarineSwap(
-                "submarine-1",
-                "invoice.set"
-            );
+            const submarine = createSubmarineSwap("submarine-1", "invoice.set");
             await repo.saveReverseSwap(reverse);
             await repo.saveSubmarineSwap(submarine);
 
@@ -164,10 +158,7 @@ describe("SwapRepository implementations", () => {
 
         it("saves and retrieves swaps", async () => {
             const reverse = createReverseSwap("reverse-1", "swap.created");
-            const submarine = createSubmarineSwap(
-                "submarine-1",
-                "invoice.set"
-            );
+            const submarine = createSubmarineSwap("submarine-1", "invoice.set");
 
             await repo.saveReverseSwap(reverse);
             await repo.saveSubmarineSwap(submarine);
@@ -211,10 +202,7 @@ describe("SwapRepository implementations", () => {
 
         it("deletes swaps", async () => {
             const reverse = createReverseSwap("reverse-1", "swap.created");
-            const submarine = createSubmarineSwap(
-                "submarine-1",
-                "invoice.set"
-            );
+            const submarine = createSubmarineSwap("submarine-1", "invoice.set");
             await repo.saveReverseSwap(reverse);
             await repo.saveSubmarineSwap(submarine);
 

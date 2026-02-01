@@ -318,7 +318,7 @@ describe("ArkadeLightning", () => {
             getAllReverseSwaps: vi.fn(),
             getAllSubmarineSwaps: vi.fn(),
             clear: vi.fn(),
-        }  as any
+        } as any;
 
         lightning = new ArkadeLightning({
             wallet,
@@ -707,8 +707,12 @@ describe("ArkadeLightning", () => {
         describe("getPendingReverseSwaps", () => {
             it("should return only reverse swaps with swap.created status", async () => {
                 await lightning.getPendingReverseSwaps();
-                expect(swapRepository.getAllReverseSwaps).toHaveBeenCalledWith({status: "swap.created"});
-                expect(swapRepository.getAllSubmarineSwaps).not.toHaveBeenCalled();
+                expect(swapRepository.getAllReverseSwaps).toHaveBeenCalledWith({
+                    status: "swap.created",
+                });
+                expect(
+                    swapRepository.getAllSubmarineSwaps
+                ).not.toHaveBeenCalled();
             });
         });
 
@@ -720,7 +724,9 @@ describe("ArkadeLightning", () => {
                 ).toHaveBeenCalledWith({
                     status: "invoice.set",
                 });
-                expect(swapRepository.getAllReverseSwaps).not.toHaveBeenCalled();
+                expect(
+                    swapRepository.getAllReverseSwaps
+                ).not.toHaveBeenCalled();
             });
         });
 
@@ -774,9 +780,11 @@ describe("ArkadeLightning", () => {
                 vi.spyOn(
                     swapRepository,
                     "getAllReverseSwaps"
-                ).mockReturnValueOnce(Promise.resolve(mockReverseSwaps))
-                vi.spyOn(swapRepository, "getAllSubmarineSwaps"
-                ).mockReturnValueOnce(Promise.resolve(mockSubmarineSwaps))
+                ).mockReturnValueOnce(Promise.resolve(mockReverseSwaps));
+                vi.spyOn(
+                    swapRepository,
+                    "getAllSubmarineSwaps"
+                ).mockReturnValueOnce(Promise.resolve(mockSubmarineSwaps));
 
                 // act
                 const result = await lightning.getSwapHistory();
@@ -864,9 +872,7 @@ describe("ArkadeLightning", () => {
                 });
 
                 // assert
-                expect(
-                    swapRepository.saveSubmarineSwap
-                ).toHaveBeenCalledWith(
+                expect(swapRepository.saveSubmarineSwap).toHaveBeenCalledWith(
                     expect.objectContaining({
                         type: "submarine",
                         status: "invoice.set",
@@ -874,7 +880,7 @@ describe("ArkadeLightning", () => {
                             invoice: mock.invoice.address,
                         }),
                         response: createSubmarineSwapResponse,
-                    }),
+                    })
                 );
                 expect(result.type).toBe("submarine");
                 expect(result.status).toBe("invoice.set");
@@ -893,9 +899,7 @@ describe("ArkadeLightning", () => {
                 });
 
                 // assert
-                expect(
-                    swapRepository.saveReverseSwap
-                ).toHaveBeenCalledWith(
+                expect(swapRepository.saveReverseSwap).toHaveBeenCalledWith(
                     expect.objectContaining({
                         type: "reverse",
                         status: "swap.created",
@@ -903,7 +907,7 @@ describe("ArkadeLightning", () => {
                             invoiceAmount: mock.invoice.amount,
                         }),
                         response: createReverseSwapResponse,
-                    }),
+                    })
                 );
                 expect(result.type).toBe("reverse");
                 expect(result.status).toBe("swap.created");
@@ -925,7 +929,7 @@ describe("ArkadeLightning", () => {
             vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
                 id: mock.txid,
                 timeoutBlockHeight: 123,
-                hex: "something?"
+                hex: "something?",
             });
 
             // Mock monitorSwap to directly trigger the invoice.settled case

@@ -1,5 +1,5 @@
 import { GetSwapsFilter, SwapRepository } from "../swap-repository";
-import { closeDatabase,  openDatabase } from "@arkade-os/sdk";
+import { closeDatabase, openDatabase } from "@arkade-os/sdk";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../../types";
 
 const DEFAULT_DB_NAME = "arkade-boltz-swap";
@@ -14,9 +14,12 @@ function initDatabase(db: IDBDatabase) {
         reverseStore.createIndex("status", "status", { unique: false });
     }
     if (!db.objectStoreNames.contains(STORE_SUBMARINE_SWAPS_STATE)) {
-        const submarineStore = db.createObjectStore(STORE_SUBMARINE_SWAPS_STATE, {
-            keyPath: "id",
-        });
+        const submarineStore = db.createObjectStore(
+            STORE_SUBMARINE_SWAPS_STATE,
+            {
+                keyPath: "id",
+            }
+        );
         submarineStore.createIndex("status", "status", { unique: false });
     }
 }
@@ -127,16 +130,21 @@ export class IndexedDbSwapRepository implements SwapRepository {
 
         if (normalizedFilter.has("status")) {
             const ids = normalizedFilter.get("status")!;
-            const swaps = await this.getSwapsByIndexValues<PendingReverseSwap>(store, "status", ids);
+            const swaps = await this.getSwapsByIndexValues<PendingReverseSwap>(
+                store,
+                "status",
+                ids
+            );
             return this.applySwapsFilter(swaps, normalizedFilter);
         }
 
-        const allSwaps = await new Promise<PendingReverseSwap[]>((resolve, reject) => {
-            const request = store.getAll();
-            request.onsuccess = () =>
-                resolve(request.result ?? [])
-            request.onerror = () => reject(request.error);
-        });
+        const allSwaps = await new Promise<PendingReverseSwap[]>(
+            (resolve, reject) => {
+                const request = store.getAll();
+                request.onsuccess = () => resolve(request.result ?? []);
+                request.onerror = () => reject(request.error);
+            }
+        );
 
         return this.applySwapsFilter(allSwaps, normalizedFilter);
     }
@@ -290,4 +298,3 @@ function normalizeFilter(filter: GetSwapsFilter) {
     });
     return res;
 }
-

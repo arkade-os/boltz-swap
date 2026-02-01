@@ -22,12 +22,11 @@ export class InMemorySwapRepository implements SwapRepository {
         this.submarineSwaps.delete(id);
     }
 
-
     async getAllReverseSwaps(
         filter?: GetSwapsFilter
     ): Promise<PendingReverseSwap[]> {
         const swaps = this.reverseSwaps.values();
-        if (!filter) return [...swaps]
+        if (!filter) return [...swaps];
         return this.applySwapsFilter([...swaps], filter);
     }
 
@@ -48,7 +47,7 @@ export class InMemorySwapRepository implements SwapRepository {
         swaps: (T | undefined)[],
         filter: GetSwapsFilter
     ): T[] {
-        const matches = <T>(value: T, criterion?: T | T[])  => {
+        const matches = <T>(value: T, criterion?: T | T[]) => {
             if (criterion === undefined) {
                 return true;
             }
@@ -56,9 +55,12 @@ export class InMemorySwapRepository implements SwapRepository {
                 ? criterion.includes(value)
                 : value === criterion;
         };
-        return swaps.filter((swap): swap is T =>
-            !!swap && (matches(swap.id, filter.id) && matches(swap.status, filter.status))
-        )
+        return swaps.filter(
+            (swap): swap is T =>
+                !!swap &&
+                matches(swap.id, filter.id) &&
+                matches(swap.status, filter.status)
+        );
     }
 
     async [Symbol.asyncDispose](): Promise<void> {

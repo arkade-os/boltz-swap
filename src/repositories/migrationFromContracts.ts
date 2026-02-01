@@ -20,7 +20,6 @@ export async function migrateToSwapRepository(
     }
 
     for (const swap of submarineSwaps) {
-        await fresh.saveSubmarineSwap(swap)
+        await fresh.saveSubmarineSwap(swap);
     }
 }
-
