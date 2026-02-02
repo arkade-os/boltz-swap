@@ -1459,8 +1459,8 @@ export class ArkadeLightning {
     async getSwapHistory(): Promise<
         (PendingReverseSwap | PendingSubmarineSwap)[]
     > {
-        const reverseSwaps = await this.getPendingReverseSwaps();
-        const submarineSwaps = await this.getPendingSubmarineSwaps();
+        const reverseSwaps = await this.swapRepository.getAllReverseSwaps();
+        const submarineSwaps = await this.swapRepository.getAllSubmarineSwaps();
         const allSwaps = [...reverseSwaps, ...submarineSwaps];
         return allSwaps.sort(
             (

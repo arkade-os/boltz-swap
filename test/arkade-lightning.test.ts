@@ -735,14 +735,15 @@ describe("ArkadeLightning", () => {
                 const result = await lightning.getSwapHistory();
 
                 expect(result).toEqual([]);
-                expect(swapRepository.getAllReverseSwaps).toHaveBeenCalledWith({
-                    status: "swap.created",
-                });
+                expect(
+                    swapRepository.getAllReverseSwaps
+                ).toHaveBeenCalledWith();
                 expect(
                     swapRepository.getAllSubmarineSwaps
-                ).toHaveBeenCalledWith({
-                    status: "invoice.set",
-                });
+                ).toHaveBeenCalledWith();
+                expect(
+                    swapRepository.getAllSubmarineSwaps
+                ).toHaveBeenCalledWith();
             });
 
             it("should return all swaps sorted by creation date (newest first)", async () => {

@@ -291,7 +291,6 @@ export class SwapManager {
 
         // Load pending swaps into monitoring map (only non-final swaps)
         for (const swap of pendingSwaps) {
-            console.log(swap);
             if (!this.isFinalStatus(swap.status)) {
                 this.monitoredSwaps.set(swap.id, swap);
             }
