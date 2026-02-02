@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@arkade-os/sdk':
-        specifier: https://github.com/arkade-os/ts-sdk.git#plugin-based-sw
-        version: https://codeload.github.com/arkade-os/ts-sdk/tar.gz/ba9ed065a3505d2ac68c45f3872155a6f93c4056
+        specifier: https://github.com/arkade-os/ts-sdk.git#repository-v2-fixes-for-boltz-swap
+        version: https://codeload.github.com/arkade-os/ts-sdk/tar.gz/1b355f7b5a4fdec2ac80d42c33515645d8017d08
       '@noble/hashes':
         specifier: 2.0.1
         version: 2.0.1
@@ -72,8 +72,8 @@ importers:
 
 packages:
 
-  '@arkade-os/sdk@https://codeload.github.com/arkade-os/ts-sdk/tar.gz/ba9ed065a3505d2ac68c45f3872155a6f93c4056':
-    resolution: {tarball: https://codeload.github.com/arkade-os/ts-sdk/tar.gz/ba9ed065a3505d2ac68c45f3872155a6f93c4056}
+  '@arkade-os/sdk@https://codeload.github.com/arkade-os/ts-sdk/tar.gz/1b355f7b5a4fdec2ac80d42c33515645d8017d08':
+    resolution: {tarball: https://codeload.github.com/arkade-os/ts-sdk/tar.gz/1b355f7b5a4fdec2ac80d42c33515645d8017d08}
     version: 0.3.12
     engines: {node: '>=20.0.0'}
 
@@ -1856,7 +1856,7 @@ packages:
 
 snapshots:
 
-  '@arkade-os/sdk@https://codeload.github.com/arkade-os/ts-sdk/tar.gz/ba9ed065a3505d2ac68c45f3872155a6f93c4056':
+  '@arkade-os/sdk@https://codeload.github.com/arkade-os/ts-sdk/tar.gz/1b355f7b5a4fdec2ac80d42c33515645d8017d08':
     dependencies:
       '@marcbachmann/cel-js': 7.0.0
       '@noble/curves': 2.0.0
