@@ -79,7 +79,7 @@ export type SwapUpdaterResponse =
     | ResponseGetMonitoredSwaps
     | ResponseGetSwap;
 
-type SwapUpdaterConfig = { pollInterval?: number };
+type SwapUpdaterConfig = { pollInterval?: number, debug?: boolean };
 
 export class SwapUpdater
     implements
@@ -110,6 +110,7 @@ export class SwapUpdater
         message: SwapUpdaterRequest
     ): Promise<SwapUpdaterResponse> {
         const id = message.id;
+        if (this.config.debug) console.log(`[SwapUpdater] message received: ${JSON.stringify(message, null, 2)}`)
         if (message.type === "INIT") {
             console.log(`[${this.messageTag}] INIT`, message.payload);
             this.handleInit(message);
@@ -193,8 +194,7 @@ export class SwapUpdater
     }
 
     async start(): Promise<void> {
-        // Start regular polling interval
-        await this.startPolling();
+        await this.pollAllSwaps()
         return;
     }
 
@@ -227,37 +227,19 @@ export class SwapUpdater
             .filter((response) => response !== null);
     }
 
-    /**
-     * Start regular polling
-     * Polls all swaps at configured interval when WebSocket is active
-     */
-    private startPolling(): void {
-        // Clear existing timer
-        if (this.pollTimer) {
-            clearTimeout(this.pollTimer);
-        }
-
-        // Schedule next poll
-        this.pollTimer = setTimeout(async () => {
-            await this.pollAllSwaps();
-        }, this.config.pollInterval);
-    }
-
     // Swap provider specific
+
     /**
      * Poll all monitored swaps for status updates
-     * This is called:
-     * 1. After WebSocket connects
-     * 2. After WebSocket reconnects
-     * 3. Periodically while WebSocket is active
-     * 4. As fallback when WebSocket is unavailable
+     * This is called per tick.
      */
     private async pollAllSwaps(): Promise<void> {
-        if (!this.swapProvider)
-            throw new Error("Swap provider not initialized");
-        if (this.monitoredSwaps.size === 0) return;
+        if (!this.swapProvider) {
+            // A tick may be called when the SwapProvider is not yet initialized.
+            return ;
+        }
 
-        logger.log(`Polling ${this.monitoredSwaps.size} swaps...`);
+        if (this.monitoredSwaps.size === 0) return;
 
         const pollPromises = Array.from(this.monitoredSwaps.values()).map(
             async (swap) => {

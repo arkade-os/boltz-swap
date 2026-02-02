@@ -77,6 +77,7 @@ import { createVHTLCBatchHandler } from "./batch";
 import { IndexedDbSwapRepository } from "./repositories/IndexedDb/swap-repository";
 import { SwapRepository } from "./repositories/swap-repository";
 
+// TODO: put this entirely in the SvwArkadeLightning
 export class ArkadeLightning {
     private readonly wallet: Wallet | ServiceWorkerWallet;
     private readonly arkProvider: ArkProvider;
@@ -85,8 +86,8 @@ export class ArkadeLightning {
     private readonly swapProvider: BoltzSwapProvider;
 
     private readonly indexerProvider: IndexerProvider;
-    private readonly swapManager: SwapManager | null = null;
-    private readonly swapRepository: SwapRepository;
+    private readonly swapManager: SwapManager | null = null; // TODO: this should support ServiceWorkerSwapManager
+    readonly swapRepository: SwapRepository
 
     constructor(config: ArkadeLightningConfig) {
         if (!config.wallet) throw new Error("Wallet is required.");
@@ -124,13 +125,18 @@ export class ArkadeLightning {
         // - false/undefined: disabled
         if (config.swapManager) {
             const swapManagerConfig =
-                config.swapManager === true ? { } as (SwapManagerConfig & {autoStart?: boolean})  : config.swapManager;
+                config.swapManager === true
+                    ? ({} as SwapManagerConfig & { autoStart?: boolean })
+                    : config.swapManager;
 
             // Extract autostart (defaults to true) before passing to SwapManager
             // SwapManager doesn't need it - only ArkadeLightning uses it
             const shouldAutostart = swapManagerConfig.autoStart ?? true;
 
-            this.swapManager = new SwapManager(config.serviceWorker, swapManagerConfig);
+            this.swapManager = new SwapManager(
+                config.serviceWorker,
+                swapManagerConfig
+            );
 
             // Set up callbacks for claim, refund, and save operations
             this.swapManager.setCallbacks({
@@ -1115,6 +1121,7 @@ export class ArkadeLightning {
         return swap;
     }
 
+    // TODO: move to swapmanager
     private async claimVHTLCwithOffchainTx(
         vhtlcIdentity: Identity,
         vhtlcScript: VHTLC.Script,

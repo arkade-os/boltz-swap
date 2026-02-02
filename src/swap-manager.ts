@@ -65,9 +65,8 @@ type SwapUpdateCallback = (
 ) => void;
 
 
+// TODO: this should be mutually exclusive with svcSwapManager
 export class SwapManager {
-    // TODO: should this go to SW only? apart from websocket
-    // private readonly swapProvider: BoltzSwapProvider;
     private readonly config: SwapManagerConfig;
     private readonly svcSwapManager: ServiceWorkerSwapManager;
 
@@ -113,7 +112,15 @@ export class SwapManager {
             serviceWorker,
             config
         );
-        this.svcSwapManager.init(config)
+        this.svcSwapManager
+            .init(config)
+            .then(() => {
+                logger.log("ServiceWorkerSwapManager initialized");
+            })
+            .catch((error) => {
+                logger.error("SwapManager initialization failed:", error);
+            });
+
         this.svcSwapManager.onSwapUpdate(async (swap, oldStatus) => {
             // Notify per-swap subscribers
             const subscribers = this.swapSubscriptions.get(swap.id);
@@ -171,11 +178,6 @@ export class SwapManager {
             this.actionExecutedListeners.add(config.events.onActionExecuted);
         }
 
-        this.svcSwapManager.init(config).then(() => {
-            logger.log("SwapManager initialized");
-        }).catch((error) => {
-            logger.error("SwapManager initialization failed:", error);
-        });
 
         this.currentReconnectDelay = this.config.reconnectDelayMs!;
         this.currentPollRetryDelay = this.config.pollRetryDelayMs!;
