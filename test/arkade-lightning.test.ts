@@ -315,8 +315,8 @@ describe("ArkadeLightning", () => {
             saveSubmarineSwap: vi.fn(),
             deleteReverseSwap: vi.fn(),
             deleteSubmarineSwap: vi.fn(),
-            getAllReverseSwaps: vi.fn(),
-            getAllSubmarineSwaps: vi.fn(),
+            getAllReverseSwaps: vi.fn().mockResolvedValue([]),
+            getAllSubmarineSwaps: vi.fn().mockResolvedValue([]),
             clear: vi.fn(),
         } as any;
 
