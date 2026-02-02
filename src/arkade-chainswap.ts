@@ -223,21 +223,16 @@ export class ArkadeChainSwap {
     }
 
     /**
-     * Waits for the swap to be confirmed and claims it.
-     * @param arkInfo - The Ark information.
-     * @param pendingSwap - The pending chain swap.
-     * @param claimFunction - The function to claim the swap.
-     * @param beNiceFunction - Optional function to be called in BTC => ARK transaction.claim.pending.
-     * @returns The transaction ID of the claimed VHTLC.
-     * @throws SwapExpiredError if the swap has expired.
-     * @throws TransactionFailedError if the transaction has failed.
-     * @throws TransactionRefundedError if the transaction has been refunded.
-     * @throws Error if claim function fails.
+     * waits for the swap to be confirmed and claims it.
+     * @param pendingSwap
+     * @returns The transaction ID of the claimed HTLC.
+     * @throws SwapExpiredError, TransactionFailedError, TransactionRefundedError
      */
     async waitAndClaimBtc(
         pendingSwap: PendingChainSwap
     ): Promise<{ txid: string }> {
         return new Promise<{ txid: string }>((resolve, reject) => {
+            let claimStarted = false;
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
             const onStatusUpdate = async (
                 status: BoltzSwapStatus,
@@ -257,11 +252,17 @@ export class ArkadeChainSwap {
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
                         await updateSwapStatus(status);
+                        if (claimStarted) return;
+                        claimStarted = true;
                         this.claimBtc(pendingSwap, data).catch(reject);
                         break;
                     case "transaction.claimed":
                         await updateSwapStatus(status);
-                        resolve({ txid: pendingSwap.response.id });
+                        resolve({
+                            txid:
+                                data?.transaction?.id ??
+                                pendingSwap.response.id,
+                        });
                         break;
                     case "swap.expired":
                         await updateSwapStatus(status);
@@ -341,8 +342,7 @@ export class ArkadeChainSwap {
                         transactionId: lockupTx.id,
                         swapTree: swapTree,
                         internalKey: musig.internalKey,
-                        // False to enforce script path
-                        cooperative: true,
+                        cooperative: true, // set to false to enforce script path
                     },
                 ],
                 OutScript.encode(
@@ -503,7 +503,7 @@ export class ArkadeChainSwap {
                 input,
                 output,
                 arkInfo,
-                this.swapProvider.refundChainSwap
+                this.swapProvider.refundChainSwap.bind(this.swapProvider)
             );
         }
 
@@ -657,6 +657,7 @@ export class ArkadeChainSwap {
         pendingSwap: PendingChainSwap
     ): Promise<{ txid: string }> {
         return new Promise<{ txid: string }>((resolve, reject) => {
+            let claimStarted = false;
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
             const onStatusUpdate = async (status: BoltzSwapStatus) => {
                 const updateSwapStatus = (status: BoltzSwapStatus) => {
@@ -669,6 +670,8 @@ export class ArkadeChainSwap {
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
                         await updateSwapStatus(status);
+                        if (claimStarted) return;
+                        claimStarted = true;
                         this.claimArk(pendingSwap).catch(reject);
                         break;
                     case "transaction.claimed":

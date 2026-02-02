@@ -616,7 +616,7 @@ export class ArkadeLightning {
                 input,
                 output,
                 arkInfo,
-                this.swapProvider.refundSubmarineSwap
+                this.swapProvider.refundSubmarineSwap.bind(this.swapProvider)
             );
         }
 

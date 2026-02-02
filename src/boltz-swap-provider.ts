@@ -451,7 +451,7 @@ export type RefundChainSwapResponse = {
 
 export const isRefundChainSwapResponse = (
     data: any
-): data is RefundSubmarineSwapResponse => {
+): data is RefundChainSwapResponse => {
     return (
         data &&
         typeof data === "object" &&
@@ -1033,14 +1033,17 @@ export class BoltzSwapProvider {
             throw new SwapError({ message: "Invalid feeSatsPerByte" });
 
         // validate lock amounts
-        if (!serverLockAmount && !userLockAmount)
+        if (
+            (serverLockAmount && userLockAmount) ||
+            (!serverLockAmount && !userLockAmount)
+        )
             throw new SwapError({
                 message:
                     "Either serverLockAmount or userLockAmount must be provided",
             });
-        if (!serverLockAmount && userLockAmount && userLockAmount <= 0)
+        if (userLockAmount !== undefined && userLockAmount <= 0)
             throw new SwapError({ message: "Invalid userLockAmount" });
-        if (!userLockAmount && serverLockAmount && serverLockAmount <= 0)
+        if (serverLockAmount !== undefined && serverLockAmount <= 0)
             throw new SwapError({ message: "Invalid serverLockAmount" });
 
         // claimPublicKey must be in compressed version (33 bytes / 66 hex chars)
@@ -1057,7 +1060,7 @@ export class BoltzSwapProvider {
             });
         }
 
-        // make reverse swap request
+        // make chain swap request
         const requestBody: CreateChainSwapRequest = {
             to,
             from,
@@ -1067,7 +1070,7 @@ export class BoltzSwapProvider {
             refundPublicKey,
             serverLockAmount,
             userLockAmount,
-            referralId: this.referralId || "",
+            ...(this.referralId ? { referralId: this.referralId } : {}),
         };
 
         const response = await this.request<CreateChainSwapResponse>(
@@ -1286,7 +1289,7 @@ export class BoltzSwapProvider {
 
         if (!isPostChainClaimDetailsResponse(response))
             throw new SchemaError({
-                message: `error fetching claim details for swap: ${swapId}`,
+                message: `error posting claim details for swap: ${swapId}`,
             });
 
         return response;

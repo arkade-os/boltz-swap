@@ -6,7 +6,7 @@ The `BoltzSwapProvider` library extends Arkade's functionality by enabling:
 
 1. **Lightning to Arkade swaps** - Receive funds from Lightning payments into your Arkade wallet
 2. **Arkade to Lightning swaps** - Send funds from your Arkade wallet to Lightning invoices
-3. **Bitcoin to Arkade swaps** - Receive funds from Bitoin into your Arkade wallet
+3. **Bitcoin to Arkade swaps** - Receive funds from Bitcoin into your Arkade wallet
 4. **Arkade to Bitcoin swaps** - Send funds from your Arkade wallet to a BTC address
 
 ## Installation
@@ -262,7 +262,7 @@ await arkadeLightning.dispose(); // Stops SwapManager and cleans up
 
 ```typescript
 import { Wallet, SingleKey } from '@arkade-os/sdk';
-import { ArkadeLightning, BoltzSwapProvider } from '@arkade-os/boltz-swap';
+import { ArkadeChainSwap, BoltzSwapProvider } from '@arkade-os/boltz-swap';
 
 // Create an identity
 const identity = SingleKey.fromHex('your_private_key_in_hex');
@@ -280,7 +280,7 @@ const swapProvider = new BoltzSwapProvider({
   referralId: 'arkade', // optional
 });
 
-// Create the ArkadeLightning instance
+// Create the ArkadeChainSwap instance
 const arkadeChainSwap = new ArkadeChainSwap({
   wallet,
   swapProvider,
@@ -312,7 +312,7 @@ const wallet = await ServiceWorkerWallet.setup({
 });
 
 // Must provide external providers for ServiceWorkerWallet (it doesn't have them)
-const arkadeLightning = new ArkadeChainSwap({
+const arkadeChainSwap = new ArkadeChainSwap({
   wallet: serviceWorkerWallet,
   arkProvider: new RestArkProvider('https://mutinynet.arkade.sh'),
   indexerProvider: new RestIndexerProvider('https://mutinynet.arkade.sh'),
@@ -357,7 +357,7 @@ You can check the fee to pay for different swap amounts supported by the Boltz s
 This is useful to validate the user is willing to pay the fees.
 
 ```typescript
-const calcChainSwapFee = (satoshis: number, from: Chain, to: Chain): number => {
+const calcChainSwapFee = async (satoshis: number, from: Chain, to: Chain): number => {
   if (!satoshis) return 0;
   // Get current swap fees
   const fees: ChainFeesResponse | null = await arkadeChainSwap.getFees(from, to);
@@ -483,8 +483,8 @@ if (config.swapManager?.autostart === false) {
 const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
 
 await arkadeChainSwap.btcToArk({
-  amountSats: 21000;
-  toAddress: await wallet.getAddress();
+  amountSats: 21000,
+  toAddress: await wallet.getAddress(),
   onAddressGenerated: (btcAddress: string) => {
     showQrCode(address)
   }
@@ -666,7 +666,7 @@ await arkadeLightning.waitAndClaim(result.pendingSwap);
 // User must stay on this page - navigating away stops monitoring
 ```
 
-#### Validating Lightning Invoice Amounts
+### Validating Lightning Invoice Amounts
 
 ```typescript
 import { decodeInvoice } from '@arkade-os/boltz-swap';

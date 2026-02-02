@@ -10,6 +10,7 @@ import type {
     ArkadeLightningConfig,
     ChainFeesResponse,
     LimitsResponse,
+    ArkadeChainSwapConfig,
 } from "../src/types";
 import {
     RestArkProvider,
@@ -417,7 +418,7 @@ describe("ArkadeChainSwap", () => {
         });
 
         it("should fail to instantiate without required config", async () => {
-            const params: ArkadeLightningConfig = {
+            const params: ArkadeChainSwapConfig = {
                 wallet,
                 swapProvider,
                 arkProvider,
