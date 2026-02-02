@@ -1,12 +1,27 @@
-import { ContractRepositoryImpl } from "../../../ts-sdk/src/repositories/migrations/contractRepositoryImpl";
-import { StorageAdapter } from "../../../ts-sdk/src/storage";
 import { SwapRepository } from "./swap-repository";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
 
 const MIGRATION_KEY = "migration-from-storage-adapter-swaps";
 
+/**
+ * Reader and Writer functions for a key-value storage.
+ * It mimics the deprecated StorageAdapter interface from @arkade-os/sdk.
+ */
+export type LegacyStorageAccessor = {
+    getItem: (key: string) => Promise<string | null>;
+    setItem(key: string, value: string): Promise<void>;
+};
+
+/**
+ * Migrates the swaps stored in the old ContractRepository to the new SwapRepository.
+ * It accepts a generic reader/writer interface, once it's done it will set a flag
+ * in the storage to avoid running it again.
+ *
+ * @param storageAdapter - The storage adapter to read the swaps from.
+ * @param fresh - The new swap repository to save the swaps to.
+ */
 export async function migrateToSwapRepository(
-    storageAdapter: StorageAdapter,
+    storageAdapter: LegacyStorageAccessor,
     fresh: SwapRepository
 ) {
     const migration = await storageAdapter.getItem(MIGRATION_KEY);
@@ -14,13 +29,11 @@ export async function migrateToSwapRepository(
         return;
     }
 
-    // const oldStorage = new IndexedDBStorageAdapter("arkade-service-worker");
-    const legacyContracts = new ContractRepositoryImpl(storageAdapter);
     // reverse swaps
     const reverseSwaps: readonly PendingReverseSwap[] =
-        await legacyContracts.getContractCollection("reverseSwaps");
+        await getContractCollection(storageAdapter, "reverseSwaps");
     const submarineSwaps: readonly PendingSubmarineSwap[] =
-        await legacyContracts.getContractCollection("submarineSwaps");
+        await getContractCollection(storageAdapter, "submarineSwaps");
 
     for (const swap of reverseSwaps) {
         await fresh.saveReverseSwap(swap);
@@ -31,4 +44,22 @@ export async function migrateToSwapRepository(
     }
 
     await storageAdapter.setItem(MIGRATION_KEY, "done");
+}
+
+async function getContractCollection<T>(
+    storage: LegacyStorageAccessor,
+    contractType: string
+): Promise<ReadonlyArray<T>> {
+    const stored = await storage.getItem(`collection:${contractType}`);
+    if (!stored) return [];
+
+    try {
+        return JSON.parse(stored) as T[];
+    } catch (error) {
+        const errMessage: string =
+            "message" in (error as any) ? (error as any).message : "";
+        throw new Error(
+            `Failed to parse contract collection ${contractType} from storage: ${errMessage}`
+        );
+    }
 }
