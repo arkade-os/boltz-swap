@@ -8,16 +8,8 @@ import { closeDatabase, openDatabase } from "@arkade-os/sdk";
 const DEFAULT_DB_NAME = "arkade-boltz-swap";
 const DB_VERSION = 2;
 const STORE_SWAPS_STATE = "swaps";
-const STORE_REVERSE_SWAPS_STATE = "reverseSwaps";
-const STORE_SUBMARINE_SWAPS_STATE = "submarineSwaps";
 
 function initDatabase(db: IDBDatabase) {
-    if (db.objectStoreNames.contains(STORE_REVERSE_SWAPS_STATE)) {
-        db.deleteObjectStore(STORE_REVERSE_SWAPS_STATE);
-    }
-    if (db.objectStoreNames.contains(STORE_SUBMARINE_SWAPS_STATE)) {
-        db.deleteObjectStore(STORE_SUBMARINE_SWAPS_STATE);
-    }
     if (!db.objectStoreNames.contains(STORE_SWAPS_STATE)) {
         const swapStore = db.createObjectStore(STORE_SWAPS_STATE, {
             keyPath: "id",
