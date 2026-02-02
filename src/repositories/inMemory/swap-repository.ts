@@ -1,4 +1,8 @@
-import { GetSwapsFilter, PendingSwap, SwapRepository } from "../swap-repository";
+import {
+    GetSwapsFilter,
+    PendingSwap,
+    SwapRepository,
+} from "../swap-repository";
 export class InMemorySwapRepository implements SwapRepository {
     private readonly swaps: Map<string, PendingSwap> = new Map();
 
@@ -30,11 +34,8 @@ export class InMemorySwapRepository implements SwapRepository {
     }
 
     private applySwapsFilter<
-        T extends { id: string; status: string; type: string }
-    >(
-        swaps: (T | undefined)[],
-        filter: GetSwapsFilter
-    ): T[] {
+        T extends { id: string; status: string; type: string },
+    >(swaps: (T | undefined)[], filter: GetSwapsFilter): T[] {
         const matches = <T>(value: T, criterion?: T | T[]) => {
             if (criterion === undefined) {
                 return true;

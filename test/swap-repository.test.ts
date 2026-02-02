@@ -136,9 +136,7 @@ describe("SwapRepository implementations", () => {
         });
 
         it("clears all swaps", async () => {
-            await repo.saveSwap(
-                createReverseSwap("reverse-1", "swap.created")
-            );
+            await repo.saveSwap(createReverseSwap("reverse-1", "swap.created"));
             await repo.saveSwap(
                 createSubmarineSwap("submarine-1", "invoice.set")
             );
@@ -150,10 +148,7 @@ describe("SwapRepository implementations", () => {
 
         it("orders swaps by createdAt when requested", async () => {
             const oldest = createReverseSwap("reverse-old", "swap.created");
-            const newest = createSubmarineSwap(
-                "submarine-new",
-                "invoice.set"
-            );
+            const newest = createSubmarineSwap("submarine-new", "invoice.set");
             oldest.createdAt = 10;
             newest.createdAt = 30;
             const middle = createReverseSwap("reverse-mid", "swap.created");
@@ -254,9 +249,7 @@ describe("SwapRepository implementations", () => {
         });
 
         it("clears all swaps", async () => {
-            await repo.saveSwap(
-                createReverseSwap("reverse-1", "swap.created")
-            );
+            await repo.saveSwap(createReverseSwap("reverse-1", "swap.created"));
             await repo.saveSwap(
                 createSubmarineSwap("submarine-1", "invoice.set")
             );
@@ -268,10 +261,7 @@ describe("SwapRepository implementations", () => {
 
         it("orders swaps by createdAt when requested", async () => {
             const oldest = createReverseSwap("reverse-old", "swap.created");
-            const newest = createSubmarineSwap(
-                "submarine-new",
-                "invoice.set"
-            );
+            const newest = createSubmarineSwap("submarine-new", "invoice.set");
             oldest.createdAt = 10;
             newest.createdAt = 30;
             const middle = createReverseSwap("reverse-mid", "swap.created");

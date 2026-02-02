@@ -144,10 +144,9 @@ export class ArkadeLightning {
                     swap: PendingReverseSwap | PendingSubmarineSwap
                 ) => {
                     await saveSwap(swap, {
-                        saveSwap:
-                            this.swapRepository.saveSwap.bind(
-                                this.swapRepository
-                            ),
+                        saveSwap: this.swapRepository.saveSwap.bind(
+                            this.swapRepository
+                        ),
                     });
                 },
             });

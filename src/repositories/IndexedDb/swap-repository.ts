@@ -1,4 +1,8 @@
-import { GetSwapsFilter, PendingSwap, SwapRepository } from "../swap-repository";
+import {
+    GetSwapsFilter,
+    PendingSwap,
+    SwapRepository,
+} from "../swap-repository";
 import { closeDatabase, openDatabase } from "@arkade-os/sdk";
 
 const DEFAULT_DB_NAME = "arkade-boltz-swap";
@@ -38,7 +42,10 @@ export class IndexedDbSwapRepository implements SwapRepository {
     async saveSwap<T extends PendingSwap>(swap: T): Promise<void> {
         const db = await this.getDB();
         return new Promise((resolve, reject) => {
-            const transaction = db.transaction([STORE_SWAPS_STATE], "readwrite");
+            const transaction = db.transaction(
+                [STORE_SWAPS_STATE],
+                "readwrite"
+            );
             const store = transaction.objectStore(STORE_SWAPS_STATE);
             const request = store.put(swap);
             request.onsuccess = () => resolve();
@@ -49,7 +56,10 @@ export class IndexedDbSwapRepository implements SwapRepository {
     async deleteSwap(id: string): Promise<void> {
         const db = await this.getDB();
         return new Promise((resolve, reject) => {
-            const transaction = db.transaction([STORE_SWAPS_STATE], "readwrite");
+            const transaction = db.transaction(
+                [STORE_SWAPS_STATE],
+                "readwrite"
+            );
             const store = transaction.objectStore(STORE_SWAPS_STATE);
             const request = store.delete(id);
             request.onsuccess = () => resolve();
@@ -66,7 +76,10 @@ export class IndexedDbSwapRepository implements SwapRepository {
     async clear(): Promise<void> {
         const db = await this.getDB();
         return new Promise((resolve, reject) => {
-            const transaction = db.transaction([STORE_SWAPS_STATE], "readwrite");
+            const transaction = db.transaction(
+                [STORE_SWAPS_STATE],
+                "readwrite"
+            );
             const store = transaction.objectStore(STORE_SWAPS_STATE);
             const request = store.clear();
             request.onsuccess = () => resolve();
@@ -95,7 +108,12 @@ export class IndexedDbSwapRepository implements SwapRepository {
     }
 
     private async getAllSwapsFromStore<
-        T extends { id: string; status: string; type: string; createdAt: number }
+        T extends {
+            id: string;
+            status: string;
+            type: string;
+            createdAt: number;
+        },
     >(filter?: GetSwapsFilter): Promise<T[]> {
         const db = await this.getDB();
         const store = db
@@ -105,7 +123,8 @@ export class IndexedDbSwapRepository implements SwapRepository {
         if (!filter || Object.keys(filter).length === 0) {
             return new Promise((resolve, reject) => {
                 const request = store.getAll();
-                request.onsuccess = () => resolve((request.result ?? []) as T[]);
+                request.onsuccess = () =>
+                    resolve((request.result ?? []) as T[]);
                 request.onerror = () => reject(request.error);
             });
         }
@@ -158,10 +177,7 @@ export class IndexedDbSwapRepository implements SwapRepository {
         }
 
         if (filter.orderBy === "createdAt") {
-            return this.getAllSwapsByCreatedAt<T>(
-                store,
-                filter.orderDirection
-            );
+            return this.getAllSwapsByCreatedAt<T>(store, filter.orderDirection);
         }
 
         const allSwaps = await new Promise<T[]>((resolve, reject) => {
@@ -177,7 +193,7 @@ export class IndexedDbSwapRepository implements SwapRepository {
     }
 
     private applySwapsFilter<
-        T extends { id: string; status: string; type: string }
+        T extends { id: string; status: string; type: string },
     >(
         swaps: (T | undefined)[],
         filter: ReturnType<typeof normalizeFilter>
