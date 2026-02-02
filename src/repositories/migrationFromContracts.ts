@@ -36,11 +36,11 @@ export async function migrateToSwapRepository(
         await getContractCollection(storageAdapter, "submarineSwaps");
 
     for (const swap of reverseSwaps) {
-        await fresh.saveReverseSwap(swap);
+        await fresh.saveSwap(swap);
     }
 
     for (const swap of submarineSwaps) {
-        await fresh.saveSubmarineSwap(swap);
+        await fresh.saveSwap(swap);
     }
 
     await storageAdapter.setItem(MIGRATION_KEY, "done");

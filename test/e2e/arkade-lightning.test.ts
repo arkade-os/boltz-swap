@@ -168,12 +168,9 @@ describe("ArkadeLightning", () => {
         swapProvider = new BoltzSwapProvider({ network: "regtest" });
 
         swapRepository = {
-            saveReverseSwap: vi.fn(),
-            saveSubmarineSwap: vi.fn(),
-            deleteReverseSwap: vi.fn(),
-            deleteSubmarineSwap: vi.fn(),
-            getAllReverseSwaps: vi.fn(async () => []),
-            getAllSubmarineSwaps: vi.fn(async () => []),
+            saveSwap: vi.fn(),
+            deleteSwap: vi.fn(),
+            getAllSwaps: vi.fn(async () => []),
             clear: vi.fn(),
         } as any;
 
@@ -433,12 +430,7 @@ describe("ArkadeLightning", () => {
     describe("Swap Storage and History", () => {
         beforeEach(() => {
             // Mock the contract repository methods
-            vi.spyOn(swapRepository, "getAllReverseSwaps").mockResolvedValue(
-                []
-            );
-            vi.spyOn(swapRepository, "getAllSubmarineSwaps").mockResolvedValue(
-                []
-            );
+            vi.spyOn(swapRepository, "getAllSwaps").mockResolvedValue([]);
         });
 
         describe("getSwapHistory", () => {
@@ -448,8 +440,10 @@ describe("ArkadeLightning", () => {
 
                 // assert
                 expect(result).toEqual([]);
-                expect(swapRepository.getAllReverseSwaps).toHaveBeenCalled();
-                expect(swapRepository.getAllSubmarineSwaps).toHaveBeenCalled();
+                expect(swapRepository.getAllSwaps).toHaveBeenCalledWith({
+                    orderBy: "createdAt",
+                    orderDirection: "desc",
+                });
             });
 
             it("should return all swaps sorted by creation date (newest first)", async () => {
@@ -503,14 +497,12 @@ describe("ArkadeLightning", () => {
                     },
                 ];
 
-                vi.spyOn(
-                    swapRepository,
-                    "getAllReverseSwaps"
-                ).mockResolvedValueOnce(mockReverseSwaps);
-                vi.spyOn(
-                    swapRepository,
-                    "getAllSubmarineSwaps"
-                ).mockResolvedValueOnce(mockSubmarineSwaps);
+                vi.spyOn(swapRepository, "getAllSwaps").mockResolvedValueOnce([
+                    mockSubmarineSwaps[1],
+                    mockReverseSwaps[1],
+                    mockSubmarineSwaps[0],
+                    mockReverseSwaps[0],
+                ]);
 
                 // act
                 const result = await lightning.getSwapHistory();
@@ -557,14 +549,10 @@ describe("ArkadeLightning", () => {
                     },
                 ];
 
-                vi.spyOn(
-                    swapRepository,
-                    "getAllReverseSwaps"
-                ).mockResolvedValueOnce(mockReverseSwaps);
-                vi.spyOn(
-                    swapRepository,
-                    "getAllSubmarineSwaps"
-                ).mockResolvedValueOnce(mockSubmarineSwaps);
+                vi.spyOn(swapRepository, "getAllSwaps").mockResolvedValueOnce([
+                    mockSubmarineSwaps[0],
+                    mockReverseSwaps[0],
+                ]);
 
                 // act
                 const result = await lightning.getSwapHistory();
@@ -605,7 +593,7 @@ describe("ArkadeLightning", () => {
                 });
 
                 // assert
-                expect(swapRepository.saveSubmarineSwap).toHaveBeenCalledWith(
+                expect(swapRepository.saveSwap).toHaveBeenCalledWith(
                     expect.objectContaining({
                         type: "submarine",
                         status: "invoice.set",
@@ -632,7 +620,7 @@ describe("ArkadeLightning", () => {
                 });
 
                 // assert
-                expect(swapRepository.saveReverseSwap).toHaveBeenCalledWith(
+                expect(swapRepository.saveSwap).toHaveBeenCalledWith(
                     expect.objectContaining({
                         type: "reverse",
                         status: "swap.created",
@@ -1254,14 +1242,10 @@ describe("ArkadeLightning", () => {
                 });
 
                 // Mock storage to return pending swaps
-                vi.spyOn(
-                    swapRepository,
-                    "getAllReverseSwaps"
-                ).mockResolvedValueOnce([mockReverseSwap]);
-                vi.spyOn(
-                    swapRepository,
-                    "getAllSubmarineSwaps"
-                ).mockResolvedValueOnce([mockSubmarineSwap]);
+                vi.spyOn(swapRepository, "getAllSwaps").mockResolvedValueOnce([
+                    mockReverseSwap,
+                    mockSubmarineSwap,
+                ]);
 
                 // act
                 await swapManagerLightning.startSwapManager();
@@ -1296,14 +1280,12 @@ describe("ArkadeLightning", () => {
                 };
 
                 // Mock storage to return mix of pending and completed swaps
-                vi.spyOn(
-                    swapRepository,
-                    "getAllReverseSwaps"
-                ).mockResolvedValueOnce([mockReverseSwap, completedSwap]);
-                vi.spyOn(
-                    swapRepository,
-                    "getAllSubmarineSwaps"
-                ).mockResolvedValueOnce([mockSubmarineSwap, expiredSwap]);
+                vi.spyOn(swapRepository, "getAllSwaps").mockResolvedValueOnce([
+                    mockReverseSwap,
+                    completedSwap,
+                    mockSubmarineSwap,
+                    expiredSwap,
+                ]);
 
                 // act
                 await swapManagerLightning.startSwapManager();

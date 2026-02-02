@@ -1,20 +1,20 @@
 import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
 import { BoltzSwapStatus } from "../boltz-swap-provider";
 
+export type PendingSwap = PendingReverseSwap | PendingSubmarineSwap;
+
 export type GetSwapsFilter = {
     id?: string | string[];
     status?: BoltzSwapStatus | BoltzSwapStatus[];
+    type?: PendingSwap["type"] | PendingSwap["type"][];
+    orderBy?: "createdAt";
+    orderDirection?: "asc" | "desc";
 };
 
 export interface SwapRepository extends AsyncDisposable {
-    saveReverseSwap(swap: PendingReverseSwap): Promise<void>;
-    saveSubmarineSwap(swap: PendingSubmarineSwap): Promise<void>;
-    deleteReverseSwap(id: string): Promise<void>;
-    deleteSubmarineSwap(id: string): Promise<void>;
-    getAllReverseSwaps(filter?: GetSwapsFilter): Promise<PendingReverseSwap[]>;
-    getAllSubmarineSwaps(
-        filter?: GetSwapsFilter
-    ): Promise<PendingSubmarineSwap[]>;
+    saveSwap<T extends PendingSwap>(swap: T): Promise<void>;
+    deleteSwap(id: string): Promise<void>;
+    getAllSwaps<T extends PendingSwap>(filter?: GetSwapsFilter): Promise<T[]>;
 
     clear(): Promise<void>;
-}
+};;

@@ -1,49 +1,37 @@
-import { GetSwapsFilter, SwapRepository } from "../swap-repository";
-import { PendingReverseSwap, PendingSubmarineSwap } from "../../types";
-
+import { GetSwapsFilter, PendingSwap, SwapRepository } from "../swap-repository";
 export class InMemorySwapRepository implements SwapRepository {
-    private readonly reverseSwaps: Map<string, PendingReverseSwap> = new Map();
-    private readonly submarineSwaps: Map<string, PendingSubmarineSwap> =
-        new Map();
+    private readonly swaps: Map<string, PendingSwap> = new Map();
 
-    async saveReverseSwap(swap: PendingReverseSwap): Promise<void> {
-        this.reverseSwaps.set(swap.id, swap);
+    async saveSwap<T extends PendingSwap>(swap: T): Promise<void> {
+        this.swaps.set(swap.id, swap);
     }
 
-    async saveSubmarineSwap(swap: PendingSubmarineSwap): Promise<void> {
-        this.submarineSwaps.set(swap.id, swap);
+    async deleteSwap(id: string): Promise<void> {
+        this.swaps.delete(id);
     }
 
-    async deleteReverseSwap(id: string): Promise<void> {
-        this.reverseSwaps.delete(id);
-    }
-
-    async deleteSubmarineSwap(id: string): Promise<void> {
-        this.submarineSwaps.delete(id);
-    }
-
-    async getAllReverseSwaps(
+    async getAllSwaps<T extends PendingSwap>(
         filter?: GetSwapsFilter
-    ): Promise<PendingReverseSwap[]> {
-        const swaps = this.reverseSwaps.values();
-        if (!filter) return [...swaps];
-        return this.applySwapsFilter([...swaps], filter);
-    }
-
-    async getAllSubmarineSwaps(
-        filter?: GetSwapsFilter
-    ): Promise<PendingSubmarineSwap[]> {
-        const swaps = this.submarineSwaps.values();
-        if (!filter) return [...swaps];
-        return this.applySwapsFilter([...swaps], filter);
+    ): Promise<T[]> {
+        const swaps = [...this.swaps.values()];
+        if (!filter || Object.keys(filter).length === 0) return swaps as T[];
+        const filtered = this.applySwapsFilter(swaps, filter);
+        if (filter.orderBy === "createdAt") {
+            const direction = filter.orderDirection === "asc" ? 1 : -1;
+            return filtered
+                .slice()
+                .sort((a, b) => (a.createdAt - b.createdAt) * direction) as T[];
+        }
+        return filtered as T[];
     }
 
     async clear(): Promise<void> {
-        this.reverseSwaps.clear();
-        this.submarineSwaps.clear();
+        this.swaps.clear();
     }
 
-    private applySwapsFilter<T extends { id: string; status: string }>(
+    private applySwapsFilter<
+        T extends { id: string; status: string; type: string }
+    >(
         swaps: (T | undefined)[],
         filter: GetSwapsFilter
     ): T[] {
@@ -59,7 +47,8 @@ export class InMemorySwapRepository implements SwapRepository {
             (swap): swap is T =>
                 !!swap &&
                 matches(swap.id, filter.id) &&
-                matches(swap.status, filter.status)
+                matches(swap.status, filter.status) &&
+                matches(swap.type, filter.type)
         );
     }
 

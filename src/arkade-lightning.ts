@@ -49,6 +49,8 @@ import {
     CreateSubmarineSwapRequest,
     CreateReverseSwapRequest,
     GetSwapStatusResponse,
+    isPendingReverseSwap,
+    isPendingSubmarineSwap,
     isSubmarineFinalStatus,
     isReverseFinalStatus,
     isRestoredReverseSwap,
@@ -142,9 +144,10 @@ export class ArkadeLightning {
                     swap: PendingReverseSwap | PendingSubmarineSwap
                 ) => {
                     await saveSwap(swap, {
-                        saveReverseSwap: this.savePendingReverseSwap.bind(this),
-                        saveSubmarineSwap:
-                            this.savePendingSubmarineSwap.bind(this),
+                        saveSwap:
+                            this.swapRepository.saveSwap.bind(
+                                this.swapRepository
+                            ),
                     });
                 },
             });
@@ -163,13 +166,13 @@ export class ArkadeLightning {
     private async savePendingReverseSwap(
         swap: PendingReverseSwap
     ): Promise<void> {
-        await this.swapRepository.saveReverseSwap(swap);
+        await this.swapRepository.saveSwap(swap);
     }
 
     private async savePendingSubmarineSwap(
         swap: PendingSubmarineSwap
     ): Promise<void> {
-        await this.swapRepository.saveSubmarineSwap(swap);
+        await this.swapRepository.saveSwap(swap);
     }
 
     // SwapManager methods
@@ -187,9 +190,7 @@ export class ArkadeLightning {
         }
 
         // Load all pending swaps from storage
-        const reverseSwaps = await this.swapRepository.getAllReverseSwaps();
-        const submarineSwaps = await this.swapRepository.getAllSubmarineSwaps();
-        const allSwaps = [...reverseSwaps, ...submarineSwaps];
+        const allSwaps = await this.swapRepository.getAllSwaps();
 
         console.log("Starting SwapManager with", allSwaps.length, "swaps");
         // Start the manager with all pending swaps
@@ -1434,9 +1435,11 @@ export class ArkadeLightning {
      * @returns PendingSubmarineSwap[]. If no swaps are found, it returns an empty array.
      */
     async getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[]> {
-        return this.swapRepository.getAllSubmarineSwaps({
+        const swaps = await this.swapRepository.getAllSwaps({
             status: "invoice.set",
+            type: "submarine",
         });
+        return swaps.filter(isPendingSubmarineSwap);
     }
 
     /**
@@ -1447,9 +1450,11 @@ export class ArkadeLightning {
      * @returns PendingReverseSwap[]. If no swaps are found, it returns an empty array.
      */
     async getPendingReverseSwaps(): Promise<PendingReverseSwap[]> {
-        return this.swapRepository.getAllReverseSwaps({
+        const swaps = await this.swapRepository.getAllSwaps({
             status: "swap.created",
+            type: "reverse",
         });
+        return swaps.filter(isPendingReverseSwap);
     }
 
     /**
@@ -1459,15 +1464,10 @@ export class ArkadeLightning {
     async getSwapHistory(): Promise<
         (PendingReverseSwap | PendingSubmarineSwap)[]
     > {
-        const reverseSwaps = await this.swapRepository.getAllReverseSwaps();
-        const submarineSwaps = await this.swapRepository.getAllSubmarineSwaps();
-        const allSwaps = [...reverseSwaps, ...submarineSwaps];
-        return allSwaps.sort(
-            (
-                a: PendingReverseSwap | PendingSubmarineSwap,
-                b: PendingReverseSwap | PendingSubmarineSwap
-            ) => b.createdAt - a.createdAt
-        );
+        return this.swapRepository.getAllSwaps({
+            orderBy: "createdAt",
+            orderDirection: "desc",
+        });
     }
 
     /**
@@ -1482,42 +1482,43 @@ export class ArkadeLightning {
      * User should manually retry or delete it if refund fails.
      */
     async refreshSwapsStatus() {
-        // refresh status of all pending reverse swaps
-        for (const swap of await this.swapRepository.getAllReverseSwaps()) {
-            // TODO: filter by status
-            if (isReverseFinalStatus(swap.status)) continue;
-            this.getSwapStatus(swap.id)
-                .then(({ status }) => {
-                    updateReverseSwapStatus(
-                        swap,
-                        status,
-                        this.savePendingReverseSwap.bind(this)
-                    );
-                })
-                .catch((error) => {
-                    logger.error(
-                        `Failed to refresh swap status for ${swap.id}:`,
-                        error
-                    );
-                });
-        }
-        for (const swap of await this.swapRepository.getAllSubmarineSwaps()) {
-            // TODO: filter by status
-            if (isSubmarineFinalStatus(swap.status)) continue;
-            this.getSwapStatus(swap.id)
-                .then(({ status }) => {
-                    updateSubmarineSwapStatus(
-                        swap,
-                        status,
-                        this.savePendingSubmarineSwap.bind(this)
-                    );
-                })
-                .catch((error) => {
-                    logger.error(
-                        `Failed to refresh swap status for ${swap.id}:`,
-                        error
-                    );
-                });
+        const swaps = await this.swapRepository.getAllSwaps();
+        for (const swap of swaps) {
+            if (isPendingReverseSwap(swap)) {
+                if (isReverseFinalStatus(swap.status)) continue;
+                this.getSwapStatus(swap.id)
+                    .then(({ status }) => {
+                        updateReverseSwapStatus(
+                            swap,
+                            status,
+                            this.savePendingReverseSwap.bind(this)
+                        );
+                    })
+                    .catch((error) => {
+                        logger.error(
+                            `Failed to refresh swap status for ${swap.id}:`,
+                            error
+                        );
+                    });
+                continue;
+            }
+            if (isPendingSubmarineSwap(swap)) {
+                if (isSubmarineFinalStatus(swap.status)) continue;
+                this.getSwapStatus(swap.id)
+                    .then(({ status }) => {
+                        updateSubmarineSwapStatus(
+                            swap,
+                            status,
+                            this.savePendingSubmarineSwap.bind(this)
+                        );
+                    })
+                    .catch((error) => {
+                        logger.error(
+                            `Failed to refresh swap status for ${swap.id}:`,
+                            error
+                        );
+                    });
+            }
         }
     }
 

@@ -1,15 +1,11 @@
-import {
-    isPendingReverseSwap,
-    isPendingSubmarineSwap,
-} from "../boltz-swap-provider";
+import { PendingSwap } from "../repositories/swap-repository";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
 
 /**
  * Generic type for swap save functions
  */
 export type SwapSaver = {
-    saveReverseSwap: (swap: PendingReverseSwap) => Promise<void>;
-    saveSubmarineSwap: (swap: PendingSubmarineSwap) => Promise<void>;
+    saveSwap: (swap: PendingSwap) => Promise<void>;
 };
 
 /**
@@ -17,14 +13,10 @@ export type SwapSaver = {
  * This eliminates the need for type checking in multiple places
  */
 export async function saveSwap(
-    swap: PendingReverseSwap | PendingSubmarineSwap,
+    swap: PendingSwap,
     saver: SwapSaver
 ): Promise<void> {
-    if (isPendingReverseSwap(swap)) {
-        await saver.saveReverseSwap(swap);
-    } else if (isPendingSubmarineSwap(swap)) {
-        await saver.saveSubmarineSwap(swap);
-    }
+    await saver.saveSwap(swap);
 }
 
 /**
