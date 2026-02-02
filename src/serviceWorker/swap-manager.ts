@@ -54,7 +54,7 @@ export class ServiceWorkerSwapManager {
         config: SwapManagerConfig
     ) {
         navigator.serviceWorker.addEventListener("message", (m) => {
-            if (m.data.prefix !== SwapUpdater.messageTag) return;
+            if (m.data.tag !== SwapUpdater.messageTag) return;
             console.debug("[Swap Manager] broadcast received", m);
             this.onBroadcastMessage(m)
         });
@@ -148,9 +148,8 @@ export class ServiceWorkerSwapManager {
             };
 
             navigator.serviceWorker.addEventListener("message", messageHandler);
-            console.log("Sending message to SW:", message);
             this.serviceWorker.postMessage({
-                prefix: SwapUpdater.messageTag,
+                tag: SwapUpdater.messageTag,
                 id: id,
                 type: "type" in message ? message.type : "NO_TYPE",
                 payload: "payload" in message ? message.payload : undefined,
