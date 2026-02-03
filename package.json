@@ -46,7 +46,7 @@
     "author": "Arkade-OS",
     "license": "MIT",
     "dependencies": {
-        "@arkade-os/sdk": "https://github.com/arkade-os/ts-sdk.git#repository-v2-fixes-for-boltz-swap",
+        "@arkade-os/sdk": "https://github.com/arkade-os/ts-sdk.git#next",
         "@noble/hashes": "2.0.1",
         "@scure/base": "2.0.0",
         "@scure/btc-signer": "2.0.1",
