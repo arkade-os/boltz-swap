@@ -60,6 +60,12 @@ import { SwapManager } from "./swap-manager";
 import { saveSwap } from "./utils/swap-helpers";
 import { logger } from "./logger";
 
+/**
+ * Returns the signer session from a wallet.
+ * If the signer session is a factory, it will be invoked.
+ * @param wallet - Wallet instance with an identity signer session.
+ * @returns The signer session or undefined.
+ */
 function getSignerSession(wallet: Wallet | ServiceWorkerWallet): any {
     const signerSession = wallet.identity.signerSession;
 
@@ -79,6 +85,10 @@ export class ArkadeChainSwap {
     private readonly indexerProvider: IndexerProvider;
     private readonly swapManager: SwapManager | null = null;
 
+    /**
+     * Creates an Arkade chain swap client.
+     * @param config - Configuration for providers, wallet, and swap manager.
+     */
     constructor(config: ArkadeChainSwapConfig) {
         if (!config.wallet) throw new Error("Wallet is required.");
         if (!config.swapProvider) throw new Error("Swap provider is required.");
@@ -152,9 +162,12 @@ export class ArkadeChainSwap {
     }
 
     /**
-     * Creates a chain swap from Ark to Btc.
-     * @param args
-     * @returns
+     * Creates a chain swap from ARK to BTC.
+     * @param args - Swap arguments.
+     * @param args.toAddress - Destination BTC address.
+     * @param args.amountSats - Amount in sats.
+     * @param args.feeSatsPerByte - Optional fee rate in sats/vbyte.
+     * @returns The pending chain swap.
      */
     async arkToBtc(args: {
         toAddress: string;
@@ -223,8 +236,8 @@ export class ArkadeChainSwap {
     }
 
     /**
-     * waits for the swap to be confirmed and claims it.
-     * @param pendingSwap
+     * Waits for the swap to be confirmed and claims it.
+     * @param pendingSwap - The pending chain swap to monitor.
      * @returns The transaction ID of the claimed HTLC.
      * @throws SwapExpiredError, TransactionFailedError, TransactionRefundedError
      */
@@ -299,7 +312,8 @@ export class ArkadeChainSwap {
 
     /**
      * Claim sats on BTC chain by claiming the HTLC.
-     * @param pendingSwap
+     * @param pendingSwap - The pending chain swap.
+     * @param data - Swap status update data containing the lockup transaction.
      */
     async claimBtc(
         pendingSwap: PendingChainSwap,
@@ -407,8 +421,8 @@ export class ArkadeChainSwap {
     }
 
     /**
-     * Case the Ark to Btc fails, claim sats on ARK chain by claiming the VHTLC.
-     * @param pendingSwap
+     * When an ARK to BTC swap fails, claim sats on ARK chain by claiming the VHTLC.
+     * @param pendingSwap - The pending chain swap.
      */
     async refundArk(pendingSwap: PendingChainSwap): Promise<void> {
         const arkInfo = await this.arkProvider.getInfo();
@@ -596,6 +610,15 @@ export class ArkadeChainSwap {
         });
     }
 
+    /**
+     * Creates a chain swap from BTC to ARK.
+     * @param args - Swap arguments.
+     * @param args.toAddress - Destination Ark address.
+     * @param args.amountSats - Amount in sats.
+     * @param args.feeSatsPerByte - Optional fee rate in sats/vbyte.
+     * @param args.onAddressGenerated - Callback invoked with lockup address.
+     * @returns The pending chain swap.
+     */
     async btcToArk(args: {
         toAddress: string;
         amountSats: number;
@@ -654,8 +677,8 @@ export class ArkadeChainSwap {
 
     /**
      * Waits for the swap to be confirmed and claims it.
-     * @param args - The arguments containing arkInfo and pendingSwap.
-     * @returns the transaction ID of the claimed VHTLC.
+     * @param pendingSwap - The pending chain swap to monitor.
+     * @returns The transaction ID of the claimed VHTLC.
      */
     async waitAndClaimArk(
         pendingSwap: PendingChainSwap
@@ -725,7 +748,7 @@ export class ArkadeChainSwap {
 
     /**
      * Claim sats on ARK chain by claiming the VHTLC.
-     * @param pendingSwap
+     * @param pendingSwap - The pending chain swap.
      */
     async claimArk(pendingSwap: PendingChainSwap): Promise<void> {
         if (!pendingSwap.toAddress)
@@ -876,7 +899,7 @@ export class ArkadeChainSwap {
 
     /**
      * Sign a cooperative claim for the server in BTC => ARK swaps.
-     * @param pendingSwap
+     * @param pendingSwap - The pending chain swap.
      */
     async signCooperativeClaimForServer(
         pendingSwap: PendingChainSwap
@@ -926,10 +949,10 @@ export class ArkadeChainSwap {
 
     /**
      * Creates a VHTLC script for the swap.
-     * it creates a VHTLC script that can be used to claim or refund the swap
-     * it validates the receiver, sender and server public keys are x-only
-     * it encodes the VHTLC address from the VHTLC script
-     * @param param0 - The parameters for creating the VHTLC script.
+     * It creates a VHTLC script that can be used to claim or refund the swap.
+     * It validates the receiver, sender, and server public keys are x-only.
+     * It encodes the VHTLC address from the VHTLC script.
+     * @param args - The parameters for creating the VHTLC script.
      * @returns The created VHTLC script and address.
      */
     createVHTLCScript(args: {
@@ -1096,9 +1119,9 @@ export class ArkadeChainSwap {
     }
 
     /**
-     * Validates the lockup and claim addresses match the expected scripts
-     * @param args - The arguments for creating a chain swap.
-     * @returns The created pending chain swap.
+     * Validates the lockup and claim addresses match the expected scripts.
+     * @param args - The arguments for verifying a chain swap.
+     * @returns True if the addresses match.
      */
     async verifyChainSwap(args: {
         to: Chain;
@@ -1197,9 +1220,9 @@ export class ArkadeChainSwap {
     }
 
     /**
-     * Retrieves all pending reverse swaps from storage.
+     * Retrieves all pending chain swaps from storage.
      * This method filters the pending swaps to return only those with a status of 'swap.created'.
-     * It is useful for checking the status of all pending reverse swaps in the system.
+     * It is useful for checking the status of all pending chain swaps in the system.
      * @returns PendingChainSwap[]. If no swaps are found, it returns an empty array.
      */
     async getPendingChainSwaps(): Promise<PendingChainSwap[]> {
@@ -1218,8 +1241,8 @@ export class ArkadeChainSwap {
 
     /**
      * Renegotiates the quote for an existing swap.
-     * @param swapId
-     * @returns
+     * @param swapId - The ID of the swap.
+     * @returns The accepted quote amount.
      */
     async quoteSwap(swapId: string): Promise<number> {
         const { amount } = await this.swapProvider.getChainQuote(swapId);
@@ -1238,7 +1261,7 @@ export class ArkadeChainSwap {
      * Important: a chain swap with status payment.failedToPay is considered final and won't be refreshed.
      * User should manually retry or delete it if refund fails.
      */
-    async refreshSwapsStatus() {
+    async refreshSwapsStatus(): Promise<void> {
         // refresh status of all pending chain swaps
         for (const swap of await this.getPendingChainSwapsFromStorage()) {
             if (isChainFinalStatus(swap.status)) continue;
@@ -1293,6 +1316,10 @@ export class ArkadeChainSwap {
     }
 
     // Storage helper methods using contract repository
+    /**
+     * Persists a pending chain swap in the contract repository.
+     * @param swap - The pending swap to save.
+     */
     private async savePendingChainSwap(swap: PendingChainSwap): Promise<void> {
         await this.wallet.contractRepository.saveToContractCollection(
             "chainSwaps",
@@ -1301,6 +1328,10 @@ export class ArkadeChainSwap {
         );
     }
 
+    /**
+     * Retrieves all pending chain swaps from the contract repository.
+     * @returns Array of pending chain swaps.
+     */
     private async getPendingChainSwapsFromStorage(): Promise<
         PendingChainSwap[]
     > {
@@ -1342,11 +1373,12 @@ export class ArkadeChainSwap {
     };
 
     /**
-     * Joins a batch to spend the vtxo via commitment transaction
-     * @param identity - The identity to use for signing the forfeit transaction.
+     * Joins a batch to spend the vtxo via commitment transaction.
+     * @param identity - The identity to use for signing.
      * @param input - The input vtxo.
      * @param output - The output script.
-     * @param forfeitPublicKey - The forfeit public key.
+     * @param arkInfo - Chain information used for building transactions.
+     * @param isRecoverable - Whether the input is recoverable.
      * @returns The commitment transaction ID.
      */
     async joinBatch(

@@ -1245,7 +1245,6 @@ export class BoltzSwapProvider {
                     case "swap.created":
                     case "transaction.mempool":
                     case "transaction.confirmed":
-                    case "transaction.lockupFailed":
                     case "transaction.claim.pending":
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
