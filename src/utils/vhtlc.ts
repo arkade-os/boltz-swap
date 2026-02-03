@@ -202,7 +202,6 @@ export const joinBatch = async (
         const commitmentTxid = await Batch.join(eventStream, handler, {
             abortController,
         });
-        logger.log("Batch joined with commitment transaction:", commitmentTxid);
         return commitmentTxid;
     } catch (error) {
         abortController.abort();

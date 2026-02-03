@@ -127,7 +127,7 @@ export class ArkadeChainSwap {
                 },
                 claimBtc: async (
                     swap: PendingChainSwap,
-                    data: { transaction: { hex: string } }
+                    data: { transaction: { id: string; hex: string } }
                 ) => {
                     await this.claimBtc(swap, data);
                 },
@@ -264,6 +264,10 @@ export class ArkadeChainSwap {
                                 pendingSwap.response.id,
                         });
                         break;
+                    case "transaction.lockupFailed":
+                        await updateSwapStatus(status);
+                        await this.quoteSwap(pendingSwap.response.id);
+                        break;
                     case "swap.expired":
                         await updateSwapStatus(status);
                         reject(
@@ -299,7 +303,7 @@ export class ArkadeChainSwap {
      */
     async claimBtc(
         pendingSwap: PendingChainSwap,
-        data: { transaction: { hex: string } }
+        data: { transaction: { id: string; hex: string } }
     ): Promise<void> {
         if (!pendingSwap.toAddress)
             throw new Error("Destination address is required");
@@ -688,6 +692,10 @@ export class ArkadeChainSwap {
                         ).catch();
                         resolve({ txid: pendingSwap.response.id });
                         break;
+                    case "transaction.lockupFailed":
+                        await updateSwapStatus(status);
+                        await this.quoteSwap(pendingSwap.response.id);
+                        break;
                     case "swap.expired":
                         await updateSwapStatus(status);
                         reject(
@@ -717,18 +725,23 @@ export class ArkadeChainSwap {
 
     /**
      * Claim sats on ARK chain by claiming the VHTLC.
-     * @param args - The arguments containing arkInfo and pendingSwap.
+     * @param pendingSwap
      */
     async claimArk(pendingSwap: PendingChainSwap): Promise<void> {
-        const arkInfo = await this.arkProvider.getInfo();
-        const preimage = hex.decode(pendingSwap.preimage);
-        const address = await this.wallet.getAddress();
+        if (!pendingSwap.toAddress)
+            throw new Error("Destination address is required");
 
         if (!pendingSwap.response.claimDetails.serverPublicKey)
             throw new Error("Missing server public key in claim details");
 
         if (!pendingSwap.response.claimDetails.timeouts)
             throw new Error("Missing timeouts in claim details");
+
+        const arkInfo = await this.arkProvider.getInfo();
+
+        const preimage = hex.decode(pendingSwap.preimage);
+
+        const address = await this.wallet.getAddress();
 
         // build expected VHTLC script
         const receiverXOnlyPublicKey = normalizeToXOnlyKey(
@@ -1201,6 +1214,17 @@ export class ArkadeChainSwap {
     async getSwapHistory(): Promise<PendingChainSwap[]> {
         const allSwaps = await this.getPendingChainSwapsFromStorage();
         return allSwaps.sort((a, b) => b.createdAt - a.createdAt);
+    }
+
+    /**
+     * Renegotiates the quote for an existing swap.
+     * @param swapId
+     * @returns
+     */
+    async quoteSwap(swapId: string): Promise<number> {
+        const { amount } = await this.swapProvider.getChainQuote(swapId);
+        await this.swapProvider.postChainQuote(swapId, { amount });
+        return amount;
     }
 
     /**

@@ -133,13 +133,14 @@ export const isChainPendingStatus = (status: BoltzSwapStatus): boolean => {
         "swap.created",
         "transaction.mempool",
         "transaction.confirmed",
+        "transaction.lockupFailed",
         "transaction.server.mempool",
         "transaction.server.confirmed",
     ].includes(status);
 };
 
 export const isChainRefundableStatus = (status: BoltzSwapStatus): boolean => {
-    return ["transaction.lockupFailed", "swap.expired"].includes(status);
+    return ["swap.expired"].includes(status);
 };
 
 export const isChainSuccessStatus = (status: BoltzSwapStatus): boolean => {
@@ -652,6 +653,7 @@ export type PostChainClaimDetailsRequest = {
         pubNonce: string;
     };
 };
+
 export type PostChainClaimDetailsResponse = {
     pubNonce?: string;
     partialSignature?: string;
@@ -668,6 +670,26 @@ const isPostChainClaimDetailsResponse = (
             (typeof data.pubNonce === "undefined" &&
                 typeof data.partialSignature === "undefined"))
     );
+};
+
+export type GetChainQuoteResponse = {
+    amount: number;
+};
+
+const isGetChainQuoteResponse = (data: any): data is GetChainQuoteResponse => {
+    return data && typeof data === "object" && typeof data.amount === "number";
+};
+
+export type PostChainQuoteRequest = {
+    amount: number;
+};
+
+export type PostChainQuoteResponse = {};
+
+export const isPostChainQuoteResponse = (
+    data: any
+): data is PostChainQuoteResponse => {
+    return Object.keys(data).length === 0 && data.constructor === Object;
 };
 
 export type PostBtcTransactionRequest = {
@@ -1196,6 +1218,12 @@ export class BoltzSwapProvider {
 
                 const status = msg.args[0].status as BoltzSwapStatus;
 
+                // chain swaps lockupFailed can be negotiable
+                const negotiable =
+                    status === "transaction.lockupFailed" &&
+                    msg.args[0].failureDetails?.expected &&
+                    msg.args[0].failureDetails?.actual;
+
                 switch (status) {
                     case "invoice.settled":
                     case "transaction.claimed":
@@ -1203,9 +1231,12 @@ export class BoltzSwapProvider {
                     case "invoice.expired":
                     case "invoice.failedToPay":
                     case "transaction.failed":
-                    case "transaction.lockupFailed":
                     case "swap.expired":
                         webSocket.close();
+                        update(status, msg.args[0]);
+                        break;
+                    case "transaction.lockupFailed":
+                        if (!negotiable) webSocket.close();
                         update(status, msg.args[0]);
                         break;
                     case "invoice.paid":
@@ -1214,6 +1245,7 @@ export class BoltzSwapProvider {
                     case "swap.created":
                     case "transaction.mempool":
                     case "transaction.confirmed":
+                    case "transaction.lockupFailed":
                     case "transaction.claim.pending":
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
@@ -1256,6 +1288,34 @@ export class BoltzSwapProvider {
         if (!isGetChainClaimDetailsResponse(response))
             throw new SchemaError({
                 message: `error fetching claim details for swap: ${swapId}`,
+            });
+        return response;
+    }
+
+    async getChainQuote(swapId: string): Promise<GetChainQuoteResponse> {
+        const response = await this.request<GetChainQuoteResponse>(
+            `/v2/swap/chain/${swapId}/quote`,
+            "GET"
+        );
+        if (!isGetChainQuoteResponse(response))
+            throw new SchemaError({
+                message: `error fetching quote for swap: ${swapId}`,
+            });
+        return response;
+    }
+
+    async postChainQuote(
+        swapId: string,
+        request: PostChainQuoteRequest
+    ): Promise<PostChainQuoteResponse> {
+        const response = await this.request<PostChainQuoteResponse>(
+            `/v2/swap/chain/${swapId}/quote`,
+            "POST",
+            request
+        );
+        if (!isPostChainQuoteResponse(response))
+            throw new SchemaError({
+                message: `error posting quote for swap: ${swapId}`,
             });
         return response;
     }

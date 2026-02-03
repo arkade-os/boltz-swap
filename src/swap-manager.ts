@@ -110,7 +110,7 @@ export class SwapManager {
     private claimBtcCallback:
         | ((
               swap: PendingChainSwap,
-              data: { transaction: { hex: string } }
+              data: { transaction: { id: string; hex: string } }
           ) => Promise<void>)
         | null = null;
     private refundArkCallback:
@@ -185,7 +185,7 @@ export class SwapManager {
         claimArk: (swap: PendingChainSwap) => Promise<void>;
         claimBtc: (
             swap: PendingChainSwap,
-            data: { transaction: { hex: string } }
+            data: { transaction: { id: string; hex: string } }
         ) => Promise<void>;
         refundArk: (swap: PendingChainSwap) => Promise<void>;
         saveSwap: (swap: PendingSwap) => Promise<void>;
@@ -323,10 +323,6 @@ export class SwapManager {
             }
         }
 
-        logger.log(
-            `SwapManager started with ${this.monitoredSwaps.size} pending swaps`
-        );
-
         // Try to connect WebSocket, fall back to polling if it fails
         await this.connectWebSocket();
 
@@ -359,8 +355,6 @@ export class SwapManager {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
         }
-
-        logger.log("SwapManager stopped");
     }
 
     /**
@@ -373,8 +367,6 @@ export class SwapManager {
         if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
             this.subscribeToSwap(swap.id);
         }
-
-        logger.log(`Added swap ${swap.id} to monitoring`);
     }
 
     /**
@@ -546,7 +538,6 @@ export class SwapManager {
 
             this.websocket.onopen = () => {
                 clearTimeout(connectionTimeout);
-                logger.log("WebSocket connected");
 
                 // Reset reconnect delay on successful connection
                 this.currentReconnectDelay = this.config.reconnectDelayMs!;
@@ -571,7 +562,6 @@ export class SwapManager {
 
             this.websocket.onclose = () => {
                 clearTimeout(connectionTimeout);
-                logger.log("WebSocket disconnected");
 
                 this.websocket = null;
 
@@ -601,10 +591,6 @@ export class SwapManager {
         this.isReconnecting = false;
         this.websocket = null;
         this.usePollingFallback = true;
-
-        logger.warn(
-            "WebSocket unavailable, using polling fallback with increasing interval"
-        );
 
         // Start polling with exponential backoff
         this.startPollingFallback();
@@ -703,8 +689,6 @@ export class SwapManager {
         // Update swap status
         swap.status = newStatus;
 
-        logger.log(`Swap ${swap.id} status: ${oldStatus} → ${newStatus}`);
-
         // Emit update event to all listeners
         this.swapUpdateListeners.forEach((listener) =>
             listener(swap, oldStatus)
@@ -739,7 +723,6 @@ export class SwapManager {
             this.swapSubscriptions.delete(swap.id);
             // Emit completed event to all listeners
             this.swapCompletedListeners.forEach((listener) => listener(swap));
-            logger.log(`Swap ${swap.id} completed with status: ${newStatus}`);
         }
     }
 
@@ -890,7 +873,7 @@ export class SwapManager {
      */
     private async executeClaimBtcAction(
         swap: PendingChainSwap,
-        data: { transaction: { hex: string } }
+        data: { transaction: { id: string; hex: string } }
     ): Promise<void> {
         if (!this.claimBtcCallback) {
             logger.error("claimBtc callback not set");
@@ -935,8 +918,6 @@ export class SwapManager {
         if (!this.config.enableAutoActions) {
             return;
         }
-
-        logger.log("Resuming actionable swaps...");
 
         for (const swap of this.monitoredSwaps.values()) {
             try {
@@ -1016,8 +997,6 @@ export class SwapManager {
                 this.startPollingFallback();
             }
         }, this.currentPollRetryDelay);
-
-        logger.log(`Next polling fallback in ${this.currentPollRetryDelay}ms`);
     }
 
     /**
@@ -1030,8 +1009,6 @@ export class SwapManager {
      */
     private async pollAllSwaps(): Promise<void> {
         if (this.monitoredSwaps.size === 0) return;
-
-        logger.log(`Polling ${this.monitoredSwaps.size} swaps...`);
 
         const pollPromises = Array.from(this.monitoredSwaps.values()).map(
             async (swap) => {

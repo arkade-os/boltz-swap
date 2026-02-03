@@ -365,6 +365,10 @@ describe("ArkadeChainSwap", () => {
         vhtlcAddress: mock.address.ark,
     };
 
+    const mockGetChainQuoteResponse = {
+        amount: mock.amount,
+    };
+
     beforeEach(async () => {
         vi.clearAllMocks();
 
@@ -506,7 +510,7 @@ describe("ArkadeChainSwap", () => {
             it("should throw error when toAddress is missing", async () => {
                 // arrange
                 const pendingSwap: PendingChainSwap = {
-                    ...mockBtcArkChainSwap,
+                    ...mockArkBtcChainSwap,
                     toAddress: undefined,
                 };
 
@@ -517,9 +521,59 @@ describe("ArkadeChainSwap", () => {
                 // act & assert
                 await expect(
                     chainSwap.claimBtc(pendingSwap, {
-                        transaction: { hex: "" },
+                        transaction: { id: "some-id", hex: "" },
                     })
                 ).rejects.toThrow("Destination address is required");
+            });
+
+            it("should throw error when swap tree in claim details is missing", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockArkBtcChainSwap,
+                    response: {
+                        ...mockArkBtcChainSwap.response,
+                        claimDetails: {
+                            ...mockArkBtcChainSwap.response.claimDetails,
+                            swapTree: undefined,
+                        },
+                    },
+                };
+
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+
+                // act & assert
+                await expect(
+                    chainSwap.claimBtc(pendingSwap, {
+                        transaction: { id: "some-id", hex: "" },
+                    })
+                ).rejects.toThrow("Missing swap tree in claim details");
+            });
+
+            it("should throw error when server public key in claim details is missing", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockArkBtcChainSwap,
+                    response: {
+                        ...mockArkBtcChainSwap.response,
+                        claimDetails: {
+                            ...mockArkBtcChainSwap.response.claimDetails,
+                            serverPublicKey: "",
+                        },
+                    },
+                };
+
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+
+                // act & assert
+                await expect(
+                    chainSwap.claimBtc(pendingSwap, {
+                        transaction: { id: "some-id", hex: "" },
+                    })
+                ).rejects.toThrow("Missing server public key in claim details");
             });
         });
 
@@ -643,6 +697,24 @@ describe("ArkadeChainSwap", () => {
 
                 // assert
                 expect(status.status).toBe("swap.created");
+            });
+        });
+
+        describe("quoteSwap", () => {
+            it("should quote a chain swap", async () => {
+                // arrange
+                vi.spyOn(swapProvider, "getChainQuote").mockResolvedValueOnce({
+                    amount: mock.amount,
+                });
+                vi.spyOn(swapProvider, "postChainQuote").mockResolvedValueOnce(
+                    {}
+                );
+
+                // act
+                const amount = await chainSwap.quoteSwap(mock.id);
+
+                // assert
+                expect(amount).toEqual(mock.amount);
             });
         });
 
@@ -873,6 +945,69 @@ describe("ArkadeChainSwap", () => {
         });
 
         describe("claimArk", () => {
+            it("should throw error when toAddress is missing", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockBtcArkChainSwap,
+                    toAddress: undefined,
+                };
+
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+
+                // act & assert
+                await expect(chainSwap.claimArk(pendingSwap)).rejects.toThrow(
+                    "Destination address is required"
+                );
+            });
+
+            it("should throw error when timeouts in claim details is missing", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockBtcArkChainSwap,
+                    response: {
+                        ...mockBtcArkChainSwap.response,
+                        claimDetails: {
+                            ...mockBtcArkChainSwap.response.claimDetails,
+                            timeouts: undefined,
+                        },
+                    },
+                };
+
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+
+                // act & assert
+                await expect(chainSwap.claimArk(pendingSwap)).rejects.toThrow(
+                    "Missing timeouts in claim details"
+                );
+            });
+
+            it("should throw error when server public key in claim details is missing", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockBtcArkChainSwap,
+                    response: {
+                        ...mockBtcArkChainSwap.response,
+                        claimDetails: {
+                            ...mockBtcArkChainSwap.response.claimDetails,
+                            serverPublicKey: "",
+                        },
+                    },
+                };
+
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+
+                // act & assert
+                await expect(chainSwap.claimArk(pendingSwap)).rejects.toThrow(
+                    "Missing server public key in claim details"
+                );
+            });
+
             it("should throw error when no spendable VTXOs found", async () => {
                 // arrange
                 const pendingSwap: PendingChainSwap = {
@@ -1003,6 +1138,24 @@ describe("ArkadeChainSwap", () => {
                     "BTC",
                     "ARK"
                 );
+            });
+        });
+
+        describe("quoteSwap", () => {
+            it("should quote a chain swap", async () => {
+                // arrange
+                vi.spyOn(swapProvider, "getChainQuote").mockResolvedValueOnce({
+                    amount: mock.amount,
+                });
+                vi.spyOn(swapProvider, "postChainQuote").mockResolvedValueOnce(
+                    {}
+                );
+
+                // act
+                const amount = await chainSwap.quoteSwap(mock.id);
+
+                // assert
+                expect(amount).toEqual(mock.amount);
             });
         });
 
