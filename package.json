@@ -78,10 +78,10 @@
     "packageManager": "pnpm@10.25.0",
     "pnpm": {
         "onlyBuiltDependencies": [
-            "sqlite3"
+            "sqlite3",
+            "@arkade-os/sdk"
         ],
         "ignoredBuiltDependencies": [
-            "@arkade-os/sdk",
             "canvas",
             "esbuild"
         ]
