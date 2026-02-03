@@ -56,7 +56,7 @@ const arkadeLightning = new ArkadeLightning({
 
 ```typescript
 import { ServiceWorkerWallet, SingleKey, RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
-import { IndexedDBStorageAdapter } from '@arkade-os/sdk/storage';
+import { IndexedDBStorageAdapter } from '@arkade-os/sdk/adapters/indexedDB';
 
 // Create your identity
 const identity = SingleKey.fromHex('your_private_key_hex');
@@ -79,7 +79,7 @@ const arkadeLightning = new ArkadeLightning({
 });
 ```
 
-**Repositories**: The Arkade SDK provides repository interfaces to use custom implementations. For ServiceWorker environments, the default implementation is `IndexedDB`. For more storage options and adapters, see the [Arkade SDK Repositories documentation](https://github.com/arkade-os/ts-sdk).
+**SwapRepository**: Swap storage is pluggable via `SwapRepository`. In ServiceWorker environments, the default is `IndexedDB`. For other options, see the [Arkade SDK Repositories documentation](https://github.com/arkade-os/ts-sdk).
 
 > [!WARNING]
 > If you previously used the v1 `StorageAdapter`-based repositories, migrate
@@ -97,8 +97,8 @@ const arkadeLightning = new ArkadeLightning({
 > await migrateToSwapRepository(oldStorage, new IndexedDbSwapRepository())
 > ```
 
-The existing data is still available at the old location (e.g. `arkade-service-worker`).
-The SDK will automatically migrate it to the new IndexedDB repository and use the new one.
+Existing data stays in the old DB (e.g. `arkade-service-worker`) until you run the migration once.
+After `migrateToSwapRepository`, the IndexedDB-backed SwapRepository is used going forward.
 
 ## Background Swap Monitoring (SwapManager)
 
