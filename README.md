@@ -63,14 +63,11 @@ const identity = SingleKey.fromHex('your_private_key_hex');
 // Or generate a new one:
 // const identity = SingleKey.fromRandomBytes();
 
-// Configure IndexedDB storage adapter for ServiceWorker
-const storage = new IndexedDBStorageAdapter('arkade-service-worker-wallet', 1);
-
 const wallet = await ServiceWorkerWallet.setup({
   serviceWorkerPath: '/service-worker.js',
   arkServerUrl: 'https://mutinynet.arkade.sh',
   identity,
-  storage, // Pass the IndexedDB storage adapter
+  // Optional: can use custom repositories, uses IndexedDB by default
 });
 
 // Must provide external providers for ServiceWorkerWallet (it doesn't have them)
@@ -82,7 +79,26 @@ const arkadeLightning = new ArkadeLightning({
 });
 ```
 
-**Storage Adapters**: The Arkade SDK provides various storage adapters for different environments. For ServiceWorker environments, use `IndexedDBStorageAdapter`. For more storage options and adapters, see the [Arkade SDK storage adapters documentation](https://github.com/arkade-os/ts-sdk).
+**Repositories**: The Arkade SDK provides repository interfaces to use custom implementations. For ServiceWorker environments, the default implementation is `IndexedDB`. For more storage options and adapters, see the [Arkade SDK Repositories documentation](https://github.com/arkade-os/ts-sdk).
+
+> [!WARNING]
+> If you previously used the v1 `StorageAdapter`-based repositories, migrate
+> data into the new IndexedDB repositories before use:
+>
+> ```typescript
+> import {
+>   IndexedDbSwapRepository,
+>   migrateToSwapRepository
+> } from '@arkade-os/boltz-swap'
+> import { IndexedDBStorageAdapter } from '@arkade-os/sdk/adapters/indexedDB'
+>
+> // if you used a different name for the DB, use your own here
+> const oldStorage = new IndexedDBStorageAdapter('arkade-service-worker', 1)
+> await migrateToSwapRepository(oldStorage, new IndexedDbSwapRepository())
+> ```
+
+The existing data is still available at the old location (e.g. `arkade-service-worker`).
+The SDK will automatically migrate it to the new IndexedDB repository and use the new one.
 
 ## Background Swap Monitoring (SwapManager)
 
@@ -411,7 +427,7 @@ console.log('swap status = ', response.status);
 
 ## Storage
 
-This library stores pending swaps via a **SwapRepository**. By default, `ArkadeLightning` uses an IndexedDB-backed repository in browser contexts, so swap data persists across reloads. You can inject your own repository (for tests, Node.js, or custom storage) via the `swapRepository` option.
+This library stores swaps via a **SwapRepository**. By default, `ArkadeLightning` uses an IndexedDB-backed repository in browser contexts, so swap data persists across reloads. You can inject your own repository (for tests, Node.js, or custom storage) via the `swapRepository` option.
 
 ```typescript
 const arkadeLightning = new ArkadeLightning({
