@@ -425,15 +425,15 @@ export class ArkadeChainSwap {
      * @param pendingSwap - The pending chain swap.
      */
     async refundArk(pendingSwap: PendingChainSwap): Promise<void> {
-        const arkInfo = await this.arkProvider.getInfo();
-        const preimage = hex.decode(pendingSwap.preimage);
-        const address = await this.wallet.getAddress();
-
         if (!pendingSwap.response.lockupDetails.serverPublicKey)
             throw new Error("Missing server public key in lockup details");
 
         if (!pendingSwap.response.lockupDetails.timeouts)
             throw new Error("Missing timeouts in lockup details");
+
+        const arkInfo = await this.arkProvider.getInfo();
+
+        const address = await this.wallet.getAddress();
 
         // validate we are using a x-only public key
         const ourXOnlyPublicKey = await this.wallet.identity.xOnlyPublicKey();
@@ -524,83 +524,6 @@ export class ArkadeChainSwap {
                 this.swapProvider.refundChainSwap.bind(this.swapProvider)
             );
         }
-
-        // signing a VTHLC needs an extra witness element to be added to the PSBT input
-        // reveal the secret in the PSBT, thus the server can verify the claim script
-        // this witness must satisfy the preimageHash condition
-        const vhtlcIdentity = {
-            sign: async (tx: any, inputIndexes?: number[]) => {
-                const cpy = tx.clone();
-                let signedTx = await this.wallet.identity.sign(
-                    cpy,
-                    inputIndexes
-                );
-                signedTx = ARKTransaction.fromPSBT(signedTx.toPSBT(), {
-                    allowUnknown: true,
-                });
-                setArkPsbtField(signedTx, 0, ConditionWitness, [preimage]);
-                return signedTx;
-            },
-            xOnlyPublicKey: pendingSwap.request.claimPublicKey,
-            signerSession: getSignerSession(this.wallet),
-        };
-
-        // create the server unroll script for checkpoint transactions
-        const rawCheckpointTapscript = hex.decode(arkInfo.checkpointTapscript);
-        const serverUnrollScript = CSVMultisigTapscript.decode(
-            rawCheckpointTapscript
-        );
-
-        // create the offchain transaction to claim the VHTLC
-        const { arkTx, checkpoints } = buildOffchainTx(
-            [
-                {
-                    ...vtxo,
-                    tapLeafScript: vhtlcScript.claim(),
-                    tapTree: vhtlcScript.encode(),
-                },
-            ],
-            [
-                {
-                    amount: BigInt(vtxo.value),
-                    script: ArkAddress.decode(address).pkScript,
-                },
-            ],
-            serverUnrollScript
-        );
-
-        // sign and submit the virtual transaction
-        const signedArkTx = await vhtlcIdentity.sign(arkTx);
-        const { arkTxid, finalArkTx, signedCheckpointTxs } =
-            await this.arkProvider.submitTx(
-                base64.encode(signedArkTx.toPSBT()),
-                checkpoints.map((c) => base64.encode(c.toPSBT()))
-            );
-
-        // verify the server signed the transaction with correct key
-        if (
-            !this.validFinalArkTx(
-                finalArkTx,
-                hex.decode(arkInfo.signerPubkey),
-                vhtlcScript.leaves
-            )
-        ) {
-            throw new Error("Invalid final Ark transaction");
-        }
-
-        // sign the checkpoint transactions pre signed by the server
-        const finalCheckpoints = await Promise.all(
-            signedCheckpointTxs.map(async (c) => {
-                const tx = ARKTransaction.fromPSBT(base64.decode(c), {
-                    allowUnknown: true,
-                });
-                const signedCheckpoint = await vhtlcIdentity.sign(tx, [0]);
-                return base64.encode(signedCheckpoint.toPSBT());
-            })
-        );
-
-        // submit the final transaction to the Ark provider
-        await this.arkProvider.finalizeTx(arkTxid, finalCheckpoints);
 
         // update the pending swap on storage if available
         const finalStatus = await this.getSwapStatus(pendingSwap.id);

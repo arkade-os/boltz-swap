@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, chai } from "vitest";
-import { BoltzSwapProvider } from "../../src/boltz-swap-provider";
+import {
+    BoltzSwapProvider,
+    BoltzSwapStatus,
+} from "../../src/boltz-swap-provider";
 import {
     RestArkProvider,
     RestIndexerProvider,
@@ -65,6 +68,20 @@ describe("ArkadeChainSwap", () => {
             amount,
         });
         await sleep(2000); // wait for the wallet to detect the incoming funds
+    };
+
+    const waitForSwapStatus = async (
+        swapId: string,
+        intendedStatus: BoltzSwapStatus,
+        timeout = 3_000
+    ): Promise<void> => {
+        const start = Date.now();
+        while (Date.now() - start < timeout) {
+            const { status } = await swapProvider.getSwapStatus(swapId);
+            if (status === intendedStatus) return;
+            await sleep(200);
+        }
+        throw new Error(`Swap did not reach status ${status} within timeout`);
     };
 
     // Create a funded wallet to use as a source of funds
@@ -466,49 +483,41 @@ describe("ArkadeChainSwap", () => {
                 async () => {
                     // arrange
                     const amountSats = 21000;
-                    const fundAmount = amountSats + 2100; // include buffer for fees
-                    const toAddress = await getBtcAddress();
+                    const fundAmount = 23000;
+                    const sendAmount = 10000; // insufficient amount to trigger refund
                     await fundWallet(fundAmount);
-                    const initialArkBalance = await wallet.getBalance();
-                    const initialBtcTxs = await getBtcAddressTxs(toAddress);
+                    const toAddress = await getBtcAddress();
 
                     // act
-                    const swap = await chainSwap.arkToBtc({
+                    const swap = await chainSwap.createChainSwap({
+                        to: "BTC",
+                        from: "ARK",
+                        feeSatsPerByte: 1,
+                        userLockAmount: amountSats,
                         toAddress,
-                        amountSats,
                     });
 
-                    // assert
-                    expect(swap).toHaveProperty("id");
-                    expect(swap).toHaveProperty("request");
-                    expect(swap).toHaveProperty("response");
-                    expect(swap).toHaveProperty("preimage");
-                    expect(swap).toHaveProperty("createdAt");
-                    expect(swap).toHaveProperty("ephemeralKey");
-                    expect(swap).toHaveProperty("feeSatsPerByte");
+                    await wallet.sendBitcoin({
+                        address: swap.response.lockupDetails.lockupAddress,
+                        amount: sendAmount,
+                    });
 
-                    expect(swap.type).toEqual("chain");
-                    expect(swap.toAddress).toEqual(toAddress);
-                    expect(swap.status).toEqual("transaction.claimed");
-
-                    expect(swap.request.to).toEqual("BTC");
-                    expect(swap.request.from).toEqual("ARK");
-                    expect(swap.request.refundPublicKey).toEqual(
-                        aliceCompressedPubKey
+                    await waitForSwapStatus(
+                        swap.id,
+                        "transaction.lockupFailed"
                     );
-                    expect(swap.request.serverLockAmount).toBeUndefined();
-                    expect(swap.request.userLockAmount).toEqual(amountSats);
 
-                    await generateBlocks(1); // confirm the Btc transaction
-                    await sleep(5000); // wait for Btc explorer to update
+                    const afterSwapBalance = await wallet.getBalance();
 
-                    const finalArkBalance = await wallet.getBalance();
-                    const expected = initialArkBalance.available - amountSats;
-                    expect(finalArkBalance.available).toEqual(expected);
+                    await chainSwap.refundArk(swap);
 
-                    const finalBtcTxs = await getBtcAddressTxs(toAddress);
-                    expect(initialBtcTxs).toEqual(0);
-                    expect(finalBtcTxs).toEqual(1);
+                    const afterRefundBalance = await wallet.getBalance();
+
+                    // assert
+                    expect(afterSwapBalance.available).toEqual(
+                        fundAmount - sendAmount
+                    );
+                    expect(afterRefundBalance.available).toEqual(fundAmount);
                 }
             );
         });
