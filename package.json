@@ -79,6 +79,11 @@
     "pnpm": {
         "onlyBuiltDependencies": [
             "sqlite3"
+        ],
+        "ignoredBuiltDependencies": [
+            "@arkade-os/sdk",
+            "canvas",
+            "esbuild"
         ]
     }
 }
