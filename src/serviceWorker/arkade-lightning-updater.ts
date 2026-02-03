@@ -1,5 +1,7 @@
 import { IUpdater } from "@arkade-os/sdk";
 
+export const  DEFAULT_MESSAGE_TAG = "ARKADE_LIGHTNING_UPDATER"
+
 export type ArkadeLightningUpdaterRequest = {};
 export type ArkadeLightningUpdaterResponse = {};
 
