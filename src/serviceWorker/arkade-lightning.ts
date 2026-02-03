@@ -3,13 +3,20 @@ import { ArkProvider, IContractManager, IndexerProvider, ServiceWorkerWallet, Wa
 import { BoltzSwapProvider } from "../boltz-swap-provider";
 import { SwapManager, SwapManagerConfig } from "../swap-manager";
 import { SwapRepository } from "../repositories/swap-repository";
-import { ArkadeLightningConfig, FeeConfig, RefundHandler, RetryConfig, TimeoutConfig } from "../types";
+import {
+    ArkadeLightningConfig,
+    FeeConfig,
+    PendingReverseSwap,
+    PendingSubmarineSwap,
+    RefundHandler,
+    RetryConfig,
+    TimeoutConfig,
+} from "../types";
 import { logger } from "../logger";
 import { IndexedDbSwapRepository } from "../repositories/IndexedDb/swap-repository";
 import { DEFAULT_MESSAGE_TAG } from "./arkade-lightning-updater";
 
-export type  SvcArkadeLightningConfig = {
-
+export type  SvcWrkArkadeLightningConfig = {
     // sw
     messageTag? : string
     // path?
@@ -52,7 +59,6 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
         public readonly serviceWorker: ServiceWorker,
         private readonly arkProvider: ArkProvider,
         private readonly indexerProvider: IndexerProvider,
-        private readonly swapProvider: BoltzSwapProvider,
         private readonly swapRepository: SwapRepository,
         private readonly swapManager: SwapManager | null,
         protected readonly messageTag: string,
@@ -66,49 +72,10 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
         }
     }
 
-    static create(options: SvcArkadeLightningConfig) {
+    static create(options: SvcWrkArkadeLightningConfig) {
         const swapRepository = options.swapRepository ?? new IndexedDbSwapRepository()
         const messageTag = options.messageTag ?? DEFAULT_MESSAGE_TAG;
 
-        // Initialize SwapManager if config is provided
-        // - true: use defaults
-        // - object: use provided config
-        // - false/undefined: disabled
-        let swapManager: SwapManager | null; = null
-        if (options.swapManager) {
-            const swapManagerConfig =
-                options.swapManager === true
-                    ? ({} as SwapManagerConfig & { autoStart?: boolean })
-                    : options.swapManager;
-
-            // Extract autostart (defaults to true) before passing to SwapManager
-            // SwapManager doesn't need it - only ArkadeLightning uses it
-            const shouldAutostart = swapManagerConfig.autoStart ?? true;
-
-            swapManager = new SwapManager(
-                options.serviceWorker,
-                swapManagerConfig
-            );
-
-            // Set up callbacks for claim, refund, and save operations
-            this.swapManager.setCallbacks({
-                claim: async (swap: PendingReverseSwap) => {
-                    await this.claimVHTLC(swap);
-                },
-                refund: async (swap: PendingSubmarineSwap) => {
-                    await this.refundVHTLC(swap);
-                },
-                saveSwap: async (
-                    swap: PendingReverseSwap | PendingSubmarineSwap
-                ) => {
-                    await saveSwap(swap, {
-                        saveSwap: this.swapRepository.saveSwap.bind(
-                            this.swapRepository
-                        ),
-                    });
-                },
-            });
-        }
 
         const svcArkadeLightning = new ServiceWorkerArkadeLightning(
             swapRepository,
@@ -117,7 +84,9 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
             options.swapProvider,
             swapRepository,
             messageTag,
-        )
+        );
+
+        return svcArkadeLightning;
     }
 
     /* --- SwapManager --- */
@@ -142,3 +111,5 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
         await this.swapManager.start(allSwaps);
     }
 }
+
+
