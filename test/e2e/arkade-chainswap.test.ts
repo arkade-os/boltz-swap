@@ -19,8 +19,6 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { ArkadeChainSwap } from "../../src/arkade-chainswap";
 import { ArkadeChainSwapConfig } from "../../src/types";
-import { ad } from "vitest/dist/chunks/reporters.d.BFLkQcL6.js";
-import { send } from "process";
 
 const execAsync = promisify(exec);
 const arkcli = "docker exec -t arkd ark";
@@ -81,7 +79,9 @@ describe("ArkadeChainSwap", () => {
             if (status === intendedStatus) return;
             await sleep(200);
         }
-        throw new Error(`Swap did not reach status ${status} within timeout`);
+        throw new Error(
+            `Swap did not reach status ${intendedStatus} within timeout`
+        );
     };
 
     // Create a funded wallet to use as a source of funds
@@ -632,7 +632,7 @@ describe("ArkadeChainSwap", () => {
         });
         describe("createChainSwap", () => {
             it(
-                "should automatically quote if insufficient amount sent btal",
+                "should automatically quote if insufficient amount sent",
                 { timeout: 10_000 },
                 async () => {
                     // arrange
@@ -677,12 +677,12 @@ describe("ArkadeChainSwap", () => {
             );
 
             it(
-                "should automatically quote if too much amount sent btat",
+                "should automatically quote if too much amount sent",
                 { timeout: 10_000 },
                 async () => {
                     // arrange
                     const amountSats = 21000;
-                    const sendAmount = 12000; // too much amount to trigger quote
+                    const sendAmount = 22000; // too much amount to trigger quote
                     const toAddress = await wallet.getAddress();
 
                     // act

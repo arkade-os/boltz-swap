@@ -329,7 +329,7 @@ Before creating chain swaps, you can check the minimum and maximum swap amounts 
 
 ```typescript
 // Get current swap limits (in satoshis)
-const limits = await arkadeChainSwap.getLimits();
+const limits = await arkadeChainSwap.getLimits('ARK', 'BTC');
 
 if (limits) {
   console.log('Minimum swap amount:', limits.min, 'sats');

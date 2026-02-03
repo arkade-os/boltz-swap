@@ -689,7 +689,12 @@ export type PostChainQuoteResponse = {};
 export const isPostChainQuoteResponse = (
     data: any
 ): data is PostChainQuoteResponse => {
-    return Object.keys(data).length === 0 && data.constructor === Object;
+    return (
+        data &&
+        typeof data === "object" &&
+        Object.keys(data).length === 0 &&
+        data.constructor === Object
+    );
 };
 
 export type PostBtcTransactionRequest = {
