@@ -49,6 +49,8 @@ import {
     CreateSubmarineSwapRequest,
     CreateReverseSwapRequest,
     GetSwapStatusResponse,
+    isPendingReverseSwap,
+    isPendingSubmarineSwap,
     isSubmarineFinalStatus,
     isReverseFinalStatus,
     isRestoredReverseSwap,
@@ -64,14 +66,11 @@ import {
     extractTimeLockFromLeafOutput,
 } from "./utils/restoration";
 import { SwapManager } from "./swap-manager";
-import {
-    saveSwap,
-    updateReverseSwapStatus,
-    updateSubmarineSwapStatus,
-} from "./utils/swap-helpers";
 import { logger } from "./logger";
 import { claimVHTLCIdentity } from "./utils/identity";
 import { createVHTLCBatchHandler } from "./batch";
+import { IndexedDbSwapRepository } from "./repositories/IndexedDb/swap-repository";
+import { SwapRepository } from "./repositories/swap-repository";
 
 export class ArkadeLightning {
     private readonly wallet: Wallet | ServiceWorkerWallet;
@@ -79,6 +78,7 @@ export class ArkadeLightning {
     private readonly swapProvider: BoltzSwapProvider;
     private readonly indexerProvider: IndexerProvider;
     private readonly swapManager: SwapManager | null = null;
+    private readonly swapRepository: SwapRepository;
 
     constructor(config: ArkadeLightningConfig) {
         if (!config.wallet) throw new Error("Wallet is required.");
@@ -103,6 +103,12 @@ export class ArkadeLightning {
         this.indexerProvider = indexerProvider;
 
         this.swapProvider = config.swapProvider;
+
+        if (config.swapRepository) {
+            this.swapRepository = config.swapRepository;
+        } else {
+            this.swapRepository = new IndexedDbSwapRepository();
+        }
 
         // Initialize SwapManager if config is provided
         // - true: use defaults
@@ -131,13 +137,7 @@ export class ArkadeLightning {
                 },
                 saveSwap: async (
                     swap: PendingReverseSwap | PendingSubmarineSwap
-                ) => {
-                    await saveSwap(swap, {
-                        saveReverseSwap: this.savePendingReverseSwap.bind(this),
-                        saveSubmarineSwap:
-                            this.savePendingSubmarineSwap.bind(this),
-                    });
-                },
+                ) => this.swapRepository.saveSwap(swap),
             });
 
             // Autostart if configured (defaults to true)
@@ -148,43 +148,6 @@ export class ArkadeLightning {
                 });
             }
         }
-    }
-
-    // Storage helper methods using contract repository
-    private async savePendingReverseSwap(
-        swap: PendingReverseSwap
-    ): Promise<void> {
-        await this.wallet.contractRepository.saveToContractCollection(
-            "reverseSwaps",
-            swap,
-            "id"
-        );
-    }
-
-    private async savePendingSubmarineSwap(
-        swap: PendingSubmarineSwap
-    ): Promise<void> {
-        await this.wallet.contractRepository.saveToContractCollection(
-            "submarineSwaps",
-            swap,
-            "id"
-        );
-    }
-
-    private async getPendingReverseSwapsFromStorage(): Promise<
-        PendingReverseSwap[]
-    > {
-        return (await this.wallet.contractRepository.getContractCollection(
-            "reverseSwaps"
-        )) as PendingReverseSwap[];
-    }
-
-    private async getPendingSubmarineSwapsFromStorage(): Promise<
-        PendingSubmarineSwap[]
-    > {
-        return (await this.wallet.contractRepository.getContractCollection(
-            "submarineSwaps"
-        )) as PendingSubmarineSwap[];
     }
 
     // SwapManager methods
@@ -202,10 +165,9 @@ export class ArkadeLightning {
         }
 
         // Load all pending swaps from storage
-        const reverseSwaps = await this.getPendingReverseSwapsFromStorage();
-        const submarineSwaps = await this.getPendingSubmarineSwapsFromStorage();
-        const allSwaps = [...reverseSwaps, ...submarineSwaps];
+        const allSwaps = await this.swapRepository.getAllSwaps();
 
+        console.log("Starting SwapManager with", allSwaps.length, "swaps");
         // Start the manager with all pending swaps
         await this.swapManager.start(allSwaps);
     }
@@ -276,7 +238,7 @@ export class ArkadeLightning {
         const pendingSwap = await this.createSubmarineSwap(args);
 
         // save pending swap to storage
-        await this.savePendingSubmarineSwap(pendingSwap);
+        await this.swapRepository.saveSwap(pendingSwap);
 
         // send funds to the swap address
         const txid = await this.wallet.sendBitcoin({
@@ -295,11 +257,10 @@ export class ArkadeLightning {
             if (error.isRefundable) {
                 await this.refundVHTLC(pendingSwap);
                 const finalStatus = await this.getSwapStatus(pendingSwap.id);
-                await updateSubmarineSwapStatus(
-                    pendingSwap,
-                    finalStatus.status,
-                    this.savePendingSubmarineSwap.bind(this)
-                );
+                await this.swapRepository.saveSwap({
+                    ...pendingSwap,
+                    status: finalStatus.status,
+                });
             }
             throw new TransactionFailedError();
         }
@@ -344,7 +305,7 @@ export class ArkadeLightning {
         };
 
         // save pending swap to storage if available
-        await this.savePendingSubmarineSwap(pendingSwap);
+        await this.swapRepository.saveSwap(pendingSwap);
 
         // Add to swap manager if enabled
         if (this.swapManager) {
@@ -405,7 +366,7 @@ export class ArkadeLightning {
         };
 
         // save pending swap to storage if available
-        await this.savePendingReverseSwap(pendingSwap);
+        await this.swapRepository.saveSwap(pendingSwap);
 
         // Add to swap manager if enabled
         if (this.swapManager) {
@@ -518,11 +479,10 @@ export class ArkadeLightning {
         }
 
         // update the pending swap on storage if available
-        await updateReverseSwapStatus(
-            pendingSwap,
-            finalStatus,
-            this.savePendingReverseSwap.bind(this)
-        );
+        await this.swapRepository.saveSwap({
+            ...pendingSwap,
+            status: finalStatus,
+        });
     }
 
     /**
@@ -626,12 +586,11 @@ export class ArkadeLightning {
         }
 
         // update the pending swap on storage if available
-        await updateSubmarineSwapStatus(
-            pendingSwap,
-            pendingSwap.status, // Keep current status
-            this.savePendingSubmarineSwap.bind(this),
-            { refundable: true, refunded: true }
-        );
+        await this.swapRepository.saveSwap({
+            ...pendingSwap,
+            refundable: true,
+            refunded: true,
+        });
     }
 
     /**
@@ -639,6 +598,7 @@ export class ArkadeLightning {
      * @param identity - The identity to use for signing the forfeit transaction.
      * @param input - The input vtxo.
      * @param output - The output script.
+     * @param isRecoverable
      * @param forfeitPublicKey - The forfeit public key.
      * @returns The commitment transaction ID.
      */
@@ -770,12 +730,11 @@ export class ArkadeLightning {
                 const saveStatus = (
                     additionalFields?: Partial<PendingReverseSwap>
                 ) =>
-                    updateReverseSwapStatus(
-                        pendingSwap,
+                    this.swapRepository.saveSwap({
+                        ...pendingSwap,
                         status,
-                        this.savePendingReverseSwap.bind(this),
-                        additionalFields
-                    );
+                        ...additionalFields,
+                    });
 
                 switch (status) {
                     case "transaction.mempool":
@@ -857,12 +816,11 @@ export class ArkadeLightning {
                 const saveStatus = (
                     additionalFields?: Partial<PendingSubmarineSwap>
                 ) =>
-                    updateSubmarineSwapStatus(
-                        pendingSwap,
+                    this.swapRepository.saveSwap({
+                        ...pendingSwap,
                         status,
-                        this.savePendingSubmarineSwap.bind(this),
-                        additionalFields
-                    );
+                        ...additionalFields,
+                    });
 
                 switch (status) {
                     case "swap.expired":
@@ -1444,28 +1402,30 @@ export class ArkadeLightning {
      * Retrieves all pending submarine swaps from storage.
      * This method filters the pending swaps to return only those with a status of 'invoice.set'.
      * It is useful for checking the status of all pending submarine swaps in the system.
+     *
      * @returns PendingSubmarineSwap[]. If no swaps are found, it returns an empty array.
      */
     async getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[]> {
-        const swaps = await this.getPendingSubmarineSwapsFromStorage();
-        if (!swaps) return [];
-        return swaps.filter(
-            (swap: PendingSubmarineSwap) => swap.status === "invoice.set"
-        );
+        const swaps = await this.swapRepository.getAllSwaps({
+            status: "invoice.set",
+            type: "submarine",
+        });
+        return swaps.filter(isPendingSubmarineSwap);
     }
 
     /**
      * Retrieves all pending reverse swaps from storage.
      * This method filters the pending swaps to return only those with a status of 'swap.created'.
      * It is useful for checking the status of all pending reverse swaps in the system.
+     *
      * @returns PendingReverseSwap[]. If no swaps are found, it returns an empty array.
      */
     async getPendingReverseSwaps(): Promise<PendingReverseSwap[]> {
-        const swaps = await this.getPendingReverseSwapsFromStorage();
-        if (!swaps) return [];
-        return swaps.filter(
-            (swap: PendingReverseSwap) => swap.status === "swap.created"
-        );
+        const swaps = await this.swapRepository.getAllSwaps({
+            status: "swap.created",
+            type: "reverse",
+        });
+        return swaps.filter(isPendingReverseSwap);
     }
 
     /**
@@ -1475,15 +1435,10 @@ export class ArkadeLightning {
     async getSwapHistory(): Promise<
         (PendingReverseSwap | PendingSubmarineSwap)[]
     > {
-        const reverseSwaps = await this.getPendingReverseSwapsFromStorage();
-        const submarineSwaps = await this.getPendingSubmarineSwapsFromStorage();
-        const allSwaps = [...(reverseSwaps || []), ...(submarineSwaps || [])];
-        return allSwaps.sort(
-            (
-                a: PendingReverseSwap | PendingSubmarineSwap,
-                b: PendingReverseSwap | PendingSubmarineSwap
-            ) => b.createdAt - a.createdAt
-        );
+        return this.swapRepository.getAllSwaps({
+            orderBy: "createdAt",
+            orderDirection: "desc",
+        });
     }
 
     /**
@@ -1498,34 +1453,17 @@ export class ArkadeLightning {
      * User should manually retry or delete it if refund fails.
      */
     async refreshSwapsStatus() {
-        // refresh status of all pending reverse swaps
-        for (const swap of await this.getPendingReverseSwapsFromStorage()) {
-            if (isReverseFinalStatus(swap.status)) continue;
-            this.getSwapStatus(swap.id)
-                .then(({ status }) => {
-                    updateReverseSwapStatus(
-                        swap,
-                        status,
-                        this.savePendingReverseSwap.bind(this)
-                    );
-                })
-                .catch((error) => {
-                    logger.error(
-                        `Failed to refresh swap status for ${swap.id}:`,
-                        error
-                    );
-                });
-        }
-        for (const swap of await this.getPendingSubmarineSwapsFromStorage()) {
-            if (isSubmarineFinalStatus(swap.status)) continue;
-            this.getSwapStatus(swap.id)
-                .then(({ status }) => {
-                    updateSubmarineSwapStatus(
-                        swap,
-                        status,
-                        this.savePendingSubmarineSwap.bind(this)
-                    );
-                })
+        const swaps = await this.swapRepository.getAllSwaps();
+        for (const swap of swaps) {
+            if (
+                isReverseFinalStatus(swap.status) ||
+                isSubmarineFinalStatus(swap.status)
+            )
+                continue;
+            await this.getSwapStatus(swap.id)
+                .then(({ status }) =>
+                    this.swapRepository.saveSwap({ ...swap, status })
+                )
                 .catch((error) => {
                     logger.error(
                         `Failed to refresh swap status for ${swap.id}:`,

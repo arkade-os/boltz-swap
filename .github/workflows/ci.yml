@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, next ]
   pull_request:
-    branches: [ master ]
+    branches: [ master, next ]
 
 jobs:
   test:
@@ -29,12 +29,14 @@ jobs:
         echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
     - name: Setup pnpm cache
+      env:
+        PNPM_CACHE_VERSION: v5  # bump this to bust caches
       uses: actions/cache@v3
       with:
         path: ${{ env.STORE_PATH }}
         key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
         restore-keys: |
-          ${{ runner.os }}-pnpm-store-
+          ${{ runner.os }}-pnpm-store-${{ env.PNPM_CACHE_VERSION }}-
 
     - name: Install dependencies
       run: pnpm install

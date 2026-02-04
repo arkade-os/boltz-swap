@@ -52,25 +52,22 @@ const arkadeLightning = new ArkadeLightning({
 });
 ```
 
-### ServiceWorkerWallet with IndexDB
+### ServiceWorkerWallet with IndexedDB
 
 ```typescript
 import { ServiceWorkerWallet, SingleKey, RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
-import { IndexedDBStorageAdapter } from '@arkade-os/sdk/storage';
+import { IndexedDBStorageAdapter } from '@arkade-os/sdk/adapters/indexedDB';
 
 // Create your identity
 const identity = SingleKey.fromHex('your_private_key_hex');
 // Or generate a new one:
 // const identity = SingleKey.fromRandomBytes();
 
-// Configure IndexedDB storage adapter for ServiceWorker
-const storage = new IndexedDBStorageAdapter('arkade-service-worker-wallet', 1);
-
 const wallet = await ServiceWorkerWallet.setup({
   serviceWorkerPath: '/service-worker.js',
   arkServerUrl: 'https://mutinynet.arkade.sh',
   identity,
-  storage, // Pass the IndexedDB storage adapter
+  // Optional: can use custom repositories, uses IndexedDB by default
 });
 
 // Must provide external providers for ServiceWorkerWallet (it doesn't have them)
@@ -82,7 +79,26 @@ const arkadeLightning = new ArkadeLightning({
 });
 ```
 
-**Storage Adapters**: The Arkade SDK provides various storage adapters for different environments. For ServiceWorker environments, use `IndexedDBStorageAdapter`. For more storage options and adapters, see the [Arkade SDK storage adapters documentation](https://github.com/arkade-os/ts-sdk).
+**SwapRepository**: Swap storage is pluggable via `SwapRepository`. In ServiceWorker environments, the default is `IndexedDB`. For other options, see the [Arkade SDK Repositories documentation](https://github.com/arkade-os/ts-sdk).
+
+> [!WARNING]
+> If you previously used the v1 `StorageAdapter`-based repositories, migrate
+> data into the new IndexedDB repositories before use:
+>
+> ```typescript
+> import {
+>   IndexedDbSwapRepository,
+>   migrateToSwapRepository
+> } from '@arkade-os/boltz-swap'
+> import { IndexedDBStorageAdapter } from '@arkade-os/sdk/adapters/indexedDB'
+>
+> // if you used a different name for the DB, use your own here
+> const oldStorage = new IndexedDBStorageAdapter('arkade-service-worker', 1)
+> await migrateToSwapRepository(oldStorage, new IndexedDbSwapRepository())
+> ```
+
+Existing data stays in the old DB (e.g. `arkade-service-worker`) until you run the migration once.
+After `migrateToSwapRepository`, the IndexedDB-backed SwapRepository is used going forward.
 
 ## Background Swap Monitoring (SwapManager)
 
@@ -411,7 +427,18 @@ console.log('swap status = ', response.status);
 
 ## Storage
 
-This library automatically stores pending swaps using the wallet's built-in contract repository. All swap data is persisted automatically and can be retrieved using the following methods:
+This library stores swaps via a **SwapRepository**. By default, `ArkadeLightning` uses an IndexedDB-backed repository in browser contexts, so swap data persists across reloads. You can inject your own repository (for tests, Node.js, or custom storage) via the `swapRepository` option.
+
+```typescript
+const arkadeLightning = new ArkadeLightning({
+  wallet,
+  swapProvider,
+  // Optional: override storage
+  // swapRepository: myCustomSwapRepository,
+});
+```
+
+All swap data is persisted automatically and can be retrieved using the following methods:
 
 ```typescript
 // Get all pending submarine swaps (those waiting for Lightning payment)
@@ -424,7 +451,7 @@ const pendingPaymentsFromLightning = await arkadeLightning.getPendingReverseSwap
 const swapHistory = await arkadeLightning.getSwapHistory();
 ```
 
-**Note**: All swap data is automatically persisted and retrieved through the wallet's contract repository. No additional storage configuration is required.
+**Note**: If IndexedDB is not available (e.g., in Node.js), provide a custom `swapRepository` implementation.
 
 ## Receiving Lightning Payments
 
@@ -548,3 +575,20 @@ try {
   }
 }
 ```
+
+### Releasing
+
+```bash
+# Release new version (will prompt for version patch, minor, major)
+pnpm release
+
+# You can test release process without making changes
+pnpm release:dry-run
+
+# Cleanup: checkout version commit and remove release branch
+pnpm release:cleanup
+```
+
+## License
+
+MIT
