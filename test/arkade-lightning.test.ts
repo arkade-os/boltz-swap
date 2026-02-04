@@ -681,26 +681,6 @@ describe("ArkadeLightning", () => {
     // - Custom refund handler
 
     describe("Swap Storage and History", () => {
-        beforeEach(() => {
-            // Mock the contract repository methods
-            // vi.spyOn(
-            //     wallet.contractRepository,
-            //     "saveToContractCollection"
-            // ).mockResolvedValue();
-            // vi.spyOn(
-            //     wallet.contractRepository,
-            //     "getContractCollection"
-            // ).mockImplementation(async (collectionName) => {
-            //     if (collectionName === "reverseSwaps") {
-            //         return [];
-            //     }
-            //     if (collectionName === "submarineSwaps") {
-            //         return [];
-            //     }
-            //     return [];
-            // });
-        });
-
         describe("getPendingReverseSwaps", () => {
             it("should return only reverse swaps with swap.created status", async () => {
                 await lightning.getPendingReverseSwaps();
