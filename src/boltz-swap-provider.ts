@@ -1260,22 +1260,45 @@ export class BoltzSwapProvider {
     }
 
     async getChainFees(from: Chain, to: Chain): Promise<ChainFeesResponse> {
+        if (from === to) {
+            throw new SwapError({ message: "Invalid chain pair" });
+        }
+
         const response = await this.request<GetChainPairsResponse>(
             "/v2/swap/chain",
             "GET"
         );
+
         if (!isGetChainPairsResponse(response))
             throw new SchemaError({ message: "error fetching fees" });
+
+        if (!response[from]?.[to]) {
+            throw new SchemaError({
+                message: `unsupported chain pair: ${from} -> ${to}`,
+            });
+        }
         return response[from][to].fees;
     }
 
     async getChainLimits(from: Chain, to: Chain): Promise<LimitsResponse> {
+        if (from === to) {
+            throw new SwapError({ message: "Invalid chain pair" });
+        }
+
         const response = await this.request<GetChainPairsResponse>(
             "/v2/swap/chain",
             "GET"
         );
+
         if (!isGetChainPairsResponse(response))
             throw new SchemaError({ message: "error fetching limits" });
+
+        if (!response[from]?.[to]) {
+            throw new SchemaError({
+                message: `unsupported chain pair: ${from} -> ${to}`,
+            });
+        }
+
         return {
             min: response[from][to].limits.minimal,
             max: response[from][to].limits.maximal,
