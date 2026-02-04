@@ -171,7 +171,6 @@ async function setupArkServer() {
         // Wait for ark server to be ready first
         await waitForArkServer();
 
-        // nigiri already initializes arkd
         // Create and unlock arkd wallet
         console.log("Creating ark wallet...");
         await execCommand(
@@ -358,7 +357,9 @@ async function setupBoltz() {
         console.log(`  Address: ${fulmineAddress}`);
 
         console.log("\nFunding Fulmine address...");
-        await faucet(fulmineAddress, 1);
+        for (let i = 0; i < 10; i++) {
+            await faucet(fulmineAddress, 0.01);
+        }
 
         console.log("\nSettling funds in Fulmine...");
         await execCommand(

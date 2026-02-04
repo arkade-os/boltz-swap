@@ -46,6 +46,19 @@ const getBtcAddressTxs = async (address: string): Promise<number> => {
     return outputJson.chain_stats.tx_count + outputJson.mempool_stats.tx_count;
 };
 
+const waitForBtcTxConfirmation = async (address: string, timeout = 10_000) => {
+    await generateBlocks(1); // confirm the Btc transaction
+    await new Promise((resolve, reject) => {
+        const onTimeout = () =>
+            reject(new Error("Timeout waiting for Btc explorer to update"));
+        setTimeout(onTimeout, timeout);
+        setInterval(async () => {
+            const txs = await getBtcAddressTxs(address);
+            if (txs === 1) resolve(true);
+        }, 500);
+    });
+};
+
 describe("ArkadeChainSwap", () => {
     let indexerProvider: RestIndexerProvider;
     let swapProvider: BoltzSwapProvider;
@@ -336,8 +349,7 @@ describe("ArkadeChainSwap", () => {
                     expect(swap.request.serverLockAmount).toBeUndefined();
                     expect(swap.request.userLockAmount).toEqual(amountSats);
 
-                    await generateBlocks(1); // confirm the Btc transaction
-                    await sleep(5000); // wait for Btc explorer to update
+                    await waitForBtcTxConfirmation(toAddress);
 
                     const finalArkBalance = await wallet.getBalance();
                     const expected = initialArkBalance.available - amountSats;
@@ -391,8 +403,7 @@ describe("ArkadeChainSwap", () => {
                     expect(swap.request.serverLockAmount).toBeUndefined();
                     expect(swap.request.userLockAmount).toEqual(amountSats);
 
-                    await generateBlocks(1); // confirm the Btc transaction
-                    await sleep(5000); // wait for Btc explorer to update
+                    await waitForBtcTxConfirmation(toAddress);
 
                     const finalArkBalance = await wallet.getBalance();
                     const expected = initialArkBalance.available - amountSats;
@@ -434,8 +445,7 @@ describe("ArkadeChainSwap", () => {
 
                     await chainSwap.waitAndClaimBtc(swap);
 
-                    await generateBlocks(1); // confirm the Btc transaction
-                    await sleep(5000); // wait for Btc explorer to update
+                    await waitForBtcTxConfirmation(toAddress);
 
                     // assert
                     const finalArkBalance = await wallet.getBalance();
@@ -482,8 +492,7 @@ describe("ArkadeChainSwap", () => {
 
                     await chainSwap.waitAndClaimBtc(swap);
 
-                    await generateBlocks(1); // confirm the Btc transaction
-                    await sleep(5000); // wait for Btc explorer to update
+                    await waitForBtcTxConfirmation(toAddress);
 
                     // assert
                     const finalArkBalance = await wallet.getBalance();
@@ -677,14 +686,7 @@ describe("ArkadeChainSwap", () => {
 
                     await fundBtcAddress(btcAddress, sendAmount);
 
-                    // wait for Btc explorer to update
-                    await new Promise((resolve, reject) => {
-                        setTimeout(reject, 5000);
-                        setInterval(async () => {
-                            const txs = await getBtcAddressTxs(btcAddress);
-                            if (txs === 1) resolve(true);
-                        }, 500);
-                    });
+                    await waitForBtcTxConfirmation(btcAddress);
 
                     await chainSwap.waitAndClaimArk(swap);
 
@@ -728,14 +730,7 @@ describe("ArkadeChainSwap", () => {
 
                     await fundBtcAddress(btcAddress, sendAmount);
 
-                    // wait for Btc explorer to update
-                    await new Promise((resolve, reject) => {
-                        setTimeout(reject, 5000);
-                        setInterval(async () => {
-                            const txs = await getBtcAddressTxs(btcAddress);
-                            if (txs === 1) resolve(true);
-                        }, 500);
-                    });
+                    await waitForBtcTxConfirmation(btcAddress);
 
                     await chainSwap.waitAndClaimArk(swap);
 

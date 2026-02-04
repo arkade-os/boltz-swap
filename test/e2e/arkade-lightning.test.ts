@@ -624,7 +624,7 @@ describe("ArkadeLightning", () => {
                 }
             );
 
-            // TODO: investigate why this LND fails to pay invoices after
+            // TODO: investigate why LND fails to pay invoices after
             // the creation of multiple blocks in this test
             it.skip(
                 "should recover swept VHTLCs",
