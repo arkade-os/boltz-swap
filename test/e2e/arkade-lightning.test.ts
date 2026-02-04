@@ -73,7 +73,18 @@ describe("ArkadeLightning", () => {
             address: await wallet.getAddress(),
             amount,
         });
-        await sleep(2000); // wait for the wallet to detect the incoming funds
+
+        // Wait until the funds are reflected in the wallet balance
+        await new Promise((resolve, reject) => {
+            setTimeout(reject, 5_000);
+            const interval = setInterval(async () => {
+                const balance = await wallet.getBalance();
+                if (balance.available >= amount) {
+                    clearInterval(interval);
+                    resolve(true);
+                }
+            }, 500);
+        });
     };
 
     // Funded wallet setup
@@ -97,6 +108,17 @@ describe("ArkadeLightning", () => {
                     amount: BigInt(amount),
                 },
             ],
+        });
+
+        await new Promise((resolve, reject) => {
+            setTimeout(reject, 5_000);
+            const interval = setInterval(async () => {
+                const balance = await fundedWallet.getBalance();
+                if (balance.available >= amount) {
+                    clearInterval(interval);
+                    resolve(true);
+                }
+            }, 500);
         });
     }, 120_000);
 

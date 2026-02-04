@@ -65,7 +65,18 @@ describe("ArkadeChainSwap", () => {
             address: await wallet.getAddress(),
             amount,
         });
-        await sleep(2000); // wait for the wallet to detect the incoming funds
+
+        // Wait until the funds are reflected in the wallet balance
+        await new Promise((resolve, reject) => {
+            setTimeout(reject, 5_000);
+            const interval = setInterval(async () => {
+                const balance = await wallet.getBalance();
+                if (balance.available >= amount) {
+                    clearInterval(interval);
+                    resolve(true);
+                }
+            }, 500);
+        });
     };
 
     const waitForSwapStatus = async (
@@ -93,10 +104,12 @@ describe("ArkadeChainSwap", () => {
 
         const amount = 1_000_000;
 
+        // Generate a new Ark note in the arkd container
         const { stdout: arknote } = await execAsync(
             `docker exec -t arkd arkd note --amount ${amount}`
         );
 
+        // Settle the note into the funded wallet
         await fundedWallet.settle({
             inputs: [ArkNote.fromString(arknote.trim())],
             outputs: [
@@ -105,6 +118,18 @@ describe("ArkadeChainSwap", () => {
                     amount: BigInt(amount),
                 },
             ],
+        });
+
+        // Wait until the funds are reflected in the wallet balance
+        await new Promise((resolve, reject) => {
+            setTimeout(reject, 5_000);
+            const interval = setInterval(async () => {
+                const balance = await fundedWallet.getBalance();
+                if (balance.available >= amount) {
+                    clearInterval(interval);
+                    resolve(true);
+                }
+            }, 500);
         });
     }, 120_000);
 
