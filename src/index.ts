@@ -28,7 +28,7 @@ export {
 } from "./utils/decoding";
 export { verifySignatures } from "./utils/signatures";
 export { SwapManager } from "./swap-manager";
-export {SwapUpdater} from "./serviceWorker/swap-updater";
+export {SwapUpdater} from "./serviceWorker/_swap-updater";
 export type {
     CreateLightningInvoiceResponse,
     SendLightningPaymentResponse,

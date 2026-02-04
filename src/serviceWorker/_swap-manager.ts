@@ -22,7 +22,7 @@ import {
     RequestGetWsUrl,
     ResponseGetWsUrl,
     RequestSwapStatusUpdated,
-} from "./swap-updater";
+} from "./_swap-updater";
 import { hex } from "@scure/base";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
 
