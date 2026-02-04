@@ -420,34 +420,15 @@ export class ArkadeLightning {
         const arkInfo = await this.arkProvider.getInfo();
         const address = await this.wallet.getAddress();
 
-        // validate we are using a x-only receiver public key
-        const ourXOnlyPublicKey = normalizeToXOnlyKey(
-            await this.wallet.identity.xOnlyPublicKey(),
-            "our",
-            pendingSwap.id
-        );
-
-        // validate we are using a x-only boltz public key
-        const boltzXOnlyPublicKey = normalizeToXOnlyKey(
-            hex.decode(pendingSwap.response.refundPublicKey),
-            "boltz",
-            pendingSwap.id
-        );
-
-        // validate we are using a x-only server public key
-        const serverXOnlyPublicKey = normalizeToXOnlyKey(
-            hex.decode(arkInfo.signerPubkey),
-            "server",
-            pendingSwap.id
-        );
-
         // build expected VHTLC script
         const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
             network: arkInfo.network,
             preimageHash: sha256(preimage),
-            receiverPubkey: hex.encode(ourXOnlyPublicKey),
-            senderPubkey: hex.encode(boltzXOnlyPublicKey),
-            serverPubkey: hex.encode(serverXOnlyPublicKey),
+            receiverPubkey: hex.encode(
+                await this.wallet.identity.xOnlyPublicKey()
+            ),
+            senderPubkey: pendingSwap.response.refundPublicKey,
+            serverPubkey: arkInfo.signerPubkey,
             timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
         });
 
@@ -500,7 +481,7 @@ export class ArkadeLightning {
             await claimVHTLCwithOffchainTx(
                 vhtlcIdentity,
                 vhtlcScript,
-                serverXOnlyPublicKey,
+                hex.decode(arkInfo.signerPubkey),
                 input,
                 output,
                 arkInfo,
