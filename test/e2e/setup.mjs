@@ -138,6 +138,30 @@ async function waitForArkReady(maxRetries = 10, retryDelay = 1000) {
     return waitForCmd(cmd, maxRetries, retryDelay);
 }
 
+async function waitForServerInfo(maxRetries = 10, retryDelay = 1000) {
+    console.log("Waiting for ark server info to be available...");
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            const serverInfoResponse = execSync(
+                "curl -s http://localhost:7070/v1/info",
+                { encoding: "utf8" }
+            );
+            const serverInfo = JSON.parse(serverInfoResponse);
+            if (serverInfo && serverInfo.signerPubkey) {
+                console.log(`  ✔ Signer pubkey ${serverInfo.signerPubkey}`);
+                return serverInfo;
+            }
+        } catch {
+            // Ignore errors and retry
+        }
+        if (i < maxRetries - 1) {
+            console.log(`  Waiting... (${i + 1}/${maxRetries})`);
+        }
+        await sleep(retryDelay);
+    }
+    throw new Error("ark server info not available after maximum retries");
+}
+
 async function setupArkServer() {
     try {
         console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -167,10 +191,7 @@ async function setupArkServer() {
         await waitForWalletReady();
 
         // Get and log the server info
-        const serverInfo = JSON.parse(
-            execSync("curl -s http://localhost:7070/v1/info").toString()
-        );
-        console.log(`\nark Server Public Key: ${serverInfo.signerPubkey}`);
+        await waitForServerInfo();
 
         // Get arkd address and fund it with nigiri faucet
         console.log("\nFunding ark wallet...");
@@ -247,7 +268,6 @@ async function setupBoltz() {
         await faucet(address, 1);
 
         console.log("\nConnecting LND instances...");
-        await waitForCmd("docker exec lnd lncli --network=regtest getinfo");
         const nigiriInfoResponse = execSync(
             "docker exec lnd lncli --network=regtest getinfo",
             { encoding: "utf8" }
