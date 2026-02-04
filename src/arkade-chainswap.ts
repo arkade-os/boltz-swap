@@ -306,7 +306,9 @@ export class ArkadeChainSwap {
                 }
             };
 
-            this.swapProvider.monitorSwap(pendingSwap.id, onStatusUpdate);
+            this.swapProvider
+                .monitorSwap(pendingSwap.id, onStatusUpdate)
+                .catch(reject);
         });
     }
 
@@ -665,7 +667,9 @@ export class ArkadeChainSwap {
                 }
             };
 
-            this.swapProvider.monitorSwap(pendingSwap.id, onStatusUpdate);
+            this.swapProvider
+                .monitorSwap(pendingSwap.id, onStatusUpdate)
+                .catch(reject);
         });
     }
 

@@ -737,7 +737,9 @@ export class ArkadeLightning {
                 }
             };
 
-            this.swapProvider.monitorSwap(pendingSwap.id, onStatusUpdate);
+            this.swapProvider
+                .monitorSwap(pendingSwap.id, onStatusUpdate)
+                .catch(reject);
         });
     }
 

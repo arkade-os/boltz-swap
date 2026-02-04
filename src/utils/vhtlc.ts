@@ -25,11 +25,13 @@ import { TransactionOutput, TransactionInput } from "@scure/btc-signer/psbt.js";
 
 /**
  * Creates a VHTLC script for the swap.
- * works for submarine, reverse and chain swaps
- * it creates a VHTLC script that can be used to claim or refund the swap
- * it validates the receiver, sender and server public keys are x-only
+ * Works for submarine, reverse, and chain swaps.
+ * It creates a VHTLC script that can be used to claim or refund the swap.
+ * It validates the receiver, sender, and server public keys are x-only.
  * @param args - The parameters for creating the VHTLC script.
- * @returns The created VHTLC script.
+ * @param args.preimageHash - The SHA256 digest of the preimage (not the raw preimage or RIPEMD160 hash).
+ * The function will apply ripemd160(preimageHash) internally to create the final commitment.
+ * @returns The created VHTLC script and address.
  */
 export const createVHTLCScript = (args: {
     network: string;

@@ -1226,8 +1226,8 @@ export class BoltzSwapProvider {
                 // chain swaps lockupFailed can be negotiable
                 const negotiable =
                     status === "transaction.lockupFailed" &&
-                    msg.args[0].failureDetails?.expected &&
-                    msg.args[0].failureDetails?.actual;
+                    msg.args[0].failureDetails?.actual !== undefined &&
+                    msg.args[0].failureDetails?.expected !== undefined;
 
                 switch (status) {
                     case "invoice.settled":
