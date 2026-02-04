@@ -373,7 +373,7 @@ async function setup() {
     try {
         await setupArkServer();
         await setupBoltz();
-        await sleep(5000); // wait for everything to stabilize
+        await sleep(10000); // wait for everything to stabilize
         console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         console.log("  ✓ regtest setup completed successfully");
         console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
