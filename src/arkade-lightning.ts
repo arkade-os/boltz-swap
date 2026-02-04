@@ -420,15 +420,31 @@ export class ArkadeLightning {
         const arkInfo = await this.arkProvider.getInfo();
         const address = await this.wallet.getAddress();
 
+        const receiverXOnly = normalizeToXOnlyKey(
+            await this.wallet.identity.xOnlyPublicKey(),
+            "our",
+            pendingSwap.id
+        );
+
+        const senderXOnly = normalizeToXOnlyKey(
+            hex.decode(pendingSwap.response.refundPublicKey),
+            "boltz",
+            pendingSwap.id
+        );
+
+        const serverXOnly = normalizeToXOnlyKey(
+            hex.decode(arkInfo.signerPubkey),
+            "server",
+            pendingSwap.id
+        );
+
         // build expected VHTLC script
         const { vhtlcScript, vhtlcAddress } = this.createVHTLCScript({
             network: arkInfo.network,
             preimageHash: sha256(preimage),
-            receiverPubkey: hex.encode(
-                await this.wallet.identity.xOnlyPublicKey()
-            ),
-            senderPubkey: pendingSwap.response.refundPublicKey,
-            serverPubkey: arkInfo.signerPubkey,
+            receiverPubkey: hex.encode(receiverXOnly),
+            senderPubkey: hex.encode(senderXOnly),
+            serverPubkey: hex.encode(serverXOnly),
             timeoutBlockHeights: pendingSwap.response.timeoutBlockHeights,
         });
 
@@ -481,7 +497,7 @@ export class ArkadeLightning {
             await claimVHTLCwithOffchainTx(
                 vhtlcIdentity,
                 vhtlcScript,
-                hex.decode(arkInfo.signerPubkey),
+                serverXOnly,
                 input,
                 output,
                 arkInfo,
