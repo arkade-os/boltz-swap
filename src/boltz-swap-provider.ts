@@ -1151,7 +1151,7 @@ export class BoltzSwapProvider {
         checkpoint: Transaction
     ): Promise<{ transaction: Transaction; checkpoint: Transaction }> {
         // make refund swap request
-        const requestBody: RefundSubmarineSwapRequest = {
+        const requestBody: RefundChainSwapRequest = {
             checkpoint: base64.encode(checkpoint.toPSBT()),
             transaction: base64.encode(transaction.toPSBT()),
         };
