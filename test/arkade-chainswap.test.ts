@@ -845,7 +845,7 @@ describe("ArkadeChainSwap", () => {
 
                 // assert
                 await expect(resultPromise).rejects.toThrow(
-                    "The transaction has failed."
+                    "Error during swap."
                 );
             });
 
@@ -1286,7 +1286,7 @@ describe("ArkadeChainSwap", () => {
 
                 // assert
                 await expect(resultPromise).rejects.toThrow(
-                    "The transaction has failed."
+                    "Error during swap."
                 );
             });
 

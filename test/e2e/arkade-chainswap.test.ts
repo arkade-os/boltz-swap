@@ -25,7 +25,8 @@ const bccli = "docker exec -t bitcoin bitcoin-cli -regtest";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const fundBtcAddress = async (address: string, amount: number) => {
-    return execAsync(`${bccli} sendtoaddress ${address} ${amount / 1e8}`);
+    await execAsync(`${bccli} sendtoaddress ${address} ${amount / 1e8}`);
+    await generateBlocks(1); // confirm the funding transaction
 };
 
 const generateBlocks = async (numBlocks = 1) => {
@@ -553,7 +554,6 @@ describe("ArkadeChainSwap", () => {
 
                 const onAddressGenerated = async (address: string) => {
                     await fundBtcAddress(address, amountSats);
-                    await generateBlocks(1); // confirm the funding transaction
                 };
 
                 // act
@@ -596,7 +596,6 @@ describe("ArkadeChainSwap", () => {
 
                 const onAddressGenerated = async (address: string) => {
                     await fundBtcAddress(address, amountSats);
-                    await generateBlocks(1); // confirm the funding transaction
                 };
 
                 // act
@@ -653,8 +652,14 @@ describe("ArkadeChainSwap", () => {
 
                     await fundBtcAddress(btcAddress, sendAmount);
 
-                    await generateBlocks(1); // confirm the funding transaction
-                    await sleep(5000); // wait for Btc explorer to update
+                    // wait for Btc explorer to update
+                    await new Promise((resolve, reject) => {
+                        setTimeout(reject, 5000);
+                        setInterval(async () => {
+                            const txs = await getBtcAddressTxs(btcAddress);
+                            if (txs === 1) resolve(true);
+                        }, 500);
+                    });
 
                     await chainSwap.waitAndClaimArk(swap);
 
@@ -698,8 +703,14 @@ describe("ArkadeChainSwap", () => {
 
                     await fundBtcAddress(btcAddress, sendAmount);
 
-                    await generateBlocks(1); // confirm the funding transaction
-                    await sleep(5000); // wait for Btc explorer to update
+                    // wait for Btc explorer to update
+                    await new Promise((resolve, reject) => {
+                        setTimeout(reject, 5000);
+                        setInterval(async () => {
+                            const txs = await getBtcAddressTxs(btcAddress);
+                            if (txs === 1) resolve(true);
+                        }, 500);
+                    });
 
                     await chainSwap.waitAndClaimArk(swap);
 
@@ -815,7 +826,6 @@ describe("ArkadeChainSwap", () => {
                         toAddress: await wallet.getAddress(),
                         onAddressGenerated: async (address: string) => {
                             await fundBtcAddress(address, amount);
-                            await generateBlocks(1); // confirm the funding transaction
                         },
                     });
 

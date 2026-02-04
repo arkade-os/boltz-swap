@@ -293,7 +293,10 @@ export class ArkadeChainSwap {
                     case "transaction.failed":
                         await updateSwapStatus(status);
                         reject(
-                            new TransactionFailedError({ isRefundable: true })
+                            new TransactionFailedError({
+                                message: data.failureReason,
+                                isRefundable: true,
+                            })
                         );
                         break;
                     case "transaction.refunded":
@@ -611,7 +614,10 @@ export class ArkadeChainSwap {
         return new Promise<{ txid: string }>((resolve, reject) => {
             let claimStarted = false;
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
-            const onStatusUpdate = async (status: BoltzSwapStatus) => {
+            const onStatusUpdate = async (
+                status: BoltzSwapStatus,
+                data: any
+            ) => {
                 const updateSwapStatus = (status: BoltzSwapStatus) => {
                     return this.savePendingChainSwap({
                         ...pendingSwap,
@@ -628,7 +634,11 @@ export class ArkadeChainSwap {
                         break;
                     case "transaction.claimed":
                         await updateSwapStatus(status);
-                        resolve({ txid: pendingSwap.response.id });
+                        resolve({
+                            txid:
+                                data?.transaction?.id ??
+                                pendingSwap.response.id,
+                        });
                         break;
                     case "transaction.claim.pending":
                         // Be nice and sign a cooperative claim for the server
@@ -654,8 +664,14 @@ export class ArkadeChainSwap {
                         );
                         break;
                     case "transaction.failed":
+                        console.warn("PORCO", status, data);
                         await updateSwapStatus(status);
-                        reject(new TransactionFailedError());
+                        reject(
+                            new TransactionFailedError({
+                                message: data.failureReason,
+                                isRefundable: true,
+                            })
+                        );
                         break;
                     case "transaction.refunded":
                         await updateSwapStatus(status);

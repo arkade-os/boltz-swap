@@ -668,7 +668,10 @@ export class ArkadeLightning {
         // Otherwise use manual monitoring
         return new Promise<{ txid: string }>((resolve, reject) => {
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
-            const onStatusUpdate = async (status: BoltzSwapStatus) => {
+            const onStatusUpdate = async (
+                status: BoltzSwapStatus,
+                data: any
+            ) => {
                 const saveStatus = (
                     additionalFields?: Partial<PendingReverseSwap>
                 ) =>
@@ -725,7 +728,12 @@ export class ArkadeLightning {
                         break;
                     case "transaction.failed":
                         await saveStatus();
-                        reject(new TransactionFailedError());
+                        reject(
+                            new TransactionFailedError({
+                                message: data.failureReason,
+                                isRefundable: true,
+                            })
+                        );
                         break;
                     case "transaction.refunded":
                         await saveStatus();
