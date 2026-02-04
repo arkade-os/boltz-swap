@@ -247,6 +247,7 @@ async function setupBoltz() {
         await faucet(address, 1);
 
         console.log("\nConnecting LND instances...");
+        await waitForCmd("docker exec lnd lncli --network=regtest getinfo");
         const nigiriInfoResponse = execSync(
             "docker exec lnd lncli --network=regtest getinfo",
             { encoding: "utf8" }

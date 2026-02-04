@@ -21,7 +21,6 @@ import { ArkadeChainSwap } from "../../src/arkade-chainswap";
 import { ArkadeChainSwapConfig } from "../../src/types";
 
 const execAsync = promisify(exec);
-const arkcli = "docker exec -t arkd ark";
 const bccli = "docker exec -t bitcoin bitcoin-cli -regtest";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
