@@ -194,6 +194,10 @@ async function setupArkServer() {
         );
         console.log(`  Address: ${arkdAddress}`);
 
+        // Generate 20+ blocks with txs so that bitcoin core estimatesmartfee returns some value
+        // This is needed by Boltzd to set the fee for the onchain transactions, but could be
+        // useful for the tests as well to have some blocks mined and not be in the very
+        // early stages of the chain
         for (let i = 0; i < 21; i++) {
             await execCommand(`nigiri faucet ${arkdAddress}`, true);
         }
@@ -320,9 +324,16 @@ async function setupBoltz() {
         console.log("  ✔ Container started");
         await sleep(5000);
 
+        console.log("\nGenerating Fulmine seed...");
+        const seedResponse = execSync(
+            "curl -s http://localhost:7003/api/v1/wallet/genseed"
+        );
+        const seed = JSON.parse(seedResponse).hex;
+        console.log(`  Seed: ${seed}`);
+
         console.log("\nCreating Fulmine wallet...");
         await execCommand(
-            `curl -s -X POST http://localhost:7003/api/v1/wallet/create -H "Content-Type: application/json" -d '{"private_key": "5b9902c1098cc0f4c7e91066ef3227e292d994a50ebc33961ac6daa656fd242e", "password": "secret", "server_url": "http://arkd:7070"}'`,
+            `curl -s -X POST http://localhost:7003/api/v1/wallet/create -H "Content-Type: application/json" -d '{"private_key": "${seed}", "password": "secret", "server_url": "http://arkd:7070"}'`,
             true
         );
         console.log("  ✔ Wallet created");
