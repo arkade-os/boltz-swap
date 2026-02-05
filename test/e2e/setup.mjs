@@ -133,11 +133,6 @@ async function faucet(address, amount, maxRetries = 10, retryDelay = 1000) {
     throw new Error(`Timed out waiting for faucet transaction to confirm.`);
 }
 
-async function waitForArkReady(maxRetries = 10, retryDelay = 1000) {
-    const cmd = "docker exec arkd arkd wallet status";
-    return waitForCmd(cmd, maxRetries, retryDelay);
-}
-
 async function waitForServerInfo(maxRetries = 10, retryDelay = 1000) {
     console.log("Waiting for ark server info to be available...");
     for (let i = 0; i < maxRetries; i++) {
@@ -199,10 +194,10 @@ async function setupArkServer() {
         );
         console.log(`  Address: ${arkdAddress}`);
 
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 21; i++) {
             await execCommand(`nigiri faucet ${arkdAddress}`, true);
         }
-        console.log("  ✔ Funded with 10 BTC");
+        console.log("  ✔ Funded with 21 BTC");
 
         // Wait for transaction to be confirmed
         await sleep(5000);
@@ -317,9 +312,6 @@ async function setupBoltz() {
         await execCommand(`${lncli} payinvoice --force ${invoice}`, true);
         console.log("  ✔ Channel balanced (50k sats each side)");
 
-        console.log("\nWaiting for ark to be ready...");
-        await waitForArkReady();
-
         console.log("\nStarting Fulmine container...");
         await execCommand(
             "docker compose -f test.docker-compose.yml up -d boltz-fulmine",
@@ -357,9 +349,7 @@ async function setupBoltz() {
         console.log(`  Address: ${fulmineAddress}`);
 
         console.log("\nFunding Fulmine address...");
-        for (let i = 0; i < 10; i++) {
-            await faucet(fulmineAddress, 0.01);
-        }
+        await faucet(fulmineAddress, 0.1);
 
         console.log("\nSettling funds in Fulmine...");
         await execCommand(
