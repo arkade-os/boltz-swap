@@ -1,9 +1,11 @@
 import {
-    IUpdater,
+    ArkProvider,
+    IReadonlyWallet,
+    IWallet,
+    MessageHandler,
     RequestEnvelope,
-    ResponseEnvelope
+    ResponseEnvelope,
 } from "@arkade-os/sdk";
-import { PendingSwap } from "../swap-manager";
 import { logger } from "../logger";
 import {
     BoltzSwapProvider,
@@ -12,7 +14,7 @@ import {
     isSubmarineFinalStatus,
 } from "../boltz-swap-provider";
 import { NetworkName } from "@arkade-os/sdk";
-
+import { PendingSwap } from "../repositories/swap-repository";
 
 export type RequestInit = RequestEnvelope & {
     type: "INIT";
@@ -23,19 +25,42 @@ export type RequestInit = RequestEnvelope & {
 };
 export type ResponseInit = ResponseEnvelope & { type: "INITIALIZED" };
 
-export type RequestGetReverseSwapTx= RequestEnvelope & { type: "GET_REVERSE_SWAP_TX_ID", payload: {swapId: string} };
-export type ResponseGetReverseSwapTx = ResponseEnvelope & { type: "REVERSE_SWAP_TX_ID", payload: { txid: string}}
+export type RequestGetReverseSwapTx = RequestEnvelope & {
+    type: "GET_REVERSE_SWAP_TX_ID";
+    payload: { swapId: string };
+};
+export type ResponseGetReverseSwapTx = ResponseEnvelope & {
+    type: "REVERSE_SWAP_TX_ID";
+    payload: { txid: string };
+};
 
 export type RequestGetWsUrl = RequestEnvelope & { type: "GET_WS_URL" };
-export type ResponseGetWsUrl = ResponseEnvelope & { type: "WS_URL", payload: { wsUrl: string}};
+export type ResponseGetWsUrl = ResponseEnvelope & {
+    type: "WS_URL";
+    payload: { wsUrl: string };
+};
 
-export type RequestSwapStatusUpdated = RequestEnvelope & { type: "SWAP_STATUS_UPDATED", payload: { swapId: string, status: BoltzSwapStatus, error: string}};
+export type RequestSwapStatusUpdated = RequestEnvelope & {
+    type: "SWAP_STATUS_UPDATED";
+    payload: { swapId: string; status: BoltzSwapStatus; error: string };
+};
 
-export type RequestGetMonitoredSwaps = RequestEnvelope & { type: "GET_MONITORED_SWAPS" };
-export type ResponseGetMonitoredSwaps = ResponseEnvelope & { type: "MONITORED_SWAPS", payload: { swaps: PendingSwap[] }};
+export type RequestGetMonitoredSwaps = RequestEnvelope & {
+    type: "GET_MONITORED_SWAPS";
+};
+export type ResponseGetMonitoredSwaps = ResponseEnvelope & {
+    type: "MONITORED_SWAPS";
+    payload: { swaps: PendingSwap[] };
+};
 
-export type RequestGetSwap = RequestEnvelope & { type: "GET_SWAP", payload: { swapId: string }};
-export type ResponseGetSwap = ResponseEnvelope & { type: "GET_SWAP", payload: { swap: PendingSwap | undefined }};
+export type RequestGetSwap = RequestEnvelope & {
+    type: "GET_SWAP";
+    payload: { swapId: string };
+};
+export type ResponseGetSwap = ResponseEnvelope & {
+    type: "GET_SWAP";
+    payload: { swap: PendingSwap | undefined };
+};
 
 // generic empty response to ensure the caller doesn't time out
 type ResponseAck = ResponseEnvelope & { type: "ACK" };
@@ -45,7 +70,7 @@ export type ResponseSwapStatusUpdated = ResponseEnvelope & {
     payload: { swap: PendingSwap; previousStatus: BoltzSwapStatus };
 };
 export type ResponseSwapFailed = ResponseEnvelope & {
-    broadcast: true ;
+    broadcast: true;
     type: "SWAP_FAILED";
     payload: { swap: PendingSwap; error: string };
 };
@@ -55,8 +80,14 @@ export type ResponseSwapCompleted = ResponseEnvelope & {
     payload: { swap: PendingSwap };
 };
 
-export type RequestMonitorSwap = RequestEnvelope & { type: "MONITOR_SWAP", payload: { swap: PendingSwap }};
-export type RequestStopMonitoringSwap = RequestEnvelope & { type: "STOP_MONITORING_SWAP", payload: { swapId: string }};
+export type RequestMonitorSwap = RequestEnvelope & {
+    type: "MONITOR_SWAP";
+    payload: { swap: PendingSwap };
+};
+export type RequestStopMonitoringSwap = RequestEnvelope & {
+    type: "STOP_MONITORING_SWAP";
+    payload: { swapId: string };
+};
 
 export type SwapUpdaterRequest =
     | RequestInit
@@ -79,14 +110,10 @@ export type SwapUpdaterResponse =
     | ResponseGetMonitoredSwaps
     | ResponseGetSwap;
 
-type SwapUpdaterConfig = { pollInterval?: number, debug?: boolean };
+type SwapUpdaterConfig = { pollInterval?: number; debug?: boolean };
 
 export class SwapUpdater
-    implements
-        IUpdater<
-            SwapUpdaterRequest,
-            SwapUpdaterResponse
-        >
+    implements MessageHandler<SwapUpdaterRequest, SwapUpdaterResponse>
 {
     static messageTag = "SwapUpdater";
     readonly messageTag = SwapUpdater.messageTag;
@@ -99,7 +126,10 @@ export class SwapUpdater
     constructor(private readonly config: SwapUpdaterConfig) {}
 
     private handleInit(msg: RequestInit) {
-        this.swapProvider = new BoltzSwapProvider({ apiUrl: msg.payload.apiUrl, network: msg.payload.network });
+        this.swapProvider = new BoltzSwapProvider({
+            apiUrl: msg.payload.apiUrl,
+            network: msg.payload.network,
+        });
     }
 
     private prefixed(res: Partial<SwapUpdaterResponse>) {
@@ -110,25 +140,31 @@ export class SwapUpdater
         message: SwapUpdaterRequest
     ): Promise<SwapUpdaterResponse> {
         const id = message.id;
-        if (this.config.debug) console.log(`[SwapUpdater] message received: ${JSON.stringify(message, null, 2)}`)
+        if (this.config.debug)
+            console.log(
+                `[SwapUpdater] message received: ${JSON.stringify(message, null, 2)}`
+            );
         if (message.type === "INIT") {
             console.log(`[${this.messageTag}] INIT`, message.payload);
             this.handleInit(message);
-            return this.prefixed({ id, type: "INITIALIZED"})
+            return this.prefixed({ id, type: "INITIALIZED" });
         }
         if (!this.swapProvider) {
-            return this.prefixed({id, error: new Error("Swap Provider not initialized")});
+            return this.prefixed({
+                id,
+                error: new Error("Swap Provider not initialized"),
+            });
         }
         switch (message.type) {
             case "GET_REVERSE_SWAP_TX_ID": {
                 const res = await this.swapProvider.getReverseSwapTxId(
                     message.payload.swapId
                 );
-                    return this.prefixed({
-                        id,
-                        type: "REVERSE_SWAP_TX_ID",
-                        payload: { txid: res.id },
-                    });
+                return this.prefixed({
+                    id,
+                    type: "REVERSE_SWAP_TX_ID",
+                    payload: { txid: res.id },
+                });
             }
             case "GET_WS_URL": {
                 const wsUrl = this.swapProvider.getWsUrl();
@@ -155,7 +191,7 @@ export class SwapUpdater
                         await this.handleSwapStatusUpdate(swap, status);
                     }
                 }
-                return this.prefixed({id, type: "ACK"});
+                return this.prefixed({ id, type: "ACK" });
             }
             case "GET_MONITORED_SWAPS":
                 return this.prefixed({
@@ -163,7 +199,8 @@ export class SwapUpdater
                     type: "MONITORED_SWAPS",
                     payload: {
                         swaps: Array.from(this.monitoredSwaps.values()),
-                    }})
+                    },
+                });
             case "GET_SWAP":
                 return this.prefixed({
                     id,
@@ -177,12 +214,12 @@ export class SwapUpdater
             case "MONITOR_SWAP": {
                 const { swap } = (message as any).payload;
                 this.monitoredSwaps.set(swap.id, swap);
-                return this.prefixed({id, type: "ACK"});
+                return this.prefixed({ id, type: "ACK" });
             }
             case "STOP_MONITORING_SWAP": {
                 const { swapId } = (message as any).payload;
                 this.monitoredSwaps.delete(swapId);
-                return this.prefixed({id, type: "ACK"});
+                return this.prefixed({ id, type: "ACK" });
             }
             default:
                 console.warn(
@@ -193,8 +230,12 @@ export class SwapUpdater
         }
     }
 
-    async start(): Promise<void> {
-        await this.pollAllSwaps()
+    async start(_opts: {
+        arkProvider: ArkProvider;
+        wallet?: IWallet;
+        readonlyWallet: IReadonlyWallet;
+    }): Promise<void> {
+        await this.pollAllSwaps();
         return;
     }
 
@@ -236,7 +277,7 @@ export class SwapUpdater
     private async pollAllSwaps(): Promise<void> {
         if (!this.swapProvider) {
             // A tick may be called when the SwapProvider is not yet initialized.
-            return ;
+            return;
         }
 
         if (this.monitoredSwaps.size === 0) return;
@@ -302,7 +343,7 @@ export class SwapUpdater
                 this.prefixed({
                     broadcast: true,
                     type: "SWAP_COMPLETED",
-                    payload: {swap},
+                    payload: { swap },
                 })
             );
         }

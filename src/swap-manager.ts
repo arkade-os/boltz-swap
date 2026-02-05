@@ -11,6 +11,8 @@ import {
 import { PendingReverseSwap, PendingSubmarineSwap } from "./types";
 import { NetworkError } from "./errors";
 import { logger } from "./logger";
+import { PendingSwap } from "./repositories/swap-repository";
+import { ServiceWorkerSwapManager } from "./serviceWorker/swap-manager";
 
 export interface SwapManagerConfig {
     /** Auto claim/refund swaps (default: true) */
@@ -27,6 +29,8 @@ export interface SwapManagerConfig {
     maxPollRetryDelayMs?: number;
     /** Event callbacks for swap lifecycle events (optional, can use on/off methods instead) */
     events?: SwapManagerEvents;
+    /** if defined, it will use message router */
+    serviceWorker?: ServiceWorker;
 }
 
 export interface SwapManagerEvents {
@@ -66,16 +70,14 @@ type ActionExecutedListener = (
 type WebSocketConnectedListener = () => void;
 type WebSocketDisconnectedListener = (error?: Error) => void;
 
-type PendingSwap = PendingReverseSwap | PendingSubmarineSwap;
-
 type SwapUpdateCallback = (
     swap: PendingSwap,
     oldStatus: BoltzSwapStatus
 ) => void;
 
 export class SwapManager {
-    private readonly swapProvider: BoltzSwapProvider;
     private readonly config: SwapManagerConfig;
+    private readonly svcSwapManager: ServiceWorkerSwapManager | undefined;
 
     // Event listeners storage (supports multiple listeners per event)
     private swapUpdateListeners = new Set<SwapUpdateListener>();
@@ -114,10 +116,9 @@ export class SwapManager {
         null;
 
     constructor(
-        swapProvider: BoltzSwapProvider,
+        private readonly swapProvider: BoltzSwapProvider,
         config: SwapManagerConfig = {}
     ) {
-        this.swapProvider = swapProvider;
         // Note: autostart is not stored - it's only used by ArkadeLightning
         this.config = {
             enableAutoActions: config.enableAutoActions ?? true,
@@ -153,6 +154,55 @@ export class SwapManager {
 
         this.currentReconnectDelay = this.config.reconnectDelayMs!;
         this.currentPollRetryDelay = this.config.pollRetryDelayMs!;
+
+        if (config.serviceWorker) {
+            // Service Worker path!
+            this.svcSwapManager = new ServiceWorkerSwapManager(
+                config.serviceWorker,
+                config
+            );
+            this.svcSwapManager.onSwapUpdate(async (swap, oldStatus) => {
+                // Notify per-swap subscribers
+                const subscribers = this.swapSubscriptions.get(swap.id);
+                if (subscribers) {
+                    subscribers.forEach((callback) => {
+                        try {
+                            callback(swap, oldStatus);
+                        } catch (error) {
+                            logger.error(
+                                `Error in swap subscription callback for ${swap.id}:`,
+                                error
+                            );
+                        }
+                    });
+                }
+                // Save updated swap to storage
+                await this.saveSwap(swap);
+                if (this.config.enableAutoActions) {
+                    await this.executeAutonomousAction(swap);
+                }
+                // TODO ?
+            });
+            this.svcSwapManager.onSwapCompleted((swap) => {
+                this.swapSubscriptions.delete(swap.id);
+                // TODO?
+            });
+            this.svcSwapManager.onSwapFailed((swap, error) => {
+                // TODO
+                console.error("swap failed", swap, error);
+            });
+            this.svcSwapManager
+                .init({
+                    network: swapProvider.getNetwork(),
+                    apiUrl: swapProvider.getApiUrl(),
+                })
+                .then(() => {
+                    logger.log("SwapManager initialized");
+                })
+                .catch((error) => {
+                    logger.error("SwapManager initialization failed:", error);
+                });
+        }
     }
 
     /**
@@ -293,6 +343,7 @@ export class SwapManager {
         for (const swap of pendingSwaps) {
             if (!this.isFinalStatus(swap.status)) {
                 this.monitoredSwaps.set(swap.id, swap);
+                await this.svcSwapManager?.monitorSwap(swap);
             }
         }
 
@@ -340,6 +391,9 @@ export class SwapManager {
      * Add a new swap to monitoring
      */
     addSwap(swap: PendingSwap): void {
+        this.svcSwapManager
+            ?.monitorSwap(swap)
+            .catch((error) => console.log(error));
         this.monitoredSwaps.set(swap.id, swap);
 
         // Subscribe to this swap if WebSocket is connected
@@ -354,6 +408,9 @@ export class SwapManager {
      * Remove a swap from monitoring
      */
     removeSwap(swapId: string): void {
+        this.svcSwapManager
+            ?.stopMonitoringSwap(swapId)
+            .catch((error) => console.log(error));
         this.monitoredSwaps.delete(swapId);
         this.swapSubscriptions.delete(swapId);
         logger.log(`Removed swap ${swapId} from monitoring`);
@@ -362,7 +419,10 @@ export class SwapManager {
     /**
      * Get all currently monitored swaps
      */
-    getPendingSwaps(): PendingSwap[] {
+    async getPendingSwaps(): Promise<PendingSwap[]> {
+        if (this.svcSwapManager) {
+            return this.svcSwapManager.getMonitoredSwaps();
+        }
         return Array.from(this.monitoredSwaps.values());
     }
 
@@ -397,6 +457,74 @@ export class SwapManager {
      * Useful when you want blocking behavior even with SwapManager enabled
      */
     async waitForSwapCompletion(swapId: string): Promise<{ txid: string }> {
+        if (this.svcSwapManager) {
+            let swap = await this.svcSwapManager.getSwap(swapId);
+            return new Promise<{ txid: string }>((resolve, reject) => {
+                // If not in monitored swaps, check if it was in initial swaps (might be completed)
+                if (!swap) {
+                    swap = this.initialSwaps.get(swapId);
+                    if (!swap) {
+                        reject(
+                            new Error(`Swap ${swapId} not found in manager`)
+                        );
+                        return;
+                    }
+                }
+
+                // Check if already in final status
+                if (this.isFinalStatus(swap.status)) {
+                    if (isPendingReverseSwap(swap)) {
+                        this.svcSwapManager!.getReverseSwapTxId(swap.id)
+                            .then((txid) => resolve({ txid }))
+                            .catch((error) => reject(error));
+                    } else {
+                        reject(new Error("Submarine swap already completed"));
+                    }
+                    return;
+                }
+
+                // Subscribe to swap updates
+                const unsubscribe = this.subscribeToSwapUpdates(
+                    swapId,
+                    (updatedSwap, _oldStatus) => {
+                        // Check if swap reached final status
+                        if (this.isFinalStatus(updatedSwap.status)) {
+                            unsubscribe();
+
+                            if (isPendingReverseSwap(updatedSwap)) {
+                                // Check if successfully claimed
+                                if (updatedSwap.status === "invoice.settled") {
+                                    this.svcSwapManager!.getReverseSwapTxId(
+                                        updatedSwap.id
+                                    )
+                                        .then((txid) => resolve({ txid }))
+                                        .catch((error) => reject(error));
+                                } else {
+                                    reject(
+                                        new Error(
+                                            `Swap failed with status: ${updatedSwap.status}`
+                                        )
+                                    );
+                                }
+                            } else if (isPendingSubmarineSwap(updatedSwap)) {
+                                // Check if successfully completed
+                                if (
+                                    updatedSwap.status === "transaction.claimed"
+                                ) {
+                                    resolve({ txid: updatedSwap.id });
+                                } else {
+                                    reject(
+                                        new Error(
+                                            `Swap failed with status: ${updatedSwap.status}`
+                                        )
+                                    );
+                                }
+                            }
+                        }
+                    }
+                );
+            });
+        }
         return new Promise<{ txid: string }>((resolve, reject) => {
             let swap = this.monitoredSwaps.get(swapId);
 
@@ -412,8 +540,7 @@ export class SwapManager {
             // Check if already in final status
             if (this.isFinalStatus(swap.status)) {
                 if (isPendingReverseSwap(swap)) {
-                    this.swapProvider
-                        .getReverseSwapTxId(swap.id)
+                    this.swapProvider!.getReverseSwapTxId(swap.id)
                         .then((response) => resolve({ txid: response.id }))
                         .catch((error) => reject(error));
                 } else {
@@ -433,8 +560,9 @@ export class SwapManager {
                         if (isPendingReverseSwap(updatedSwap)) {
                             // Check if successfully claimed
                             if (updatedSwap.status === "invoice.settled") {
-                                this.swapProvider
-                                    .getReverseSwapTxId(updatedSwap.id)
+                                this.swapProvider!.getReverseSwapTxId(
+                                    updatedSwap.id
+                                )
                                     .then((response) =>
                                         resolve({ txid: response.id })
                                     )
@@ -475,7 +603,10 @@ export class SwapManager {
     /**
      * Check if manager has a specific swap
      */
-    hasSwap(swapId: string): boolean {
+    async hasSwap(swapId: string): Promise<boolean> {
+        if (this.svcSwapManager) {
+            return !!(await this.svcSwapManager.getSwap(swapId));
+        }
         return this.monitoredSwaps.has(swapId);
     }
 
@@ -625,6 +756,15 @@ export class SwapManager {
 
             const swapId = msg.args[0]?.id;
             if (!swapId) return;
+
+            if (this.svcSwapManager) {
+                await this.svcSwapManager.notifySwapStatusUpdate({
+                    swapId,
+                    error: msg.args[0].error,
+                    status: msg.args[0].status as BoltzSwapStatus,
+                });
+                return;
+            }
 
             const swap = this.monitoredSwaps.get(swapId);
             if (!swap) return;
@@ -822,7 +962,11 @@ export class SwapManager {
 
         logger.log("Resuming actionable swaps...");
 
-        for (const swap of this.monitoredSwaps.values()) {
+        const monitoredSwaps = this.svcSwapManager
+            ? await this.svcSwapManager.getMonitoredSwaps()
+            : Array.from(this.monitoredSwaps.values());
+
+        for (const swap of monitoredSwaps) {
             try {
                 // Check if swap needs action based on current status
                 if (

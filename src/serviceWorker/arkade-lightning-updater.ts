@@ -1,60 +1,267 @@
 import {
-    ArkAddress,
     ArkInfo,
     ArkTxInput,
-    isRecoverable,
-    IUpdater,
-    Identity,
+    IWallet,
+    IReadonlyWallet,
+    CSVMultisigTapscript,
+    buildOffchainTx,
+    combineTapscriptSigs,
+    RequestEnvelope,
+    ResponseEnvelope,
+    MessageHandler,
 } from "@arkade-os/sdk";
-import { BoltzSwapProvider, BoltzSwapStatus } from "../boltz-swap-provider";
+import {
+    BoltzSwapProvider,
+    type GetSwapStatusResponse,
+} from "../boltz-swap-provider";
 import { SwapRepository } from "../repositories/swap-repository";
-import { SwapManager, SwapManagerConfig } from "../swap-manager";
-import { logger } from "../logger";
-import { IndexedDbSwapRepository } from "../repositories/IndexedDb/swap-repository";
-import { Network, PendingReverseSwap, PendingSubmarineSwap } from "../types";
-import { SvcWrkArkadeLightningConfig } from "./arkade-lightning";
-import { RequestEnvelope } from "../../../ts-sdk/src/serviceWorker/worker";
-import { ArkProvider, RestArkProvider } from "../../../ts-sdk/src/providers/ark";
+import {
+    ArkadeLightningConfig,
+    type CreateLightningInvoiceRequest,
+    type CreateLightningInvoiceResponse,
+    type FeesResponse,
+    type LimitsResponse,
+    Network,
+    PendingReverseSwap,
+    PendingSubmarineSwap,
+    type SendLightningPaymentRequest,
+    SendLightningPaymentResponse,
+} from "../types";
+import {
+    ArkProvider,
+    RestArkProvider,
+} from "../../../ts-sdk/src/providers/ark";
 import {
     IndexerProvider,
     RestIndexerProvider,
 } from "../../../ts-sdk/src/providers/indexer";
-import { hex } from "@scure/base";
-import { normalizeToXOnlyPublicKey } from "../utils/keys";
-import { sha256 } from "@noble/hashes/sha2.js";
-import { createVHTLCScript } from "../utils/scripts";
-import { claimVHTLCIdentity } from "../utils/identity";
-import { updateReverseSwapStatus } from "../utils/swap-helpers";
+import { base64, hex } from "@scure/base";
 import { TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { Transaction } from "@scure/btc-signer";
+import { verifySignatures } from "../utils/signatures";
+import { ArkadeLightning, IArkadeLightning } from "../arkade-lightning";
 
-export const  DEFAULT_MESSAGE_TAG = "ARKADE_LIGHTNING_UPDATER"
+export const DEFAULT_MESSAGE_TAG = "ARKADE_LIGHTNING_UPDATER";
 
 export type RequestInitArkLn = RequestEnvelope & {
     type: "INIT_ARKADE_LIGHTNING";
-    payload: {
-        network: Network
+    payload: ArkadeLightningConfig & {
+        network: Network;
         arkServerUrl: string;
         swapProvider: {
             baseUrl: string;
-        }
-        swapManager?: {
-            config?: SwapManagerConfig;
-            autoStart?: boolean;
         };
     };
 };
 
-export type ResponseInitArkLn = RequestEnvelope & {
-    type: "ARKADE_LIGHTNING_INITIALIZED"
-}
+export type ResponseInitArkLn = ResponseEnvelope & {
+    type: "ARKADE_LIGHTNING_INITIALIZED";
+};
 
-export type ArkadeLightningUpdaterRequest = RequestInitArkLn;
-export type ArkadeLightningUpdaterResponse = ResponseInitArkLn;
+export type RequestCreateLightningInvoice = RequestEnvelope & {
+    type: "CREATE_LIGHTNING_INVOICE";
+    payload: CreateLightningInvoiceRequest;
+};
+export type ResponseCreateLightningInvoice = ResponseEnvelope & {
+    type: "LIGHTNING_INVOICE_CREATED";
+    payload: CreateLightningInvoiceResponse;
+};
+
+export type RequestSendLightningPayment = RequestEnvelope & {
+    type: "SEND_LIGHTNING_PAYMENT";
+    payload: SendLightningPaymentRequest;
+};
+export type ResponseSendLightningPayment = ResponseEnvelope & {
+    type: "LIGHTNING_PAYMENT_SENT";
+    payload: SendLightningPaymentResponse;
+};
+
+export type RequestCreateSubmarineSwap = RequestEnvelope & {
+    type: "CREATE_SUBMARINE_SWAP";
+    payload: SendLightningPaymentRequest;
+};
+export type ResponseCreateSubmarineSwap = ResponseEnvelope & {
+    type: "SUBMARINE_SWAP_CREATED";
+    payload: PendingSubmarineSwap;
+};
+
+export type RequestCreateReverseSwap = RequestEnvelope & {
+    type: "CREATE_REVERSE_SWAP";
+    payload: CreateLightningInvoiceRequest;
+};
+export type ResponseCreateReverseSwap = ResponseEnvelope & {
+    type: "REVERSE_SWAP_CREATED";
+    payload: PendingReverseSwap;
+};
+
+export type RequestClaimVhtlc = RequestEnvelope & {
+    type: "CLAIM_VHTLC";
+    payload: PendingReverseSwap;
+};
+export type ResponseClaimVhtlc = ResponseEnvelope & {
+    type: "VHTLC_CLAIMED";
+};
+
+export type RequestRefundVhtlc = RequestEnvelope & {
+    type: "REFUND_VHTLC";
+    payload: PendingSubmarineSwap;
+};
+export type ResponseRefundVhtlc = ResponseEnvelope & {
+    type: "VHTLC_REFUNDED";
+};
+
+export type RequestWaitAndClaim = RequestEnvelope & {
+    type: "WAIT_AND_CLAIM";
+    payload: PendingReverseSwap;
+};
+export type ResponseWaitAndClaim = ResponseEnvelope & {
+    type: "WAIT_AND_CLAIMED";
+    payload: { txid: string };
+};
+
+export type RequestWaitForSwapSettlement = RequestEnvelope & {
+    type: "WAIT_FOR_SWAP_SETTLEMENT";
+    payload: PendingSubmarineSwap;
+};
+export type ResponseWaitForSwapSettlement = ResponseEnvelope & {
+    type: "SWAP_SETTLED";
+    payload: { preimage: string };
+};
+
+export type RequestRestoreSwaps = RequestEnvelope & {
+    type: "RESTORE_SWAPS";
+    payload?: FeesResponse;
+};
+export type ResponseRestoreSwaps = ResponseEnvelope & {
+    type: "SWAPS_RESTORED";
+    payload: {
+        reverseSwaps: PendingReverseSwap[];
+        submarineSwaps: PendingSubmarineSwap[];
+    };
+};
+
+export type RequestEnrichReverseSwapPreimage = RequestEnvelope & {
+    type: "ENRICH_REVERSE_SWAP_PREIMAGE";
+    payload: { swap: PendingReverseSwap; preimage: string };
+};
+export type ResponseEnrichReverseSwapPreimage = ResponseEnvelope & {
+    type: "REVERSE_SWAP_PREIMAGE_ENRICHED";
+    payload: PendingReverseSwap;
+};
+
+export type RequestEnrichSubmarineSwapInvoice = RequestEnvelope & {
+    type: "ENRICH_SUBMARINE_SWAP_INVOICE";
+    payload: { swap: PendingSubmarineSwap; invoice: string };
+};
+export type ResponseEnrichSubmarineSwapInvoice = ResponseEnvelope & {
+    type: "SUBMARINE_SWAP_INVOICE_ENRICHED";
+    payload: PendingSubmarineSwap;
+};
+
+export type RequestGetFees = RequestEnvelope & {
+    type: "GET_FEES";
+};
+export type ResponseGetFees = ResponseEnvelope & {
+    type: "FEES";
+    payload: FeesResponse;
+};
+
+export type RequestGetLimits = RequestEnvelope & {
+    type: "GET_LIMITS";
+};
+export type ResponseGetLimits = ResponseEnvelope & {
+    type: "LIMITS";
+    payload: LimitsResponse;
+};
+
+export type RequestGetSwapStatus = RequestEnvelope & {
+    type: "GET_SWAP_STATUS";
+    payload: { swapId: string };
+};
+export type ResponseGetSwapStatus = ResponseEnvelope & {
+    type: "SWAP_STATUS";
+    payload: GetSwapStatusResponse;
+};
+
+export type RequestGetPendingSubmarineSwaps = RequestEnvelope & {
+    type: "GET_PENDING_SUBMARINE_SWAPS";
+};
+export type ResponseGetPendingSubmarineSwaps = ResponseEnvelope & {
+    type: "PENDING_SUBMARINE_SWAPS";
+    payload: PendingSubmarineSwap[];
+};
+
+export type RequestGetPendingReverseSwaps = RequestEnvelope & {
+    type: "GET_PENDING_REVERSE_SWAPS";
+};
+export type ResponseGetPendingReverseSwaps = ResponseEnvelope & {
+    type: "PENDING_REVERSE_SWAPS";
+    payload: PendingReverseSwap[];
+};
+
+export type RequestGetSwapHistory = RequestEnvelope & {
+    type: "GET_SWAP_HISTORY";
+};
+export type ResponseGetSwapHistory = ResponseEnvelope & {
+    type: "SWAP_HISTORY";
+    payload: (PendingReverseSwap | PendingSubmarineSwap)[];
+};
+
+export type RequestRefreshSwapsStatus = RequestEnvelope & {
+    type: "REFRESH_SWAPS_STATUS";
+};
+export type ResponseRefreshSwapsStatus = ResponseEnvelope & {
+    type: "SWAPS_STATUS_REFRESHED";
+};
+
+export type ArkadeLightningUpdaterRequest =
+    | RequestInitArkLn
+    | RequestCreateLightningInvoice
+    | RequestSendLightningPayment
+    | RequestCreateSubmarineSwap
+    | RequestCreateReverseSwap
+    | RequestClaimVhtlc
+    | RequestRefundVhtlc
+    | RequestWaitAndClaim
+    | RequestWaitForSwapSettlement
+    | RequestRestoreSwaps
+    | RequestEnrichReverseSwapPreimage
+    | RequestEnrichSubmarineSwapInvoice
+    | RequestGetFees
+    | RequestGetLimits
+    | RequestGetSwapStatus
+    | RequestGetPendingSubmarineSwaps
+    | RequestGetPendingReverseSwaps
+    | RequestGetSwapHistory
+    | RequestRefreshSwapsStatus;
+
+export type ArkadeLightningUpdaterResponse =
+    | ResponseInitArkLn
+    | ResponseCreateLightningInvoice
+    | ResponseSendLightningPayment
+    | ResponseCreateSubmarineSwap
+    | ResponseCreateReverseSwap
+    | ResponseClaimVhtlc
+    | ResponseRefundVhtlc
+    | ResponseWaitAndClaim
+    | ResponseWaitForSwapSettlement
+    | ResponseRestoreSwaps
+    | ResponseEnrichReverseSwapPreimage
+    | ResponseEnrichSubmarineSwapInvoice
+    | ResponseGetFees
+    | ResponseGetLimits
+    | ResponseGetSwapStatus
+    | ResponseGetPendingSubmarineSwaps
+    | ResponseGetPendingReverseSwaps
+    | ResponseGetSwapHistory
+    | ResponseRefreshSwapsStatus;
 
 export class ArkadeLightningUpdater
     implements
-        IUpdater<ArkadeLightningUpdaterRequest, ArkadeLightningUpdaterResponse>
+        MessageHandler<
+            ArkadeLightningUpdaterRequest,
+            ArkadeLightningUpdaterResponse
+        >
 {
     static messageTag = "arkade-lightning-updater";
     readonly messageTag = ArkadeLightningUpdater.messageTag;
@@ -62,9 +269,26 @@ export class ArkadeLightningUpdater
     private arkProvider: ArkProvider | undefined;
     private indexerProvider: IndexerProvider | undefined;
     private swapProvider: BoltzSwapProvider | undefined;
-    private swapManager: SwapManager | undefined;
+    private wallet: IWallet | undefined;
+
+    private handler: IArkadeLightning | undefined;
 
     constructor(private readonly swapRepository: SwapRepository) {}
+
+    async start(opts: {
+        wallet?: IWallet;
+        readonlyWallet: IReadonlyWallet;
+    }): Promise<void> {
+        if (!opts.wallet) throw new Error("Wallet is required");
+        this.wallet = opts.wallet;
+    }
+
+    async stop() {}
+
+    async tick(_now: number) {
+        // No subs?
+        return [];
+    }
 
     private tagged(
         res: Partial<ArkadeLightningUpdaterResponse>
@@ -79,7 +303,6 @@ export class ArkadeLightningUpdater
         message: ArkadeLightningUpdaterRequest
     ): Promise<ArkadeLightningUpdaterResponse> {
         const id = message.id;
-        // console.log(`[${this.messageTag}] handleMessage`, message);
         if (message.type === "INIT_ARKADE_LIGHTNING") {
             await this.handleInit(message);
             return this.tagged({
@@ -87,9 +310,190 @@ export class ArkadeLightningUpdater
                 type: "ARKADE_LIGHTNING_INITIALIZED",
             });
         }
+
+        if (!this.handler || !this.wallet) {
+            return this.tagged({
+                id,
+                error: new Error("handler not initialized"),
+            });
+        }
+
+        try {
+            switch (message.type) {
+                case "CREATE_LIGHTNING_INVOICE": {
+                    const res = await this.handler.createLightningInvoice(
+                        message.payload
+                    );
+                    return this.tagged({
+                        id,
+                        type: "LIGHTNING_INVOICE_CREATED",
+                        payload: res,
+                    });
+                }
+
+                case "SEND_LIGHTNING_PAYMENT": {
+                    const res = await this.handler.sendLightningPayment(
+                        message.payload
+                    );
+                    return this.tagged({
+                        id,
+                        type: "LIGHTNING_PAYMENT_SENT",
+                        payload: res,
+                    });
+                }
+
+                case "CREATE_SUBMARINE_SWAP": {
+                    const res = await this.handler.createSubmarineSwap(
+                        message.payload
+                    );
+                    return this.tagged({
+                        id,
+                        type: "SUBMARINE_SWAP_CREATED",
+                        payload: res,
+                    });
+                }
+
+                case "CREATE_REVERSE_SWAP": {
+                    const res = await this.handler.createReverseSwap(
+                        message.payload
+                    );
+                    return this.tagged({
+                        id,
+                        type: "REVERSE_SWAP_CREATED",
+                        payload: res,
+                    });
+                }
+
+                case "CLAIM_VHTLC":
+                    await this.handler.claimVHTLC(message.payload);
+                    return this.tagged({ id, type: "VHTLC_CLAIMED" });
+
+                case "REFUND_VHTLC":
+                    await this.handler.refundVHTLC(message.payload);
+                    return this.tagged({ id, type: "VHTLC_REFUNDED" });
+
+                case "WAIT_AND_CLAIM": {
+                    const res = await this.handler.waitAndClaim(
+                        message.payload
+                    );
+                    return this.tagged({
+                        id,
+                        type: "WAIT_AND_CLAIMED",
+                        payload: res,
+                    });
+                }
+
+                case "WAIT_FOR_SWAP_SETTLEMENT": {
+                    const res = await this.handler.waitForSwapSettlement(
+                        message.payload
+                    );
+                    return this.tagged({
+                        id,
+                        type: "SWAP_SETTLED",
+                        payload: res,
+                    });
+                }
+
+                case "RESTORE_SWAPS": {
+                    const res = await this.handler.restoreSwaps(
+                        message.payload
+                    );
+                    return this.tagged({
+                        id,
+                        type: "SWAPS_RESTORED",
+                        payload: res,
+                    });
+                }
+
+                case "ENRICH_REVERSE_SWAP_PREIMAGE": {
+                    const res = this.handler.enrichReverseSwapPreimage(
+                        message.payload.swap,
+                        message.payload.preimage
+                    );
+                    return this.tagged({
+                        id,
+                        type: "REVERSE_SWAP_PREIMAGE_ENRICHED",
+                        payload: res,
+                    });
+                }
+
+                case "ENRICH_SUBMARINE_SWAP_INVOICE": {
+                    const res = this.handler.enrichSubmarineSwapInvoice(
+                        message.payload.swap,
+                        message.payload.invoice
+                    );
+                    return this.tagged({
+                        id,
+                        type: "SUBMARINE_SWAP_INVOICE_ENRICHED",
+                        payload: res,
+                    });
+                }
+
+                case "GET_FEES": {
+                    const res = await this.handler.getFees();
+                    return this.tagged({ id, type: "FEES", payload: res });
+                }
+
+                case "GET_LIMITS": {
+                    const res = await this.handler.getLimits();
+                    return this.tagged({ id, type: "LIMITS", payload: res });
+                }
+
+                case "GET_SWAP_STATUS": {
+                    const res = await this.handler.getSwapStatus(
+                        message.payload.swapId
+                    );
+                    return this.tagged({
+                        id,
+                        type: "SWAP_STATUS",
+                        payload: res,
+                    });
+                }
+
+                case "GET_PENDING_SUBMARINE_SWAPS": {
+                    const res = await this.handler.getPendingSubmarineSwaps();
+                    return this.tagged({
+                        id,
+                        type: "PENDING_SUBMARINE_SWAPS",
+                        payload: res,
+                    });
+                }
+
+                case "GET_PENDING_REVERSE_SWAPS": {
+                    const res = await this.handler.getPendingReverseSwaps();
+                    return this.tagged({
+                        id,
+                        type: "PENDING_REVERSE_SWAPS",
+                        payload: res,
+                    });
+                }
+
+                case "GET_SWAP_HISTORY": {
+                    const res = await this.handler.getSwapHistory();
+                    return this.tagged({
+                        id,
+                        type: "SWAP_HISTORY",
+                        payload: res,
+                    });
+                }
+
+                case "REFRESH_SWAPS_STATUS":
+                    await this.handler.refreshSwapsStatus();
+                    return this.tagged({ id, type: "SWAPS_STATUS_REFRESHED" });
+
+                default:
+                    console.error("Unknown message type", message);
+                    throw new Error("Unknown message");
+            }
+        } catch (error) {
+            return this.tagged({ id, error: error as Error });
+        }
     }
 
     private async handleInit({ payload }: RequestInitArkLn): Promise<void> {
+        if (!this.wallet) {
+            throw new Error("Wallet is required");
+        }
         const { arkServerUrl } = payload;
         this.arkProvider = new RestArkProvider(arkServerUrl);
         this.indexerProvider = new RestIndexerProvider(arkServerUrl);
@@ -98,45 +502,37 @@ export class ArkadeLightningUpdater
             network: payload.network,
         });
 
-        if (payload.swapManager) {
-            this.swapManager = new SwapManager(
-                this.swapProvider,
-                payload.swapManager.config
-            );
-            this.swapManager.setCallbacks({
-                claim: async (swap: PendingReverseSwap) => {
-                    await this.claimVHTLC(swap);
-                },
-                refund: async (swap: PendingSubmarineSwap) => {
-                    // await this.refundVHTLC(swap);
-                },
-                saveSwap: async (
-                    swap: PendingReverseSwap | PendingSubmarineSwap
-                ) => this.swapRepository.saveSwap(swap),
-            });
-            if (payload.swapManager.autoStart) {
-                // Load all pending swaps from storage -- TODO: filter by status!
-                const allSwaps = await this.swapRepository.getAllSwaps();
-                console.log(
-                    "Starting SwapManager with",
-                    allSwaps.length,
-                    "swaps"
-                );
-                // Start the manager with all pending swaps
-                await this.swapManager.start(allSwaps);
-            }
-        }
+        const handler = new ArkadeLightning({
+            wallet: this.wallet,
+            arkProvider: this.arkProvider,
+            swapProvider: this.swapProvider,
+            indexerProvider: this.indexerProvider,
+            swapRepository: this.swapRepository,
+            // SwapManager handles SW by itself
+            swapManager: undefined,
+            feeConfig: payload.feeConfig,
+            timeoutConfig: payload.timeoutConfig,
+            retryConfig: payload.retryConfig,
+        });
+        this.handler = handler;
     }
 
     private async withInit<T>(
         fn: (
+            wallet: IWallet,
             indexerProvider: IndexerProvider,
             arkProvider: ArkProvider,
             swapProvider: BoltzSwapProvider
         ) => T
     ): Promise<T> {
-        if (this.indexerProvider && this.arkProvider && this.swapProvider) {
+        if (
+            this.wallet &&
+            this.indexerProvider &&
+            this.arkProvider &&
+            this.swapProvider
+        ) {
             return fn(
+                this.wallet,
                 this.indexerProvider,
                 this.arkProvider,
                 this.swapProvider
@@ -145,164 +541,124 @@ export class ArkadeLightningUpdater
         throw new Error("Updater not initialized");
     }
 
-    private async getWalletAddress(): Promise<string> {
-        return Promise.reject("not implemented");
-    }
+    async refundVHTLCwithOffchainTx(
+        pendingSwap: PendingSubmarineSwap,
+        boltzXOnlyPublicKey: Uint8Array,
+        ourXOnlyPublicKey: Uint8Array,
+        serverXOnlyPublicKey: Uint8Array,
+        input: ArkTxInput,
+        output: TransactionOutput,
+        arkInfos: Pick<ArkInfo, "checkpointTapscript">
+    ): Promise<void> {
+        // create the server unroll script for checkpoint transactions
+        const rawCheckpointTapscript = hex.decode(arkInfos.checkpointTapscript);
+        const serverUnrollScript = CSVMultisigTapscript.decode(
+            rawCheckpointTapscript
+        );
 
-    private async getWalletXOnlyPublicKey(): Promise<Uint8Array> {
-        return Promise.reject("not implemented");
-    }
+        // create the virtual transaction to claim the VHTLC
+        const { arkTx: unsignedRefundTx, checkpoints: checkpointPtxs } =
+            buildOffchainTx([input], [output], serverUnrollScript);
 
-    /**
-     * Claims the VHTLC for a pending reverse swap.
-     * If the VHTLC is recoverable, it joins a batch to spend the vtxo via commitment transaction.
-     * @param pendingSwap - The pending reverse swap to claim the VHTLC.
-     */
-    private async claimVHTLC(pendingSwap: PendingReverseSwap): Promise<void> {
-        // restored swaps may not have preimage
-        if (!pendingSwap.preimage)
-            throw new Error("Preimage is required to claim VHTLC");
-        const preimage = hex.decode(pendingSwap.preimage);
-        const address = await this.getWalletAddress();
-        const xOnlyPublicKey = await this.getWalletXOnlyPublicKey();
+        // validate we have one checkpoint transaction
+        if (checkpointPtxs.length !== 1)
+            throw new Error(
+                `Expected one checkpoint transaction, got ${checkpointPtxs.length}`
+            );
+
+        const unsignedCheckpointTx = checkpointPtxs[0];
 
         return this.withInit(
-            async (indexerProvider, arkProvider, _swapProvider) => {
-                const aspInfo = await arkProvider.getInfo();
-
-                // build expected VHTLC script
-                const { vhtlcScript, vhtlcAddress } = createVHTLCScript({
-                    network: aspInfo.network,
-                    preimageHash: sha256(preimage),
-                    receiverPubkey: hex.encode(xOnlyPublicKey),
-                    senderPubkey: pendingSwap.response.refundPublicKey,
-                    serverPubkey: aspInfo.signerPubkey,
-                    timeoutBlockHeights:
-                        pendingSwap.response.timeoutBlockHeights,
-                });
-
-                if (!vhtlcScript)
-                    throw new Error(
-                        "Failed to create VHTLC script for reverse swap"
-                    );
-                if (vhtlcAddress !== pendingSwap.response.lockupAddress)
-                    throw new Error("Boltz is trying to scam us");
-
-                // get spendable VTXOs from the lockup address
-                const { vtxos } = await indexerProvider.getVtxos({
-                    scripts: [hex.encode(vhtlcScript.pkScript)],
-                });
-                if (vtxos.length === 0)
-                    throw new Error("No spendable virtual coins found");
-
-                // vtxo with the htlc to claim
-                // TODO: handle multiple VTXOs
-                const vtxo = vtxos[0];
-
-                if (vtxo.isSpent) {
-                    throw new Error("VHTLC is already spent");
-                }
-
-                const input = {
-                    ...vtxo,
-                    tapLeafScript: vhtlcScript.claim(),
-                    tapTree: vhtlcScript.encode(),
-                };
-
-                const output = {
-                    amount: BigInt(vtxo.value),
-                    script: ArkAddress.decode(address).pkScript,
-                };
-
-                // signing a VTHLC needs an extra witness element to be added to the PSBT input
-                // reveal the secret in the PSBT, thus the server can verify the claim script
-                // this witness must satisfy the preimageHash condition
-                // TODO: handle sign-via-message
-                const vhtlcIdentity = this.claimVHTLCIdentity(
-                    this.wallet.identity,
-                    preimage
+            async (wallet, _indexerProvider, arkProvider, swapProvider) => {
+                // get Boltz to sign its part
+                const {
+                    transaction: boltzSignedRefundTx,
+                    checkpoint: boltzSignedCheckpointTx,
+                } = await swapProvider.refundSubmarineSwap(
+                    pendingSwap.id,
+                    unsignedRefundTx,
+                    unsignedCheckpointTx
                 );
 
-                let finalStatus: BoltzSwapStatus | undefined;
-
-                // if the vtxo is recoverable, we need to claim in batch
-                if (isRecoverable(vtxo)) {
-                    await this.joinBatch(input, output, aspInfo);
-                    finalStatus = "transaction.claimed";
-                } else {
-                    await this.claimVHTLCwithOffchainTx(
-                        vhtlcIdentity,
-                        vhtlcScript,
-                        serverXOnlyPublicKey,
-                        input,
-                        output,
-                        aspInfo
+                // Verify Boltz signatures before combining
+                const boltzXOnlyPublicKeyHex = hex.encode(boltzXOnlyPublicKey);
+                if (
+                    !verifySignatures(boltzSignedRefundTx, 0, [
+                        boltzXOnlyPublicKeyHex,
+                    ])
+                ) {
+                    throw new Error(
+                        "Invalid Boltz signature in refund transaction"
                     );
-                    finalStatus = (
-                        await this.swapProvider.getSwapStatus(pendingSwap.id)
-                    ).status;
+                }
+                if (
+                    !verifySignatures(boltzSignedCheckpointTx, 0, [
+                        boltzXOnlyPublicKeyHex,
+                    ])
+                ) {
+                    throw new Error(
+                        "Invalid Boltz signature in checkpoint transaction"
+                    );
                 }
 
-                await this.swapRepository.saveSwap({
-                    ...pendingSwap,
-                    status: finalStatus,
-                });
+                // sign our part
+                const signedRefundTx =
+                    await wallet.identity.sign(unsignedRefundTx);
+                const signedCheckpointTx =
+                    await wallet.identity.sign(unsignedCheckpointTx);
+
+                // combine transactions
+                const combinedSignedRefundTx = combineTapscriptSigs(
+                    boltzSignedRefundTx,
+                    signedRefundTx
+                );
+                const combinedSignedCheckpointTx = combineTapscriptSigs(
+                    boltzSignedCheckpointTx,
+                    signedCheckpointTx
+                );
+
+                // get server to sign its part of the combined transaction
+                const { arkTxid, finalArkTx, signedCheckpointTxs } =
+                    await arkProvider.submitTx(
+                        base64.encode(combinedSignedRefundTx.toPSBT()),
+                        [base64.encode(unsignedCheckpointTx.toPSBT())]
+                    );
+
+                // verify the final tx is properly signed
+                const tx = Transaction.fromPSBT(base64.decode(finalArkTx));
+                const inputIndex = 0;
+                const requiredSigners = [
+                    hex.encode(ourXOnlyPublicKey),
+                    hex.encode(boltzXOnlyPublicKey),
+                    hex.encode(serverXOnlyPublicKey),
+                ];
+
+                if (!verifySignatures(tx, inputIndex, requiredSigners)) {
+                    throw new Error("Invalid refund transaction");
+                }
+
+                // validate we received exactly one checkpoint transaction
+                if (signedCheckpointTxs.length !== 1) {
+                    throw new Error(
+                        `Expected one signed checkpoint transaction, got ${signedCheckpointTxs.length}`
+                    );
+                }
+
+                // combine the checkpoint signatures
+                const serverSignedCheckpointTx = Transaction.fromPSBT(
+                    base64.decode(signedCheckpointTxs[0])
+                );
+
+                const finalCheckpointTx = combineTapscriptSigs(
+                    combinedSignedCheckpointTx,
+                    serverSignedCheckpointTx
+                );
+
+                // finalize the transaction
+                await arkProvider.finalizeTx(arkTxid, [
+                    base64.encode(finalCheckpointTx.toPSBT()),
+                ]);
             }
         );
     }
-
-    private claimVHTLCIdentity(preimage: Uint8Array): {
-        sign: Identity["sign"];
-    } {
-        function sign(
-            tx: Transaction,
-            inputIndexes?: number[]
-        ): Promise<Transaction> {
-            const cpy = tx.clone();
-            let signedTx = await identity.sign(cpy, inputIndexes);
-            signedTx = Transaction.fromPSBT(signedTx.toPSBT());
-
-            // If preimage is provided, add it to the witness for claim transactions
-            if (preimage) {
-                for (const inputIndex of inputIndexes ||
-                    Array.from(
-                        { length: signedTx.inputsLength },
-                        (_, i) => i
-                    )) {
-                    setArkPsbtField(signedTx, inputIndex, ConditionWitness, [
-                        preimage,
-                    ]);
-                }
-            }
-            return signedTx;
-        }
-        return {            sign        }
-    }
-
-    private handleSign(tx: Transaction, inputIndexes?: number[]): Promise<Transaction> {
-
-    }
-
-    /**
-     * Joins a batch to spend the vtxo via commitment transaction
-     * @param identity - The identity to use for signing the forfeit transaction.
-     * @param input - The input vtxo.
-     * @param output - The output script.
-     * @param forfeitPublicKey - The forfeit public key.
-     * @returns The commitment transaction ID.
-     */
-    async joinBatch(
-        input: ArkTxInput,
-        output: TransactionOutput,
-        {
-            forfeitPubkey,
-            forfeitAddress,
-            network,
-        }: Pick<ArkInfo, "forfeitPubkey" | "forfeitAddress" | "network">,
-        isRecoverable = true
-    ): Promise<string> {
-        throw Error("not implemented");
-    }
 }
-
-export default ArkadeLightningUpdater;

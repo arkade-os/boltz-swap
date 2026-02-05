@@ -9,52 +9,51 @@ import {
 } from "./errors";
 import {
     ArkAddress,
-    ArkProvider,
-    IndexerProvider,
-    buildOffchainTx,
-    CSVMultisigTapscript,
-    TapLeafScript,
-    Wallet,
-    VHTLC,
-    ServiceWorkerWallet,
-    combineTapscriptSigs,
-    Intent,
-    VtxoScript,
-    ArkTxInput,
-    Identity,
-    Batch,
     ArkInfo,
-    networks,
-    isRecoverable,
-    VtxoTaprootTree,
+    ArkProvider,
+    ArkTxInput,
+    Batch,
+    buildOffchainTx,
+    combineTapscriptSigs,
+    CSVMultisigTapscript,
     getSequence,
+    Identity,
+    IndexerProvider,
+    Intent,
+    isRecoverable,
+    IWallet,
+    networks,
+    TapLeafScript,
+    VHTLC,
+    VtxoScript,
+    VtxoTaprootTree,
 } from "@arkade-os/sdk";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { base64, hex } from "@scure/base";
 import type {
     ArkadeLightningConfig,
+    CreateLightningInvoiceRequest,
     CreateLightningInvoiceResponse,
-    SendLightningPaymentRequest,
-    SendLightningPaymentResponse,
+    FeesResponse,
+    LimitsResponse,
     PendingReverseSwap,
     PendingSubmarineSwap,
-    CreateLightningInvoiceRequest,
-    LimitsResponse,
-    FeesResponse,
+    SendLightningPaymentRequest,
+    SendLightningPaymentResponse,
 } from "./types";
 import { randomBytes } from "@noble/hashes/utils.js";
 import {
-    BoltzSwapStatus,
     BoltzSwapProvider,
-    CreateSubmarineSwapRequest,
+    BoltzSwapStatus,
     CreateReverseSwapRequest,
+    CreateSubmarineSwapRequest,
     GetSwapStatusResponse,
     isPendingReverseSwap,
     isPendingSubmarineSwap,
-    isSubmarineFinalStatus,
-    isReverseFinalStatus,
     isRestoredReverseSwap,
     isRestoredSubmarineSwap,
+    isReverseFinalStatus,
+    isSubmarineFinalStatus,
 } from "./boltz-swap-provider";
 import { Address, OutScript, Transaction } from "@scure/btc-signer";
 import { TransactionInput, TransactionOutput } from "@scure/btc-signer/psbt.js";
@@ -72,13 +71,245 @@ import { createVHTLCBatchHandler } from "./batch";
 import { IndexedDbSwapRepository } from "./repositories/IndexedDb/swap-repository";
 import { SwapRepository } from "./repositories/swap-repository";
 
-export class ArkadeLightning {
-    private readonly wallet: Wallet | ServiceWorkerWallet;
-    private readonly arkProvider: ArkProvider;
-    private readonly swapProvider: BoltzSwapProvider;
-    private readonly indexerProvider: IndexerProvider;
-    private readonly swapManager: SwapManager | null = null;
-    private readonly swapRepository: SwapRepository;
+export interface IArkadeLightning extends AsyncDisposable {
+    /**
+     * Start the background swap manager
+     * This will load all pending swaps and begin monitoring them
+     * Automatically called when SwapManager is enabled
+     */
+    startSwapManager(): Promise<void>;
+
+    /**
+     * Stop the background swap manager
+     */
+    stopSwapManager(): Promise<void>;
+
+    /**
+     * Get the SwapManager instance
+     * Useful for accessing manager stats or manually controlling swaps
+     */
+    getSwapManager(): SwapManager | null;
+
+    /**
+     * Creates a Lightning invoice.
+     * @param args - The arguments for creating a Lightning invoice.
+     * @returns The response containing the created Lightning invoice.
+     */
+    createLightningInvoice(
+        args: CreateLightningInvoiceRequest
+    ): Promise<CreateLightningInvoiceResponse>;
+
+    /**
+     * Sends a Lightning payment.
+     * 1. decode the invoice to get the amount and destination
+     * 2. create submarine swap with the decoded invoice
+     * 3. send the swap address and expected amount to the wallet to create a transaction
+     * 4. wait for the swap settlement and return the preimage and txid
+     * @param args - The arguments for sending a Lightning payment.
+     * @returns The result of the payment.
+     */
+    sendLightningPayment(
+        args: SendLightningPaymentRequest
+    ): Promise<SendLightningPaymentResponse>;
+
+    /**
+     * Creates a submarine swap.
+     * @param args - The arguments for creating a submarine swap.
+     * @returns The created pending submarine swap.
+     */
+    createSubmarineSwap(
+        args: SendLightningPaymentRequest
+    ): Promise<PendingSubmarineSwap>;
+
+    /**
+     * Creates a reverse swap.
+     * @param args - The arguments for creating a reverse swap.
+     * @returns The created pending reverse swap.
+     */
+    createReverseSwap(
+        args: CreateLightningInvoiceRequest
+    ): Promise<PendingReverseSwap>;
+
+    /**
+     * Claims the VHTLC for a pending reverse swap.
+     * If the VHTLC is recoverable, it joins a batch to spend the vtxo via commitment transaction.
+     * @param pendingSwap - The pending reverse swap to claim the VHTLC.
+     */
+    claimVHTLC(pendingSwap: PendingReverseSwap): Promise<void>;
+
+    /**
+     * Claims the VHTLC for a pending submarine swap (aka refund).
+     * If the VHTLC is recoverable, it joins a batch to spend the vtxo via commitment transaction.
+     * @param pendingSwap - The pending submarine swap to refund the VHTLC.
+     */
+    refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void>;
+
+    /**
+     * Waits for the swap to be confirmed and claims the VHTLC.
+     * If SwapManager is enabled, this delegates to the manager for coordinated processing.
+     * @param pendingSwap - The pending reverse swap.
+     * @returns The transaction ID of the claimed VHTLC.
+     */
+    waitAndClaim(pendingSwap: PendingReverseSwap): Promise<{ txid: string }>;
+
+    /**
+     * Waits for the swap settlement.
+     * @param pendingSwap - The pending submarine swap.
+     * @returns The status of the swap settlement.
+     */
+    waitForSwapSettlement(
+        pendingSwap: PendingSubmarineSwap
+    ): Promise<{ preimage: string }>;
+
+    /**
+     * Restore swaps from Boltz API.
+     *
+     * Note: restored swaps may lack local-only data such as the original
+     * Lightning invoice or preimage. They are intended primarily for
+     * display/monitoring and are not automatically wired into the SwapManager.
+     * Do not call `claimVHTLC` / `refundVHTLC` on them unless you have
+     * enriched the objects with the missing fields.
+     *
+     * @param boltzFees - Optional fees response to use for restoration.
+     * @returns An object containing arrays of restored reverse and submarine swaps.
+     */
+    restoreSwaps(boltzFees?: FeesResponse): Promise<{
+        reverseSwaps: PendingReverseSwap[];
+        submarineSwaps: PendingSubmarineSwap[];
+    }>;
+
+    /**
+     * Enrich a restored reverse swap with its preimage.
+     * This makes the swap claimable via `claimVHTLC`.
+     * Validates that the preimage hash matches the swap's expected preimageHash.
+     *
+     * @param swap - The restored reverse swap to enrich.
+     * @param preimage - The preimage (hex-encoded) for the swap.
+     * @returns The enriched swap object (same reference, mutated).
+     * @throws Error if the preimage does not match the swap's preimageHash.
+     */
+    enrichReverseSwapPreimage(
+        swap: PendingReverseSwap,
+        preimage: string
+    ): PendingReverseSwap;
+
+    /**
+     * Enrich a restored submarine swap with its invoice.
+     * This makes the swap refundable via `refundVHTLC`.
+     * Validates that the invoice is well-formed and its payment hash can be extracted.
+     * If the swap has a preimageHash (from restoration), validates that the invoice's
+     * payment hash matches.
+     *
+     * @param swap - The restored submarine swap to enrich.
+     * @param invoice - The Lightning invoice for the swap.
+     * @returns The enriched swap object (same reference, mutated).
+     * @throws Error if the invoice is invalid, cannot be decoded, or payment hash doesn't match.
+     */
+    enrichSubmarineSwapInvoice(
+        swap: PendingSubmarineSwap,
+        invoice: string
+    ): PendingSubmarineSwap;
+
+    /**
+     * Creates a VHTLC script for the swap.
+     * works for submarine swaps and reverse swaps
+     * it creates a VHTLC script that can be used to claim or refund the swap
+     * it validates the receiver, sender and server public keys are x-only
+     * it validates the VHTLC script matches the expected lockup address
+     * @param param0 - The parameters for creating the VHTLC script.
+     * @returns The created VHTLC script.
+     */
+    createVHTLCScript({
+        network,
+        preimageHash,
+        receiverPubkey,
+        senderPubkey,
+        serverPubkey,
+        timeoutBlockHeights,
+    }: {
+        network: string;
+        preimageHash: Uint8Array;
+        receiverPubkey: string;
+        senderPubkey: string;
+        serverPubkey: string;
+        timeoutBlockHeights: {
+            refund: number;
+            unilateralClaim: number;
+            unilateralRefund: number;
+            unilateralRefundWithoutReceiver: number;
+        };
+    }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string };
+
+    /**
+     * Retrieves fees for swaps (in sats and percentage).
+     * @returns The fees for swaps.
+     */
+    getFees(): Promise<FeesResponse>;
+
+    /**
+     * Retrieves max and min limits for swaps (in sats).
+     * @returns The limits for swaps.
+     */
+    getLimits(): Promise<LimitsResponse>;
+
+    /**
+     * Retrieves swap status by ID.
+     * @param swapId - The ID of the swap.
+     * @returns The status of the swap.
+     */
+    getSwapStatus(swapId: string): Promise<GetSwapStatusResponse>;
+
+    /**
+     * Retrieves all pending submarine swaps from storage.
+     * This method filters the pending swaps to return only those with a status of 'invoice.set'.
+     * It is useful for checking the status of all pending submarine swaps in the system.
+     *
+     * @returns PendingSubmarineSwap[]. If no swaps are found, it returns an empty array.
+     */
+    getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[]>;
+
+    /**
+     * Retrieves all pending reverse swaps from storage.
+     * This method filters the pending swaps to return only those with a status of 'swap.created'.
+     * It is useful for checking the status of all pending reverse swaps in the system.
+     *
+     * @returns PendingReverseSwap[]. If no swaps are found, it returns an empty array.
+     */
+    getPendingReverseSwaps(): Promise<PendingReverseSwap[]>;
+
+    /**
+     * Retrieves swap history from storage.
+     * @returns Array of all swaps sorted by creation date (newest first). If no swaps are found, it returns an empty array.
+     */
+    getSwapHistory(): Promise<(PendingReverseSwap | PendingSubmarineSwap)[]>;
+
+    /**
+     * Refreshes the status of all pending swaps in the storage provider.
+     * This method iterates through all pending reverse and submarine swaps,
+     * checks their current status using the swap provider, and updates the storage provider accordingly.
+     * It skips swaps that are already in a final status to avoid unnecessary API calls.
+     * If no storage provider is set, the method exits early.
+     * Errors during status refresh are logged to the console but do not interrupt the process.
+     * @returns void
+     * Important: a submarine swap with status payment.failedToPay is considered final and won't be refreshed.
+     * User should manually retry or delete it if refund fails.
+     */
+    refreshSwapsStatus(): Promise<void>;
+
+    /**
+     * Dispose of resources (stops SwapManager and cleans up)
+     * Can be called manually or automatically with `await using` syntax (TypeScript 5.2+)
+     */
+    dispose(): Promise<void>;
+}
+
+export class ArkadeLightning implements IArkadeLightning {
+    readonly wallet: IWallet;
+    readonly arkProvider: ArkProvider;
+    readonly swapProvider: BoltzSwapProvider;
+    readonly indexerProvider: IndexerProvider;
+    readonly swapManager: SwapManager | null = null;
+    readonly swapRepository: SwapRepository;
 
     constructor(config: ArkadeLightningConfig) {
         if (!config.wallet) throw new Error("Wallet is required.");
@@ -123,7 +354,6 @@ export class ArkadeLightning {
             const shouldAutostart = swapManagerConfig.autoStart ?? true;
 
             this.swapManager = new SwapManager(
-                config.serviceWorker,
                 this.swapProvider,
                 swapManagerConfig
             );
@@ -204,23 +434,17 @@ export class ArkadeLightning {
     async createLightningInvoice(
         args: CreateLightningInvoiceRequest
     ): Promise<CreateLightningInvoiceResponse> {
-        return new Promise((resolve, reject) => {
-            this.createReverseSwap(args)
-                .then((pendingSwap) => {
-                    const decodedInvoice = decodeInvoice(
-                        pendingSwap.response.invoice
-                    );
-                    //
-                    resolve({
-                        amount: pendingSwap.response.onchainAmount,
-                        expiry: decodedInvoice.expiry,
-                        invoice: pendingSwap.response.invoice,
-                        paymentHash: decodedInvoice.paymentHash,
-                        pendingSwap,
-                        preimage: pendingSwap.preimage,
-                    } as CreateLightningInvoiceResponse);
-                })
-                .catch(reject);
+        return this.createReverseSwap(args).then((pendingSwap) => {
+            const decodedInvoice = decodeInvoice(pendingSwap.response.invoice);
+            //
+            return {
+                amount: pendingSwap.response.onchainAmount,
+                expiry: decodedInvoice.expiry,
+                invoice: pendingSwap.response.invoice,
+                paymentHash: decodedInvoice.paymentHash,
+                pendingSwap,
+                preimage: pendingSwap.preimage,
+            } as CreateLightningInvoiceResponse;
         });
     }
 
@@ -603,7 +827,7 @@ export class ArkadeLightning {
      * @param forfeitPublicKey - The forfeit public key.
      * @returns The commitment transaction ID.
      */
-    async joinBatch(
+    private async joinBatch(
         identity: Identity,
         input: ArkTxInput,
         output: TransactionOutput,
@@ -720,7 +944,10 @@ export class ArkadeLightning {
         pendingSwap: PendingReverseSwap
     ): Promise<{ txid: string }> {
         // If SwapManager is enabled and has this swap, delegate to it
-        if (this.swapManager && await this.swapManager.hasSwap(pendingSwap.id)) {
+        if (
+            this.swapManager &&
+            (await this.swapManager.hasSwap(pendingSwap.id))
+        ) {
             return this.swapManager.waitForSwapCompletion(pendingSwap.id);
         }
 
@@ -1268,7 +1495,7 @@ export class ArkadeLightning {
      * @param _tapLeaves The taproot script leaves.
      * @returns True if the final Ark transaction is valid, false otherwise.
      */
-    private validFinalArkTx = (
+    validFinalArkTx = (
         finalArkTx: string,
         _pubkey: Uint8Array,
         _tapLeaves: TapLeafScript[]

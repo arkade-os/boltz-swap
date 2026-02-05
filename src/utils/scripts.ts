@@ -72,9 +72,7 @@ export function createVHTLCScript({
             type: delayType(
                 timeoutBlockHeights.unilateralRefundWithoutReceiver
             ),
-            value: BigInt(
-                timeoutBlockHeights.unilateralRefundWithoutReceiver
-            ),
+            value: BigInt(timeoutBlockHeights.unilateralRefundWithoutReceiver),
         },
     });
 

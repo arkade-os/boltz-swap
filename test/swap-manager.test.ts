@@ -862,7 +862,11 @@ describe("SwapManager", () => {
 
         beforeEach(() => {
             // Mock getReverseSwapTxId to return a mock txid
-            vi.spyOn(swapProvider, swapManagerConfig, "getReverseSwapTxId").mockResolvedValue({
+            vi.spyOn(
+                swapProvider,
+                swapManagerConfig,
+                "getReverseSwapTxId"
+            ).mockResolvedValue({
                 id: mockTxId,
                 hex: "0200000001...",
             });
@@ -897,9 +901,10 @@ describe("SwapManager", () => {
             // Should resolve when swap reaches final status
             const result = await waitPromise;
             expect(result.txid).toBe(mockTxId);
-            expect(swapProvider, swapManagerConfig.getReverseSwapTxId).toHaveBeenCalledWith(
-                "reverse-swap-1"
-            );
+            expect(
+                swapProvider,
+                swapManagerConfig.getReverseSwapTxId
+            ).toHaveBeenCalledWith("reverse-swap-1");
 
             await swapManager.stop();
         });
@@ -925,17 +930,20 @@ describe("SwapManager", () => {
             const result =
                 await swapManager.waitForSwapCompletion("reverse-swap-1");
             expect(result.txid).toBe(mockTxId);
-            expect(swapProvider, swapManagerConfig.getReverseSwapTxId).toHaveBeenCalledWith(
-                "reverse-swap-1"
-            );
+            expect(
+                swapProvider,
+                swapManagerConfig.getReverseSwapTxId
+            ).toHaveBeenCalledWith("reverse-swap-1");
 
             await swapManager.stop();
         });
 
         it("should reject if getReverseSwapTxId fails", async () => {
-            vi.spyOn(swapProvider, swapManagerConfig, "getReverseSwapTxId").mockRejectedValue(
-                new Error("Failed to fetch txid")
-            );
+            vi.spyOn(
+                swapProvider,
+                swapManagerConfig,
+                "getReverseSwapTxId"
+            ).mockRejectedValue(new Error("Failed to fetch txid"));
 
             const completedSwap = {
                 ...mockReverseSwap,

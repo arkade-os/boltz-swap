@@ -1,12 +1,7 @@
-import { PendingSwap, SwapManagerConfig } from "../swap-manager";
-import {
-    BoltzSwapStatus,
-} from "../boltz-swap-provider";
+import { SwapManagerConfig } from "../swap-manager";
+import { BoltzSwapProvider, BoltzSwapStatus } from "../boltz-swap-provider";
 
-import {
-    RequestEnvelope,
-    ResponseEnvelope,
-} from "@arkade-os/sdk";
+import { RequestEnvelope, ResponseEnvelope } from "@arkade-os/sdk";
 import {
     SwapUpdater,
     RequestInit,
@@ -22,9 +17,10 @@ import {
     RequestGetWsUrl,
     ResponseGetWsUrl,
     RequestSwapStatusUpdated,
-} from "./_swap-updater";
+} from "./swap-updater";
 import { hex } from "@scure/base";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
+import { PendingSwap } from "../repositories/swap-repository";
 
 // Event listener types
 export type SwapUpdateListener = (
@@ -48,7 +44,6 @@ export class ServiceWorkerSwapManager {
     private swapCompletedListeners = new Set<SwapCompletedListener>();
     private swapFailedListeners = new Set<SwapFailedListener>();
 
-
     constructor(
         public readonly serviceWorker: ServiceWorker,
         config: SwapManagerConfig
@@ -56,7 +51,7 @@ export class ServiceWorkerSwapManager {
         navigator.serviceWorker.addEventListener("message", (m) => {
             if (m.data.tag !== SwapUpdater.messageTag) return;
             console.debug("[Swap Manager] broadcast received", m);
-            this.onBroadcastMessage(m)
+            this.onBroadcastMessage(m);
         });
         if (config.events?.onSwapUpdate) {
             this.swapUpdateListeners.add(config.events.onSwapUpdate);
@@ -69,51 +64,84 @@ export class ServiceWorkerSwapManager {
         }
     }
 
-    async init(config: Pick<SwapManagerConfig, "network"|"apiUrl">) {
-        return this.sendMessage<RequestInit, ResponseInit>({ type: "INIT", payload: {
-            apiUrl: config.apiUrl, network: config.network
-            }});
+    async init(config: {
+        network: ReturnType<BoltzSwapProvider["getNetwork"]>;
+        apiUrl: string;
+    }) {
+        return this.sendMessage<RequestInit, ResponseInit>({
+            type: "INIT",
+            payload: {
+                apiUrl: config.apiUrl,
+                network: config.network,
+            },
+        });
     }
 
     async getMonitoredSwaps(): Promise<PendingSwap[]> {
-        const res = await this.sendMessage<RequestGetMonitoredSwaps,ResponseGetMonitoredSwaps>({ type: "GET_MONITORED_SWAPS" })
+        const res = await this.sendMessage<
+            RequestGetMonitoredSwaps,
+            ResponseGetMonitoredSwaps
+        >({ type: "GET_MONITORED_SWAPS" });
         if (res.payload.swaps) return res.payload.swaps;
-        throw  new Error("Failed to get monitored swaps");
+        throw new Error("Failed to get monitored swaps");
     }
 
     async getSwap(swapId: string): Promise<PendingSwap | undefined> {
         const res = await this.sendMessage<RequestGetSwap, ResponseGetSwap>({
             type: "GET_SWAP",
-            payload:{swapId},
+            payload: { swapId },
         });
         return res.payload.swap;
     }
 
     async monitorSwap(swap: PendingSwap): Promise<void> {
-         await this.sendMessage<RequestMonitorSwap>({
+        await this.sendMessage<RequestMonitorSwap>({
             type: "MONITOR_SWAP",
-            payload:{swap},
+            payload: { swap },
         });
     }
 
     async stopMonitoringSwap(swapId: string): Promise<void> {
-        await this.sendMessage<RequestStopMonitoringSwap>({ type: "STOP_MONITORING_SWAP", payload :{swapId} } );
+        await this.sendMessage<RequestStopMonitoringSwap>({
+            type: "STOP_MONITORING_SWAP",
+            payload: { swapId },
+        });
     }
 
     async getReverseSwapTxId(swapId: string): Promise<string> {
-        const res = await this.sendMessage<RequestGetReverseSwapTx, ResponseGetReverseSwapTx>({ type: "GET_REVERSE_SWAP_TX_ID" as any, id: getRandomId()  as any, payload: { swapId}})
+        const res = await this.sendMessage<
+            RequestGetReverseSwapTx,
+            ResponseGetReverseSwapTx
+        >({
+            type: "GET_REVERSE_SWAP_TX_ID" as any,
+            id: getRandomId() as any,
+            payload: { swapId },
+        });
         return res.payload.txid;
     }
 
     async getWsUrl(): Promise<string> {
-        const res = await this.sendMessage<RequestGetWsUrl, ResponseGetWsUrl>({ type: "GET_WS_URL", id: getRandomId() })
+        const res = await this.sendMessage<RequestGetWsUrl, ResponseGetWsUrl>({
+            type: "GET_WS_URL",
+            id: getRandomId(),
+        });
         return res.payload.wsUrl;
     }
 
-    async notifySwapStatusUpdate( input: { swapId: string, status: BoltzSwapStatus, error: string}): Promise<void> {
-        await this.sendMessage<RequestSwapStatusUpdated>({ type: "SWAP_STATUS_UPDATED", id: getRandomId(), payload: {
-            swapId: input.swapId, error: input.error, status: input.status
-            }} )
+    async notifySwapStatusUpdate(input: {
+        swapId: string;
+        status: BoltzSwapStatus;
+        error: string;
+    }): Promise<void> {
+        await this.sendMessage<RequestSwapStatusUpdated>({
+            type: "SWAP_STATUS_UPDATED",
+            id: getRandomId(),
+            payload: {
+                swapId: input.swapId,
+                error: input.error,
+                status: input.status,
+            },
+        });
     }
 
     // send a message and wait for a response
@@ -160,26 +188,29 @@ export class ServiceWorkerSwapManager {
     private async onBroadcastMessage(event: MessageEvent) {
         const message = event.data;
         switch (message.type) {
-            case "SWAP_FAILED": {
-                const {swap, error} = message.payload;
-                this.swapFailedListeners.forEach((listener) =>
-                    listener(swap, new Error(error)))
+            case "SWAP_FAILED":
+                {
+                    const { swap, error } = message.payload;
+                    this.swapFailedListeners.forEach((listener) =>
+                        listener(swap, new Error(error))
+                    );
                 }
-                return
+                return;
             case "SWAP_STATUS_UPDATED": {
                 const { swap, previousStatus } = message.payload;
                 this.swapUpdateListeners.forEach((listener) =>
                     listener(swap, previousStatus)
                 );
-                return
+                return;
             }
             case "SWAP_COMPLETED": {
-                const {swap} = message.payload;
-                this.swapCompletedListeners.forEach((listener) => listener(swap));
+                const { swap } = message.payload;
+                this.swapCompletedListeners.forEach((listener) =>
+                    listener(swap)
+                );
             }
         }
     }
-
 
     /**
      * Add an event listener for swap updates
@@ -207,7 +238,6 @@ export class ServiceWorkerSwapManager {
         this.swapFailedListeners.add(listener);
         return () => this.swapFailedListeners.delete(listener);
     }
-
 
     /**
      * Remove an event listener for swap updates
