@@ -54,6 +54,27 @@ const getNewLightningInvoice = async (
     return { invoice: payment_request, r_hash };
 };
 
+const waitForBalance = async (
+    getBalance: () => Promise<{ available: number }>,
+    minAmount: number,
+    timeout = 5_000
+): Promise<void> => {
+    await new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+            clearInterval(intervalId);
+            reject(new Error("Timed out waiting for balance"));
+        }, timeout);
+        const intervalId = setInterval(async () => {
+            const balance = await getBalance();
+            if (balance.available >= minAmount) {
+                clearTimeout(timeoutId);
+                clearInterval(intervalId);
+                resolve(true);
+            }
+        }, 500);
+    });
+};
+
 describe("ArkadeLightning", () => {
     let indexerProvider: RestIndexerProvider;
     let swapProvider: BoltzSwapProvider;
@@ -75,16 +96,7 @@ describe("ArkadeLightning", () => {
         });
 
         // Wait until the funds are reflected in the wallet balance
-        await new Promise((resolve, reject) => {
-            setTimeout(reject, 5_000);
-            const interval = setInterval(async () => {
-                const balance = await wallet.getBalance();
-                if (balance.available >= amount) {
-                    clearInterval(interval);
-                    resolve(true);
-                }
-            }, 500);
-        });
+        await waitForBalance(() => wallet.getBalance(), amount, 5_000);
     };
 
     // Funded wallet setup
@@ -110,16 +122,7 @@ describe("ArkadeLightning", () => {
             ],
         });
 
-        await new Promise((resolve, reject) => {
-            setTimeout(reject, 5_000);
-            const interval = setInterval(async () => {
-                const balance = await fundedWallet.getBalance();
-                if (balance.available >= amount) {
-                    clearInterval(interval);
-                    resolve(true);
-                }
-            }, 500);
-        });
+        await waitForBalance(() => fundedWallet.getBalance(), amount, 5_000);
     }, 120_000);
 
     beforeEach(async () => {

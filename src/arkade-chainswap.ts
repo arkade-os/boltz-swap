@@ -1230,7 +1230,7 @@ export class ArkadeChainSwap {
     async startSwapManager(): Promise<void> {
         if (!this.swapManager) {
             throw new Error(
-                "SwapManager is not enabled. Provide 'swapManager' config in ArkadeLightningConfig."
+                "SwapManager is not enabled. Provide 'swapManager' config in ArkadeChainSwapConfig."
             );
         }
 
