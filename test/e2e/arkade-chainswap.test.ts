@@ -49,12 +49,17 @@ const getBtcAddressTxs = async (address: string): Promise<number> => {
 const waitForBtcTxConfirmation = async (address: string, timeout = 10_000) => {
     await generateBlocks(1); // confirm the Btc transaction
     await new Promise((resolve, reject) => {
-        const onTimeout = () =>
-            reject(new Error("Timeout waiting for Btc explorer to update"));
-        setTimeout(onTimeout, timeout);
-        setInterval(async () => {
+        const timeoutId = setTimeout(() => {
+            clearInterval(intervalId);
+            reject(new Error("Timed out waiting for Btc explorer to update"));
+        }, timeout);
+        const intervalId = setInterval(async () => {
             const txs = await getBtcAddressTxs(address);
-            if (txs === 1) resolve(true);
+            if (txs === 1) {
+                clearTimeout(timeoutId);
+                clearInterval(intervalId);
+                resolve(true);
+            }
         }, 500);
     });
 };
@@ -67,7 +72,7 @@ const waitForBalance = async (
     await new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
             clearInterval(intervalId);
-            reject(new Error("Timed out waiting for balance"));
+            reject(new Error("Timed out waiting for balance to update"));
         }, timeout);
         const intervalId = setInterval(async () => {
             const balance = await getBalance();
