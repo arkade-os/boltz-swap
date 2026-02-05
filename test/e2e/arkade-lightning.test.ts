@@ -398,9 +398,11 @@ describe("ArkadeLightning", () => {
                 });
 
                 // act
-                setTimeout(async () => {
-                    await payInvoice(pendingSwap.response.invoice);
-                }, 1000);
+                sleep(1000).then(() =>
+                    payInvoice(pendingSwap.response.invoice).catch((err) =>
+                        console.error("Error paying invoice:", err)
+                    )
+                );
 
                 await lightning.waitAndClaim(pendingSwap);
 
@@ -424,9 +426,11 @@ describe("ArkadeLightning", () => {
                 });
 
                 // act
-                setTimeout(async () => {
-                    await payInvoice(pendingSwap.response.invoice);
-                }, 1000);
+                sleep(1000).then(() =>
+                    payInvoice(pendingSwap.response.invoice).catch((err) =>
+                        console.error("Error paying invoice:", err)
+                    )
+                );
 
                 const response = await lightning.waitAndClaim(pendingSwap);
 
@@ -723,9 +727,11 @@ describe("ArkadeLightning", () => {
                 });
 
                 // act
-                setTimeout(async () => {
-                    await payInvoice(pendingSwap.response.invoice);
-                }, 1000);
+                sleep(1000).then(() =>
+                    payInvoice(pendingSwap.response.invoice).catch((err) =>
+                        console.error("Error paying invoice:", err)
+                    )
+                );
 
                 await lightning.waitAndClaim(pendingSwap);
 
