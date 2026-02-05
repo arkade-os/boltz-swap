@@ -664,7 +664,6 @@ export class ArkadeChainSwap {
                         );
                         break;
                     case "transaction.failed":
-                        console.warn("PORCO", status, data);
                         await updateSwapStatus(status);
                         reject(
                             new TransactionFailedError({
