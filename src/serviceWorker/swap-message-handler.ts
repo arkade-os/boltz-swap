@@ -112,11 +112,11 @@ export type SwapUpdaterResponse =
 
 type SwapUpdaterConfig = { pollInterval?: number; debug?: boolean };
 
-export class SwapUpdater
+export class SwapMessageHandler
     implements MessageHandler<SwapUpdaterRequest, SwapUpdaterResponse>
 {
     static messageTag = "SwapUpdater";
-    readonly messageTag = SwapUpdater.messageTag;
+    readonly messageTag = SwapMessageHandler.messageTag;
 
     private monitoredSwaps = new Map<string, PendingSwap>();
     private swapProvider: BoltzSwapProvider | undefined;
@@ -133,7 +133,10 @@ export class SwapUpdater
     }
 
     private prefixed(res: Partial<SwapUpdaterResponse>) {
-        return { tag: SwapUpdater.messageTag, ...res } as SwapUpdaterResponse;
+        return {
+            tag: SwapMessageHandler.messageTag,
+            ...res,
+        } as SwapUpdaterResponse;
     }
 
     async handleMessage(
@@ -223,7 +226,7 @@ export class SwapUpdater
             }
             default:
                 console.warn(
-                    `[${SwapUpdater.messageTag}] Unhandled message:`,
+                    `[${SwapMessageHandler.messageTag}] Unhandled message:`,
                     message
                 );
                 throw new Error(`Unhandled message: ${message}`);
@@ -258,7 +261,7 @@ export class SwapUpdater
                     return result.value;
                 } else {
                     console.error(
-                        `[${SwapUpdater.messageTag}] tick failed`,
+                        `[${SwapMessageHandler.messageTag}] tick failed`,
                         result.reason
                     );
                     // TODO: how to deliver errors down the stream? a broadcast?

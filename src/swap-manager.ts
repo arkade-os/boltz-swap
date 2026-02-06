@@ -12,7 +12,7 @@ import { PendingReverseSwap, PendingSubmarineSwap } from "./types";
 import { NetworkError } from "./errors";
 import { logger } from "./logger";
 import { PendingSwap } from "./repositories/swap-repository";
-import { ServiceWorkerSwapManager } from "./serviceWorker/swap-manager";
+import { SwSwapManagerRuntime } from "./serviceWorker/swap-manager-runtime";
 
 export interface SwapManagerConfig {
     /** Auto claim/refund swaps (default: true) */
@@ -77,7 +77,7 @@ type SwapUpdateCallback = (
 
 export class SwapManager {
     private readonly config: SwapManagerConfig;
-    private readonly svcSwapManager: ServiceWorkerSwapManager | undefined;
+    private readonly svcSwapManager: SwSwapManagerRuntime | undefined;
 
     // Event listeners storage (supports multiple listeners per event)
     private swapUpdateListeners = new Set<SwapUpdateListener>();
@@ -157,7 +157,7 @@ export class SwapManager {
 
         if (config.serviceWorker) {
             // Service Worker path!
-            this.svcSwapManager = new ServiceWorkerSwapManager(
+            this.svcSwapManager = new SwSwapManagerRuntime(
                 config.serviceWorker,
                 config
             );

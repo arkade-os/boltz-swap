@@ -3,7 +3,7 @@ import { BoltzSwapProvider, BoltzSwapStatus } from "../boltz-swap-provider";
 
 import { RequestEnvelope, ResponseEnvelope } from "@arkade-os/sdk";
 import {
-    SwapUpdater,
+    SwapMessageHandler,
     RequestInit,
     ResponseInit,
     RequestGetMonitoredSwaps,
@@ -17,7 +17,7 @@ import {
     RequestGetWsUrl,
     ResponseGetWsUrl,
     RequestSwapStatusUpdated,
-} from "./swap-updater";
+} from "./swap-message-handler";
 import { hex } from "@scure/base";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
 import { PendingSwap } from "../repositories/swap-repository";
@@ -39,7 +39,7 @@ export type ActionExecutedListener = (
     action: "claim" | "refund"
 ) => void;
 
-export class ServiceWorkerSwapManager {
+export class SwSwapManagerRuntime {
     private swapUpdateListeners = new Set<SwapUpdateListener>();
     private swapCompletedListeners = new Set<SwapCompletedListener>();
     private swapFailedListeners = new Set<SwapFailedListener>();
@@ -49,7 +49,7 @@ export class ServiceWorkerSwapManager {
         config: SwapManagerConfig
     ) {
         navigator.serviceWorker.addEventListener("message", (m) => {
-            if (m.data.tag !== SwapUpdater.messageTag) return;
+            if (m.data.tag !== SwapMessageHandler.messageTag) return;
             console.debug("[Swap Manager] broadcast received", m);
             this.onBroadcastMessage(m);
         });
@@ -177,7 +177,7 @@ export class ServiceWorkerSwapManager {
 
             navigator.serviceWorker.addEventListener("message", messageHandler);
             this.serviceWorker.postMessage({
-                tag: SwapUpdater.messageTag,
+                tag: SwapMessageHandler.messageTag,
                 id: id,
                 type: "type" in message ? message.type : "NO_TYPE",
                 payload: "payload" in message ? message.payload : undefined,

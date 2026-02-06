@@ -1,7 +1,5 @@
 import { SwapRepository } from "./swap-repository";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
-import { StorageAdapter } from "@arkade-os/sdk/adapters/indexedDB";
-import { ContractRepositoryImpl } from "@arkade-os";
 
 const MIGRATION_KEY = "migration-from-storage-adapter-swaps";
 

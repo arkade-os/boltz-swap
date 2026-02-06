@@ -399,7 +399,7 @@ export class ArkadeLightning implements IArkadeLightning {
         const allSwaps = await this.swapRepository.getAllSwaps();
 
         console.log("Starting SwapManager with", allSwaps.length, "swaps");
-        // Start the manager with all pending swaps
+        // Start the manager with all swaps
         await this.swapManager.start(allSwaps);
     }
 

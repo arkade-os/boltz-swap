@@ -1,32 +1,16 @@
-import type {
-    ArkProvider,
-    IContractManager,
-    IndexerProvider,
-    ServiceWorkerWallet,
-    Wallet,
-} from "../../../ts-sdk/src";
-import {
-    BoltzSwapProvider,
-    BoltzSwapStatus,
-    GetSwapStatusResponse,
-} from "../boltz-swap-provider";
+import { GetSwapStatusResponse } from "../boltz-swap-provider";
 import type {
     CreateLightningInvoiceRequest,
     CreateLightningInvoiceResponse,
-    FeeConfig,
     FeesResponse,
     LimitsResponse,
     PendingReverseSwap,
     PendingSubmarineSwap,
-    RefundHandler,
-    RetryConfig,
     SendLightningPaymentRequest,
     SendLightningPaymentResponse,
-    TimeoutConfig,
 } from "../types";
-import type { SwapManager, SwapManagerConfig } from "../swap-manager";
-import { PendingSwap, SwapRepository } from "../repositories/swap-repository";
-import { DEFAULT_MESSAGE_TAG } from "./arkade-lightning-updater";
+import { SwapRepository } from "../repositories/swap-repository";
+import { DEFAULT_MESSAGE_TAG } from "./arkade-lightning-message-handler";
 import type {
     RequestClaimVhtlc,
     RequestCreateLightningInvoice,
@@ -60,43 +44,15 @@ import type {
     ResponseSendLightningPayment,
     ResponseWaitAndClaim,
     ResponseWaitForSwapSettlement,
-} from "./arkade-lightning-updater";
-import type {
-    Identity,
-    RequestEnvelope,
-    ResponseEnvelope,
-    VHTLC,
-} from "@arkade-os/sdk";
+} from "./arkade-lightning-message-handler";
+import type { RequestEnvelope, ResponseEnvelope, VHTLC } from "@arkade-os/sdk";
 import { IArkadeLightning } from "../arkade-lightning";
+import { IndexedDbSwapRepository } from "../repositories/IndexedDb/swap-repository";
+import { SwapManager } from "../swap-manager";
 
 export type SvcWrkArkadeLightningConfig = {
     serviceWorker: ServiceWorker;
-    identity: Identity;
     messageTag?: string;
-    // path?
-
-    // shared
-    wallet: Wallet | ServiceWorkerWallet;
-    arkProvider?: ArkProvider;
-    swapProvider: BoltzSwapProvider;
-    indexerProvider?: IndexerProvider;
-    feeConfig?: Partial<FeeConfig>;
-    refundHandler?: RefundHandler;
-    timeoutConfig?: Partial<TimeoutConfig>;
-    retryConfig?: Partial<RetryConfig>;
-    /**
-     * Enable background swap monitoring and autonomous actions.
-     * - `false` or `undefined`: SwapManager disabled
-     * - `true`: SwapManager enabled with default configuration
-     * - `SwapManagerConfig` object: SwapManager enabled with custom configuration
-     */
-    swapManager?: boolean | (SwapManagerConfig & { autoStart?: boolean });
-    contractManager?: IContractManager;
-    /**
-     * Optional swap repository to use for persisting swap data.
-     * - `undefined`: fallback to default IndexedDbSwapRepository
-     * - `SwapRepository` object: SwapRepository enabled with custom configuration
-     */
     swapRepository?: SwapRepository;
 };
 
@@ -105,22 +61,35 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
 
     private constructor(
         public readonly serviceWorker: ServiceWorker,
-        protected readonly messageTag: string
+        private readonly messageTag: string,
+        readonly swapRepository: SwapRepository // expose methods, not the repo
     ) {}
 
     static create(options: SvcWrkArkadeLightningConfig) {
         const messageTag = options.messageTag ?? DEFAULT_MESSAGE_TAG;
 
+        const swapRepository =
+            options.swapRepository ?? new IndexedDbSwapRepository();
+
         const svcArkadeLightning = new SwArkadeLightningRuntime(
             options.serviceWorker,
-            messageTag
+            messageTag,
+            swapRepository
         );
 
         return svcArkadeLightning;
     }
 
     async startSwapManager(): Promise<void> {
-        await this.swapManager?.start();
+        if (!this.swapManager) {
+            throw new Error(
+                "SwapManager is not enabled. Provide 'swapManager' config in ArkadeLightningConfig."
+            );
+        }
+        // TODO: filter only pending swaps
+        const allSwaps = await this.swapRepository.getAllSwaps();
+        console.log("Starting SwapManager with", allSwaps.length, "swaps");
+        await this.swapManager.start(allSwaps);
     }
 
     async stopSwapManager(): Promise<void> {

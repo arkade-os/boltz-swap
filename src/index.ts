@@ -27,7 +27,11 @@ export {
 } from "./utils/decoding";
 export { verifySignatures } from "./utils/signatures";
 export { SwapManager } from "./swap-manager";
-export { SwapUpdater } from "./serviceWorker/swap-updater";
+export { SwapMessageHandler } from "./serviceWorker/swap-message-handler";
+export { SwSwapManagerRuntime } from "./serviceWorker/swap-manager-runtime";
+export { ArkadeLightningMessageHandler } from "./serviceWorker/arkade-lightning-message-handler";
+export { SwArkadeLightningRuntime } from "./serviceWorker/arkade-lightning-runtime";
+export { migrateToSwapRepository } from "./repositories/migrationFromContracts";
 export type {
     CreateLightningInvoiceResponse,
     SendLightningPaymentResponse,
@@ -49,3 +53,4 @@ export type {
 export type { SwapManagerConfig, SwapManagerEvents } from "./swap-manager";
 export { logger, setLogger } from "./logger";
 export type { Logger } from "./logger";
+export { IndexedDbSwapRepository } from "./repositories/IndexedDb/swap-repository";

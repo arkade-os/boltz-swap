@@ -256,7 +256,7 @@ export type ArkadeLightningUpdaterResponse =
     | ResponseGetSwapHistory
     | ResponseRefreshSwapsStatus;
 
-export class ArkadeLightningUpdater
+export class ArkadeLightningMessageHandler
     implements
         MessageHandler<
             ArkadeLightningUpdaterRequest,
@@ -264,7 +264,7 @@ export class ArkadeLightningUpdater
         >
 {
     static messageTag = "arkade-lightning-updater";
-    readonly messageTag = ArkadeLightningUpdater.messageTag;
+    readonly messageTag = ArkadeLightningMessageHandler.messageTag;
 
     private arkProvider: ArkProvider | undefined;
     private indexerProvider: IndexerProvider | undefined;
