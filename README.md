@@ -485,8 +485,8 @@ const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
 await arkadeChainSwap.btcToArk({
   amountSats: 21000,
   toAddress: await wallet.getAddress(),
-  onAddressGenerated: (btcAddress: string) => {
-    showQrCode(address)
+  onAddressGenerated: (btcAddress: string, amountInSats: number) => {
+    showQrCode(bip21(btcAddress, amountInSats))
   }
 })
 // User can navigate to other pages - swap completes in background

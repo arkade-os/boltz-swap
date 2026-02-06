@@ -544,14 +544,14 @@ export class ArkadeChainSwap {
      * @param args.toAddress - Destination Ark address.
      * @param args.amountSats - Amount in sats.
      * @param args.feeSatsPerByte - Optional fee rate in sats/vbyte.
-     * @param args.onAddressGenerated - Callback invoked with lockup address.
+     * @param args.onAddressGenerated - Callback invoked with lockup address and amount
      * @returns The pending chain swap.
      */
     async btcToArk(args: {
         toAddress: string;
         amountSats: number;
         feeSatsPerByte?: number;
-        onAddressGenerated: (address: string) => void;
+        onAddressGenerated: (address: string, amount: number) => void;
     }): Promise<PendingChainSwap> {
         // deconstruct args and validate
         const feeSatsPerByte = args.feeSatsPerByte ?? 1;
@@ -593,7 +593,8 @@ export class ArkadeChainSwap {
         });
 
         // notify the user of the generated lockup address
-        onAddressGenerated(pendingSwap.response.lockupDetails.lockupAddress);
+        const { lockupAddress, amount } = pendingSwap.response.lockupDetails;
+        onAddressGenerated(lockupAddress, amount);
 
         // wait for the swap to be ready and claim the VHTLC
         await this.waitAndClaimArk(pendingSwap);

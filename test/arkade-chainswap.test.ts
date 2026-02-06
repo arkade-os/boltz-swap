@@ -939,7 +939,8 @@ describe("ArkadeChainSwap", () => {
 
                 // assert
                 expect(onAddressGenerated).toHaveBeenCalledWith(
-                    mock.address.btc
+                    mock.address.btc,
+                    mock.amount
                 );
             });
         });

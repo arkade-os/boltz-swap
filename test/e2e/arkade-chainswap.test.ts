@@ -600,8 +600,11 @@ describe("ArkadeChainSwap", () => {
                 const amountSats = 21000;
                 const toAddress = await wallet.getAddress();
 
-                const onAddressGenerated = async (address: string) => {
-                    await fundBtcAddress(address, amountSats);
+                const onAddressGenerated = async (
+                    address: string,
+                    amount: number
+                ) => {
+                    await fundBtcAddress(address, amount);
                 };
 
                 // act
@@ -642,8 +645,11 @@ describe("ArkadeChainSwap", () => {
                 );
                 const toAddress = await wallet.getAddress();
 
-                const onAddressGenerated = async (address: string) => {
-                    await fundBtcAddress(address, amountSats);
+                const onAddressGenerated = async (
+                    address: string,
+                    amount: number
+                ) => {
+                    await fundBtcAddress(address, amount);
                 };
 
                 // act
@@ -852,13 +858,16 @@ describe("ArkadeChainSwap", () => {
                 { timeout: 10_000 },
                 async () => {
                     // arrange
-                    const amount = 10_000;
+                    const amountSats = 10_000;
 
                     // act
                     await chainSwap.btcToArk({
-                        amountSats: amount,
+                        amountSats,
                         toAddress: await wallet.getAddress(),
-                        onAddressGenerated: async (address: string) => {
+                        onAddressGenerated: async (
+                            address: string,
+                            amount: number
+                        ) => {
                             await fundBtcAddress(address, amount);
                         },
                     });
@@ -869,7 +878,9 @@ describe("ArkadeChainSwap", () => {
                     expect(pendingSwaps).toHaveLength(1);
                     expect(pendingSwaps[0].type).toBe("chain");
                     expect(pendingSwaps[0].status).toBe("transaction.claimed");
-                    expect(pendingSwaps[0].request.userLockAmount).toBe(amount);
+                    expect(pendingSwaps[0].request.userLockAmount).toBe(
+                        amountSats
+                    );
                 }
             );
 
