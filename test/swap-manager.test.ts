@@ -859,7 +859,7 @@ describe("SwapManager", () => {
             // Mock getReverseSwapTxId to return a mock txid
             vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
                 id: mockTxId,
-                hex: "0200000001...",
+                timeoutBlockHeight: 123,
             });
 
             swapManager = new SwapManager(swapProvider);

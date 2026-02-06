@@ -1,15 +1,22 @@
 import {
+    isPendingChainSwap,
     isPendingReverseSwap,
     isPendingSubmarineSwap,
 } from "../boltz-swap-provider";
-import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
+import {
+    PendingChainSwap,
+    PendingReverseSwap,
+    PendingSubmarineSwap,
+    PendingSwap,
+} from "../types";
 
 /**
  * Generic type for swap save functions
  */
 export type SwapSaver = {
-    saveReverseSwap: (swap: PendingReverseSwap) => Promise<void>;
-    saveSubmarineSwap: (swap: PendingSubmarineSwap) => Promise<void>;
+    saveChainSwap?: (swap: PendingChainSwap) => Promise<void>;
+    saveReverseSwap?: (swap: PendingReverseSwap) => Promise<void>;
+    saveSubmarineSwap?: (swap: PendingSubmarineSwap) => Promise<void>;
 };
 
 /**
@@ -17,13 +24,15 @@ export type SwapSaver = {
  * This eliminates the need for type checking in multiple places
  */
 export async function saveSwap(
-    swap: PendingReverseSwap | PendingSubmarineSwap,
+    swap: PendingSwap,
     saver: SwapSaver
 ): Promise<void> {
     if (isPendingReverseSwap(swap)) {
-        await saver.saveReverseSwap(swap);
+        await saver.saveReverseSwap?.(swap);
     } else if (isPendingSubmarineSwap(swap)) {
-        await saver.saveSubmarineSwap(swap);
+        await saver.saveSubmarineSwap?.(swap);
+    } else if (isPendingChainSwap(swap)) {
+        await saver.saveChainSwap?.(swap);
     }
 }
 
