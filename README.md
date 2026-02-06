@@ -475,7 +475,7 @@ const arkadeChainSwap = new ArkadeChainSwap({
 
 // If autostart is false, manually start monitoring
 // (autostart is true by default, so this is only needed if you set it to false)
-if (config.swapManager?.autostart === false) {
+if (swapManager?.autoStart === false) {
   await arkadeLightning.startSwapManager();
 }
 

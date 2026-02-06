@@ -225,7 +225,7 @@ export class ArkadeChainSwap {
             if (error.isRefundable) {
                 await this.refundArk(pendingSwap);
                 const { status } = await this.getSwapStatus(pendingSwap.id);
-                this.savePendingChainSwap({ ...pendingSwap, status });
+                await this.savePendingChainSwap({ ...pendingSwap, status });
             }
             throw new TransactionFailedError();
         }
