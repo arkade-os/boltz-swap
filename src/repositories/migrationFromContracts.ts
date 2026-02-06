@@ -19,31 +19,47 @@ export type LegacyStorageAccessor = {
  *
  * @param storageAdapter - The storage adapter to read the swaps from.
  * @param fresh - The new swap repository to save the swaps to.
+ *
+ * @return true if data was migrated
  */
 export async function migrateToSwapRepository(
     storageAdapter: LegacyStorageAccessor,
     fresh: SwapRepository
-) {
-    const migration = await storageAdapter.getItem(MIGRATION_KEY);
-    if (migration === "done") {
-        return;
+): Promise<boolean> {
+    try {
+        const migration = await storageAdapter.getItem(MIGRATION_KEY);
+        if (migration === "done") {
+            return false;
+        }
+
+        // reverse swaps
+        const reverseSwaps: readonly PendingReverseSwap[] =
+            await getContractCollection(storageAdapter, "reverseSwaps");
+        const submarineSwaps: readonly PendingSubmarineSwap[] =
+            await getContractCollection(storageAdapter, "submarineSwaps");
+
+        for (const swap of reverseSwaps) {
+            await fresh.saveSwap(swap);
+        }
+
+        for (const swap of submarineSwaps) {
+            await fresh.saveSwap(swap);
+        }
+
+        await storageAdapter.setItem(MIGRATION_KEY, "done");
+        return true;
+    } catch (error) {
+        if (
+            error instanceof Error &&
+            error.message.includes(
+                "One of the specified object stores was not found."
+            )
+        ) {
+            // This error occurs if app tries to migrate without having an existing storage
+            return false;
+        }
+        throw error;
     }
-
-    // reverse swaps
-    const reverseSwaps: readonly PendingReverseSwap[] =
-        await getContractCollection(storageAdapter, "reverseSwaps");
-    const submarineSwaps: readonly PendingSubmarineSwap[] =
-        await getContractCollection(storageAdapter, "submarineSwaps");
-
-    for (const swap of reverseSwaps) {
-        await fresh.saveSwap(swap);
-    }
-
-    for (const swap of submarineSwaps) {
-        await fresh.saveSwap(swap);
-    }
-
-    await storageAdapter.setItem(MIGRATION_KEY, "done");
 }
 
 async function getContractCollection<T>(
