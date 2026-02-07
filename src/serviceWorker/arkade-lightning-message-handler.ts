@@ -1,11 +1,6 @@
 import {
-    ArkInfo,
-    ArkTxInput,
     IWallet,
     IReadonlyWallet,
-    CSVMultisigTapscript,
-    buildOffchainTx,
-    combineTapscriptSigs,
     RequestEnvelope,
     ResponseEnvelope,
     MessageHandler,
@@ -35,10 +30,6 @@ import {
     IndexerProvider,
     RestIndexerProvider,
 } from "../../../ts-sdk/src/providers/indexer";
-import { base64, hex } from "@scure/base";
-import { TransactionOutput } from "@scure/btc-signer/psbt.js";
-import { Transaction } from "@scure/btc-signer";
-import { verifySignatures } from "../utils/signatures";
 import { ArkadeLightning, IArkadeLightning } from "../arkade-lightning";
 
 export const DEFAULT_MESSAGE_TAG = "ARKADE_LIGHTNING_UPDATER";
@@ -214,6 +205,88 @@ export type ResponseRefreshSwapsStatus = ResponseEnvelope & {
     type: "SWAPS_STATUS_REFRESHED";
 };
 
+/* --- SwapManager requests/responses (Service Worker) --- */
+
+export type RequestSwapManagerStart = RequestEnvelope & {
+    type: "SM-START";
+};
+export type ResponseSwapManagerStart = ResponseEnvelope & {
+    type: "SM-STARTED";
+};
+
+export type RequestSwapManagerStop = RequestEnvelope & {
+    type: "SM-STOP";
+};
+export type ResponseSwapManagerStop = ResponseEnvelope & {
+    type: "SM-STOPPED";
+};
+
+export type RequestSwapManagerAddSwap = RequestEnvelope & {
+    type: "SM-ADD_SWAP";
+    payload: PendingReverseSwap | PendingSubmarineSwap;
+};
+export type ResponseSwapManagerAddSwap = ResponseEnvelope & {
+    type: "SM-SWAP_ADDED";
+};
+
+export type RequestSwapManagerRemoveSwap = RequestEnvelope & {
+    type: "SM-REMOVE_SWAP";
+    payload: { swapId: string };
+};
+export type ResponseSwapManagerRemoveSwap = ResponseEnvelope & {
+    type: "SM-SWAP_REMOVED";
+};
+
+export type RequestSwapManagerGetPending = RequestEnvelope & {
+    type: "SM-GET_PENDING_SWAPS";
+};
+export type ResponseSwapManagerGetPending = ResponseEnvelope & {
+    type: "SM-PENDING_SWAPS";
+    payload: (PendingReverseSwap | PendingSubmarineSwap)[];
+};
+
+export type RequestSwapManagerHasSwap = RequestEnvelope & {
+    type: "SM-HAS_SWAP";
+    payload: { swapId: string };
+};
+export type ResponseSwapManagerHasSwap = ResponseEnvelope & {
+    type: "SM-HAS_SWAP_RESULT";
+    payload: { has: boolean };
+};
+
+export type RequestSwapManagerIsProcessing = RequestEnvelope & {
+    type: "SM-IS_PROCESSING";
+    payload: { swapId: string };
+};
+export type ResponseSwapManagerIsProcessing = ResponseEnvelope & {
+    type: "SM-IS_PROCESSING_RESULT";
+    payload: { processing: boolean };
+};
+
+export type RequestSwapManagerGetStats = RequestEnvelope & {
+    type: "SM-GET_STATS";
+};
+export type ResponseSwapManagerGetStats = ResponseEnvelope & {
+    type: "SM-STATS";
+    payload: {
+        isRunning: boolean;
+        monitoredSwaps: number;
+        websocketConnected: boolean;
+        usePollingFallback: boolean;
+        currentReconnectDelay: number;
+        currentPollRetryDelay: number;
+    };
+};
+
+export type RequestSwapManagerWaitForCompletion = RequestEnvelope & {
+    type: "SM-WAIT_FOR_COMPLETION";
+    payload: { swapId: string };
+};
+export type ResponseSwapManagerWaitForCompletion = ResponseEnvelope & {
+    type: "SM-COMPLETED";
+    payload: { txid: string };
+};
+
 export type ArkadeLightningUpdaterRequest =
     | RequestInitArkLn
     | RequestCreateLightningInvoice
@@ -233,7 +306,16 @@ export type ArkadeLightningUpdaterRequest =
     | RequestGetPendingSubmarineSwaps
     | RequestGetPendingReverseSwaps
     | RequestGetSwapHistory
-    | RequestRefreshSwapsStatus;
+    | RequestRefreshSwapsStatus
+    | RequestSwapManagerStart
+    | RequestSwapManagerStop
+    | RequestSwapManagerAddSwap
+    | RequestSwapManagerRemoveSwap
+    | RequestSwapManagerGetPending
+    | RequestSwapManagerHasSwap
+    | RequestSwapManagerIsProcessing
+    | RequestSwapManagerGetStats
+    | RequestSwapManagerWaitForCompletion;
 
 export type ArkadeLightningUpdaterResponse =
     | ResponseInitArkLn
@@ -254,7 +336,16 @@ export type ArkadeLightningUpdaterResponse =
     | ResponseGetPendingSubmarineSwaps
     | ResponseGetPendingReverseSwaps
     | ResponseGetSwapHistory
-    | ResponseRefreshSwapsStatus;
+    | ResponseRefreshSwapsStatus
+    | ResponseSwapManagerStart
+    | ResponseSwapManagerStop
+    | ResponseSwapManagerAddSwap
+    | ResponseSwapManagerRemoveSwap
+    | ResponseSwapManagerGetPending
+    | ResponseSwapManagerHasSwap
+    | ResponseSwapManagerIsProcessing
+    | ResponseSwapManagerGetStats
+    | ResponseSwapManagerWaitForCompletion;
 
 export class ArkadeLightningMessageHandler
     implements
@@ -263,7 +354,7 @@ export class ArkadeLightningMessageHandler
             ArkadeLightningUpdaterResponse
         >
 {
-    static messageTag = "arkade-lightning-updater";
+    static messageTag = DEFAULT_MESSAGE_TAG;
     readonly messageTag = ArkadeLightningMessageHandler.messageTag;
 
     private arkProvider: ArkProvider | undefined;
@@ -481,6 +572,82 @@ export class ArkadeLightningMessageHandler
                     await this.handler.refreshSwapsStatus();
                     return this.tagged({ id, type: "SWAPS_STATUS_REFRESHED" });
 
+                /* --- SwapManager methods --- */
+                case "SM-START": {
+                    await this.handler.startSwapManager();
+                    return this.tagged({ id, type: "SM-STARTED" });
+                }
+
+                case "SM-STOP": {
+                    await this.handler.stopSwapManager();
+                    return this.tagged({ id, type: "SM-STOPPED" });
+                }
+
+                case "SM-ADD_SWAP": {
+                    this.handler.getSwapManager()!.addSwap(message.payload);
+                    return this.tagged({ id, type: "SM-SWAP_ADDED" });
+                }
+
+                case "SM-REMOVE_SWAP": {
+                    this.handler
+                        .getSwapManager()!
+                        .removeSwap(message.payload.swapId);
+                    return this.tagged({ id, type: "SM-SWAP_REMOVED" });
+                }
+
+                case "SM-GET_PENDING_SWAPS": {
+                    const res = this.handler
+                        .getSwapManager()!
+                        .getPendingSwaps();
+                    return this.tagged({
+                        id,
+                        type: "SM-PENDING_SWAPS",
+                        payload: res,
+                    });
+                }
+
+                case "SM-HAS_SWAP": {
+                    const has = this.handler
+                        .getSwapManager()!
+                        .hasSwap(message.payload.swapId);
+                    return this.tagged({
+                        id,
+                        type: "SM-HAS_SWAP_RESULT",
+                        payload: { has },
+                    });
+                }
+
+                case "SM-IS_PROCESSING": {
+                    const processing = this.handler
+                        .getSwapManager()!
+                        .isProcessing(message.payload.swapId);
+                    return this.tagged({
+                        id,
+                        type: "SM-IS_PROCESSING_RESULT",
+                        payload: { processing },
+                    });
+                }
+
+                case "SM-GET_STATS": {
+                    const stats = this.handler.getSwapManager()!.getStats();
+                    return this.tagged({
+                        id,
+                        type: "SM-STATS",
+                        payload: stats,
+                    });
+                }
+
+                case "SM-WAIT_FOR_COMPLETION": {
+                    const res = await this.handler
+                        .getSwapManager()!
+                        .waitForSwapCompletion(message.payload.swapId);
+                    return this.tagged({
+                        id,
+                        type: "SM-COMPLETED",
+                        payload: res,
+                    });
+                }
+
                 default:
                     console.error("Unknown message type", message);
                     throw new Error("Unknown message");
@@ -508,157 +675,11 @@ export class ArkadeLightningMessageHandler
             swapProvider: this.swapProvider,
             indexerProvider: this.indexerProvider,
             swapRepository: this.swapRepository,
-            // SwapManager handles SW by itself
-            swapManager: undefined,
+            swapManager: payload.swapManager,
             feeConfig: payload.feeConfig,
             timeoutConfig: payload.timeoutConfig,
             retryConfig: payload.retryConfig,
         });
         this.handler = handler;
-    }
-
-    private async withInit<T>(
-        fn: (
-            wallet: IWallet,
-            indexerProvider: IndexerProvider,
-            arkProvider: ArkProvider,
-            swapProvider: BoltzSwapProvider
-        ) => T
-    ): Promise<T> {
-        if (
-            this.wallet &&
-            this.indexerProvider &&
-            this.arkProvider &&
-            this.swapProvider
-        ) {
-            return fn(
-                this.wallet,
-                this.indexerProvider,
-                this.arkProvider,
-                this.swapProvider
-            );
-        }
-        throw new Error("Updater not initialized");
-    }
-
-    async refundVHTLCwithOffchainTx(
-        pendingSwap: PendingSubmarineSwap,
-        boltzXOnlyPublicKey: Uint8Array,
-        ourXOnlyPublicKey: Uint8Array,
-        serverXOnlyPublicKey: Uint8Array,
-        input: ArkTxInput,
-        output: TransactionOutput,
-        arkInfos: Pick<ArkInfo, "checkpointTapscript">
-    ): Promise<void> {
-        // create the server unroll script for checkpoint transactions
-        const rawCheckpointTapscript = hex.decode(arkInfos.checkpointTapscript);
-        const serverUnrollScript = CSVMultisigTapscript.decode(
-            rawCheckpointTapscript
-        );
-
-        // create the virtual transaction to claim the VHTLC
-        const { arkTx: unsignedRefundTx, checkpoints: checkpointPtxs } =
-            buildOffchainTx([input], [output], serverUnrollScript);
-
-        // validate we have one checkpoint transaction
-        if (checkpointPtxs.length !== 1)
-            throw new Error(
-                `Expected one checkpoint transaction, got ${checkpointPtxs.length}`
-            );
-
-        const unsignedCheckpointTx = checkpointPtxs[0];
-
-        return this.withInit(
-            async (wallet, _indexerProvider, arkProvider, swapProvider) => {
-                // get Boltz to sign its part
-                const {
-                    transaction: boltzSignedRefundTx,
-                    checkpoint: boltzSignedCheckpointTx,
-                } = await swapProvider.refundSubmarineSwap(
-                    pendingSwap.id,
-                    unsignedRefundTx,
-                    unsignedCheckpointTx
-                );
-
-                // Verify Boltz signatures before combining
-                const boltzXOnlyPublicKeyHex = hex.encode(boltzXOnlyPublicKey);
-                if (
-                    !verifySignatures(boltzSignedRefundTx, 0, [
-                        boltzXOnlyPublicKeyHex,
-                    ])
-                ) {
-                    throw new Error(
-                        "Invalid Boltz signature in refund transaction"
-                    );
-                }
-                if (
-                    !verifySignatures(boltzSignedCheckpointTx, 0, [
-                        boltzXOnlyPublicKeyHex,
-                    ])
-                ) {
-                    throw new Error(
-                        "Invalid Boltz signature in checkpoint transaction"
-                    );
-                }
-
-                // sign our part
-                const signedRefundTx =
-                    await wallet.identity.sign(unsignedRefundTx);
-                const signedCheckpointTx =
-                    await wallet.identity.sign(unsignedCheckpointTx);
-
-                // combine transactions
-                const combinedSignedRefundTx = combineTapscriptSigs(
-                    boltzSignedRefundTx,
-                    signedRefundTx
-                );
-                const combinedSignedCheckpointTx = combineTapscriptSigs(
-                    boltzSignedCheckpointTx,
-                    signedCheckpointTx
-                );
-
-                // get server to sign its part of the combined transaction
-                const { arkTxid, finalArkTx, signedCheckpointTxs } =
-                    await arkProvider.submitTx(
-                        base64.encode(combinedSignedRefundTx.toPSBT()),
-                        [base64.encode(unsignedCheckpointTx.toPSBT())]
-                    );
-
-                // verify the final tx is properly signed
-                const tx = Transaction.fromPSBT(base64.decode(finalArkTx));
-                const inputIndex = 0;
-                const requiredSigners = [
-                    hex.encode(ourXOnlyPublicKey),
-                    hex.encode(boltzXOnlyPublicKey),
-                    hex.encode(serverXOnlyPublicKey),
-                ];
-
-                if (!verifySignatures(tx, inputIndex, requiredSigners)) {
-                    throw new Error("Invalid refund transaction");
-                }
-
-                // validate we received exactly one checkpoint transaction
-                if (signedCheckpointTxs.length !== 1) {
-                    throw new Error(
-                        `Expected one signed checkpoint transaction, got ${signedCheckpointTxs.length}`
-                    );
-                }
-
-                // combine the checkpoint signatures
-                const serverSignedCheckpointTx = Transaction.fromPSBT(
-                    base64.decode(signedCheckpointTxs[0])
-                );
-
-                const finalCheckpointTx = combineTapscriptSigs(
-                    combinedSignedCheckpointTx,
-                    serverSignedCheckpointTx
-                );
-
-                // finalize the transaction
-                await arkProvider.finalizeTx(arkTxid, [
-                    base64.encode(finalCheckpointTx.toPSBT()),
-                ]);
-            }
-        );
     }
 }

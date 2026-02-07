@@ -1,22 +1,14 @@
 import { SwapManagerConfig } from "../swap-manager";
 import { BoltzSwapProvider, BoltzSwapStatus } from "../boltz-swap-provider";
 
-import { RequestEnvelope, ResponseEnvelope } from "@arkade-os/sdk";
 import {
     SwapMessageHandler,
-    RequestInit,
-    ResponseInit,
-    RequestGetMonitoredSwaps,
     ResponseGetMonitoredSwaps,
-    RequestGetSwap,
     ResponseGetSwap,
-    RequestMonitorSwap,
-    RequestStopMonitoringSwap,
-    RequestGetReverseSwapTx,
     ResponseGetReverseSwapTx,
-    RequestGetWsUrl,
     ResponseGetWsUrl,
-    RequestSwapStatusUpdated,
+    SwapUpdaterRequest,
+    SwapUpdaterResponse,
 } from "./swap-message-handler";
 import { hex } from "@scure/base";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../types";
@@ -67,8 +59,10 @@ export class SwSwapManagerRuntime {
     async init(config: {
         network: ReturnType<BoltzSwapProvider["getNetwork"]>;
         apiUrl: string;
-    }) {
-        return this.sendMessage<RequestInit, ResponseInit>({
+    }): Promise<void> {
+        await this.sendMessage({
+            id: getRandomId(),
+            tag: SwapMessageHandler.messageTag,
             type: "INIT",
             payload: {
                 apiUrl: config.apiUrl,
@@ -78,54 +72,77 @@ export class SwSwapManagerRuntime {
     }
 
     async getMonitoredSwaps(): Promise<PendingSwap[]> {
-        const res = await this.sendMessage<
-            RequestGetMonitoredSwaps,
-            ResponseGetMonitoredSwaps
-        >({ type: "GET_MONITORED_SWAPS" });
-        if (res.payload.swaps) return res.payload.swaps;
-        throw new Error("Failed to get monitored swaps");
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: SwapMessageHandler.messageTag,
+                type: "GET_MONITORED_SWAPS",
+            });
+            return (res as ResponseGetMonitoredSwaps).payload.swaps;
+        } catch (e) {
+            throw new Error("Failed to get monitored swaps", { cause: e });
+        }
     }
 
     async getSwap(swapId: string): Promise<PendingSwap | undefined> {
-        const res = await this.sendMessage<RequestGetSwap, ResponseGetSwap>({
-            type: "GET_SWAP",
-            payload: { swapId },
-        });
-        return res.payload.swap;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: SwapMessageHandler.messageTag,
+                type: "GET_SWAP",
+                payload: { swapId },
+            });
+            return (res as ResponseGetSwap).payload.swap;
+        } catch (e) {
+            throw new Error(`Failed to get swap ${swapId}`, { cause: e });
+        }
     }
 
     async monitorSwap(swap: PendingSwap): Promise<void> {
-        await this.sendMessage<RequestMonitorSwap>({
+        await this.sendMessage({
+            id: getRandomId(),
+            tag: SwapMessageHandler.messageTag,
             type: "MONITOR_SWAP",
             payload: { swap },
         });
     }
 
     async stopMonitoringSwap(swapId: string): Promise<void> {
-        await this.sendMessage<RequestStopMonitoringSwap>({
+        await this.sendMessage({
+            id: getRandomId(),
+            tag: SwapMessageHandler.messageTag,
             type: "STOP_MONITORING_SWAP",
             payload: { swapId },
         });
     }
 
     async getReverseSwapTxId(swapId: string): Promise<string> {
-        const res = await this.sendMessage<
-            RequestGetReverseSwapTx,
-            ResponseGetReverseSwapTx
-        >({
-            type: "GET_REVERSE_SWAP_TX_ID" as any,
-            id: getRandomId() as any,
-            payload: { swapId },
-        });
-        return res.payload.txid;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: SwapMessageHandler.messageTag,
+                type: "GET_REVERSE_SWAP_TX_ID",
+                payload: { swapId },
+            });
+            return (res as ResponseGetReverseSwapTx).payload.txid;
+        } catch (e) {
+            throw new Error(`Failed to get reverse swap txid for ${swapId}`, {
+                cause: e,
+            });
+        }
     }
 
     async getWsUrl(): Promise<string> {
-        const res = await this.sendMessage<RequestGetWsUrl, ResponseGetWsUrl>({
-            type: "GET_WS_URL",
-            id: getRandomId(),
-        });
-        return res.payload.wsUrl;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: SwapMessageHandler.messageTag,
+                type: "GET_WS_URL",
+            });
+            return (res as ResponseGetWsUrl).payload.wsUrl;
+        } catch (e) {
+            throw new Error("Failed to get swap websocket URL", { cause: e });
+        }
     }
 
     async notifySwapStatusUpdate(input: {
@@ -133,9 +150,10 @@ export class SwSwapManagerRuntime {
         status: BoltzSwapStatus;
         error: string;
     }): Promise<void> {
-        await this.sendMessage<RequestSwapStatusUpdated>({
+        await this.sendMessage({
             type: "SWAP_STATUS_UPDATED",
             id: getRandomId(),
+            tag: SwapMessageHandler.messageTag,
             payload: {
                 swapId: input.swapId,
                 error: input.error,
@@ -145,29 +163,20 @@ export class SwSwapManagerRuntime {
     }
 
     // send a message and wait for a response
-    private async sendMessage<
-        REQ extends RequestEnvelope = RequestEnvelope,
-        RES extends ResponseEnvelope = ResponseEnvelope,
-    >(message: Partial<REQ>): Promise<RES> {
-        const id = getRandomId();
+    private async sendMessage(
+        request: SwapUpdaterRequest
+    ): Promise<SwapUpdaterResponse> {
         return new Promise((resolve, reject) => {
             const messageHandler = (event: MessageEvent) => {
-                const response = event.data as RES;
-                if (!response) {
-                    console.log("Invalid response received from SW", event);
-                }
-                if (response.id === "") {
-                    reject(new Error("Invalid response id"));
+                const response = event.data;
+                if (request.id !== response.id) {
                     return;
                 }
-                if (response.id !== id) {
-                    return;
-                }
+
                 navigator.serviceWorker.removeEventListener(
                     "message",
                     messageHandler
                 );
-
                 if (response.error) {
                     reject(response.error);
                 } else {
@@ -176,12 +185,7 @@ export class SwSwapManagerRuntime {
             };
 
             navigator.serviceWorker.addEventListener("message", messageHandler);
-            this.serviceWorker.postMessage({
-                tag: SwapMessageHandler.messageTag,
-                id: id,
-                type: "type" in message ? message.type : "NO_TYPE",
-                payload: "payload" in message ? message.payload : undefined,
-            });
+            this.serviceWorker.postMessage(request);
         });
     }
 

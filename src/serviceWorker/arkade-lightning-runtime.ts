@@ -1,5 +1,6 @@
 import { GetSwapStatusResponse } from "../boltz-swap-provider";
 import type {
+    ArkadeLightningConfig,
     CreateLightningInvoiceRequest,
     CreateLightningInvoiceResponse,
     FeesResponse,
@@ -10,25 +11,12 @@ import type {
     SendLightningPaymentResponse,
 } from "../types";
 import { SwapRepository } from "../repositories/swap-repository";
-import { DEFAULT_MESSAGE_TAG } from "./arkade-lightning-message-handler";
+import {
+    ArkadeLightningUpdaterRequest,
+    ArkadeLightningUpdaterResponse,
+    DEFAULT_MESSAGE_TAG,
+} from "./arkade-lightning-message-handler";
 import type {
-    RequestClaimVhtlc,
-    RequestCreateLightningInvoice,
-    RequestCreateReverseSwap,
-    RequestCreateSubmarineSwap,
-    RequestGetFees,
-    RequestGetLimits,
-    RequestGetPendingReverseSwaps,
-    RequestGetPendingSubmarineSwaps,
-    RequestGetSwapHistory,
-    RequestGetSwapStatus,
-    RequestRefundVhtlc,
-    RequestRefreshSwapsStatus,
-    RequestRestoreSwaps,
-    RequestSendLightningPayment,
-    RequestWaitAndClaim,
-    RequestWaitForSwapSettlement,
-    ResponseClaimVhtlc,
     ResponseCreateLightningInvoice,
     ResponseCreateReverseSwap,
     ResponseCreateSubmarineSwap,
@@ -38,129 +26,265 @@ import type {
     ResponseGetPendingSubmarineSwaps,
     ResponseGetSwapHistory,
     ResponseGetSwapStatus,
-    ResponseRefundVhtlc,
-    ResponseRefreshSwapsStatus,
     ResponseRestoreSwaps,
     ResponseSendLightningPayment,
     ResponseWaitAndClaim,
     ResponseWaitForSwapSettlement,
 } from "./arkade-lightning-message-handler";
-import type { RequestEnvelope, ResponseEnvelope, VHTLC } from "@arkade-os/sdk";
+import type { VHTLC } from "@arkade-os/sdk";
 import { IArkadeLightning } from "../arkade-lightning";
 import { IndexedDbSwapRepository } from "../repositories/IndexedDb/swap-repository";
-import { SwapManager } from "../swap-manager";
+import type { SwapManager } from "../swap-manager";
 
-export type SvcWrkArkadeLightningConfig = {
+export type SvcWrkArkadeLightningConfig = Pick<
+    ArkadeLightningConfig,
+    "swapManager" | "swapProvider" | "swapRepository"
+> & {
     serviceWorker: ServiceWorker;
     messageTag?: string;
-    swapRepository?: SwapRepository;
 };
 
 export class SwArkadeLightningRuntime implements IArkadeLightning {
-    readonly swapManager: SwapManager | null = null;
-
     private constructor(
-        public readonly serviceWorker: ServiceWorker,
         private readonly messageTag: string,
-        readonly swapRepository: SwapRepository // expose methods, not the repo
+        public readonly serviceWorker: ServiceWorker,
+        public readonly swapRepository: SwapRepository, // expose methods, not the repo
+        private readonly withSwapManager: boolean
     ) {}
 
-    static create(options: SvcWrkArkadeLightningConfig) {
-        const messageTag = options.messageTag ?? DEFAULT_MESSAGE_TAG;
+    static create(config: SvcWrkArkadeLightningConfig) {
+        const messageTag = config.messageTag ?? DEFAULT_MESSAGE_TAG;
 
         const swapRepository =
-            options.swapRepository ?? new IndexedDbSwapRepository();
+            config.swapRepository ?? new IndexedDbSwapRepository();
 
         const svcArkadeLightning = new SwArkadeLightningRuntime(
-            options.serviceWorker,
             messageTag,
-            swapRepository
+            config.serviceWorker,
+            swapRepository,
+            Boolean(config.swapManager)
         );
 
         return svcArkadeLightning;
     }
 
     async startSwapManager(): Promise<void> {
-        if (!this.swapManager) {
-            throw new Error(
-                "SwapManager is not enabled. Provide 'swapManager' config in ArkadeLightningConfig."
-            );
+        if (!this.withSwapManager) {
+            throw new Error("SwapManager is not enabled.");
         }
-        // TODO: filter only pending swaps
-        const allSwaps = await this.swapRepository.getAllSwaps();
-        console.log("Starting SwapManager with", allSwaps.length, "swaps");
-        await this.swapManager.start(allSwaps);
+
+        await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
+            type: "SM-START",
+        });
     }
 
     async stopSwapManager(): Promise<void> {
-        await this.swapManager?.stop();
+        if (!this.withSwapManager) return;
+
+        await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
+            type: "SM-STOP",
+        });
     }
 
     getSwapManager() {
-        return this.swapManager ?? null;
+        if (!this.withSwapManager) {
+            return null;
+        }
+
+        const send = this.sendMessage.bind(this);
+        const tag = this.messageTag;
+
+        const proxy = {
+            start: async () => {
+                await send({
+                    id: getRandomId(),
+                    tag,
+                    type: "SM-START",
+                });
+            },
+            stop: async () => {
+                await send({
+                    id: getRandomId(),
+                    tag,
+                    type: "SM-STOP",
+                });
+            },
+            addSwap: async (swap: PendingReverseSwap | PendingSubmarineSwap) => {
+                await send({
+                    id: getRandomId(),
+                    tag,
+                    type: "SM-ADD_SWAP",
+                    payload: swap,
+                });
+            },
+            removeSwap: async (swapId: string) => {
+                await send({
+                    id: getRandomId(),
+                    tag,
+                    type: "SM-REMOVE_SWAP",
+                    payload: { swapId },
+                });
+            },
+            getPendingSwaps: async () => {
+                const res = await send({
+                    id: getRandomId(),
+                    tag,
+                    type: "SM-GET_PENDING_SWAPS",
+                });
+                return (res as ArkadeLightningUpdaterResponse & {
+                    payload: (PendingReverseSwap | PendingSubmarineSwap)[];
+                }).payload;
+            },
+            hasSwap: async (swapId: string) => {
+                const res = await send({
+                    id: getRandomId(),
+                    tag,
+                    type: "SM-HAS_SWAP",
+                    payload: { swapId },
+                });
+                return (res as ArkadeLightningUpdaterResponse & {
+                    payload: { has: boolean };
+                }).payload.has;
+            },
+            isProcessing: async (swapId: string) => {
+                const res = await send({
+                    id: getRandomId(),
+                    tag,
+                    type: "SM-IS_PROCESSING",
+                    payload: { swapId },
+                });
+                return (res as ArkadeLightningUpdaterResponse & {
+                    payload: { processing: boolean };
+                }).payload.processing;
+            },
+            getStats: async () => {
+                const res = await send({
+                    id: getRandomId(),
+                    tag,
+                    type: "SM-GET_STATS",
+                });
+                return (res as ArkadeLightningUpdaterResponse & {
+                    payload: {
+                        isRunning: boolean;
+                        monitoredSwaps: number;
+                        websocketConnected: boolean;
+                        usePollingFallback: boolean;
+                        currentReconnectDelay: number;
+                        currentPollRetryDelay: number;
+                    };
+                }).payload;
+            },
+            waitForSwapCompletion: async (swapId: string) => {
+                const res = await send({
+                    id: getRandomId(),
+                    tag,
+                    type: "SM-WAIT_FOR_COMPLETION",
+                    payload: { swapId },
+                });
+                return (res as ArkadeLightningUpdaterResponse & {
+                    payload: { txid: string };
+                }).payload;
+            },
+            // Event-related APIs are stubbed for now (non-serializable callbacks)
+            subscribeToSwapUpdates: async () => () => {},
+            onSwapUpdate: async () => () => {},
+            onSwapCompleted: async () => () => {},
+            onSwapFailed: async () => () => {},
+            onActionExecuted: async () => () => {},
+            onWebSocketConnected: async () => () => {},
+            onWebSocketDisconnected: async () => () => {},
+            offSwapUpdate: async () => {},
+            offSwapCompleted: async () => {},
+            offSwapFailed: async () => {},
+            offActionExecuted: async () => {},
+            offWebSocketConnected: async () => {},
+            offWebSocketDisconnected: async () => {},
+        };
+
+        return proxy as unknown as SwapManager;
     }
 
     async createLightningInvoice(
         args: CreateLightningInvoiceRequest
     ): Promise<CreateLightningInvoiceResponse> {
-        const res = await this.sendMessage<
-            RequestCreateLightningInvoice,
-            ResponseCreateLightningInvoice
-        >({
-            type: "CREATE_LIGHTNING_INVOICE",
-            payload: args,
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "CREATE_LIGHTNING_INVOICE",
+                payload: args,
+            });
+            return (res as ResponseCreateLightningInvoice).payload;
+        } catch (e) {
+            throw new Error("Cannot create Lightning Invoice", { cause: e });
+        }
     }
 
     async sendLightningPayment(
         args: SendLightningPaymentRequest
     ): Promise<SendLightningPaymentResponse> {
-        const res = await this.sendMessage<
-            RequestSendLightningPayment,
-            ResponseSendLightningPayment
-        >({
-            type: "SEND_LIGHTNING_PAYMENT",
-            payload: args,
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "SEND_LIGHTNING_PAYMENT",
+                payload: args,
+            });
+            return (res as ResponseSendLightningPayment).payload;
+        } catch (e) {
+            throw new Error("Cannot send Lightning payment", { cause: e });
+        }
     }
 
     async createSubmarineSwap(
         args: SendLightningPaymentRequest
     ): Promise<PendingSubmarineSwap> {
-        const res = await this.sendMessage<
-            RequestCreateSubmarineSwap,
-            ResponseCreateSubmarineSwap
-        >({
-            type: "CREATE_SUBMARINE_SWAP",
-            payload: args,
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "CREATE_SUBMARINE_SWAP",
+                payload: args,
+            });
+            return (res as ResponseCreateSubmarineSwap).payload;
+        } catch (e) {
+            throw new Error("Cannot create submarine swap", { cause: e });
+        }
     }
 
     async createReverseSwap(
         args: CreateLightningInvoiceRequest
     ): Promise<PendingReverseSwap> {
-        const res = await this.sendMessage<
-            RequestCreateReverseSwap,
-            ResponseCreateReverseSwap
-        >({
-            type: "CREATE_REVERSE_SWAP",
-            payload: args,
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "CREATE_REVERSE_SWAP",
+                payload: args,
+            });
+            return (res as ResponseCreateReverseSwap).payload;
+        } catch (e) {
+            throw new Error("Cannot create reverse swap", { cause: e });
+        }
     }
 
     async claimVHTLC(pendingSwap: PendingReverseSwap): Promise<void> {
-        await this.sendMessage<RequestClaimVhtlc, ResponseClaimVhtlc>({
+        await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
             type: "CLAIM_VHTLC",
             payload: pendingSwap,
         });
     }
 
     async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
-        await this.sendMessage<RequestRefundVhtlc, ResponseRefundVhtlc>({
+        await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
             type: "REFUND_VHTLC",
             payload: pendingSwap,
         });
@@ -169,41 +293,52 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
     async waitAndClaim(
         pendingSwap: PendingReverseSwap
     ): Promise<{ txid: string }> {
-        const res = await this.sendMessage<
-            RequestWaitAndClaim,
-            ResponseWaitAndClaim
-        >({
-            type: "WAIT_AND_CLAIM",
-            payload: pendingSwap,
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "WAIT_AND_CLAIM",
+                payload: pendingSwap,
+            });
+            return (res as ResponseWaitAndClaim).payload;
+        } catch (e) {
+            throw new Error("Cannot wait and claim reverse swap", {
+                cause: e,
+            });
+        }
     }
 
     async waitForSwapSettlement(
         pendingSwap: PendingSubmarineSwap
     ): Promise<{ preimage: string }> {
-        const res = await this.sendMessage<
-            RequestWaitForSwapSettlement,
-            ResponseWaitForSwapSettlement
-        >({
-            type: "WAIT_FOR_SWAP_SETTLEMENT",
-            payload: pendingSwap,
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "WAIT_FOR_SWAP_SETTLEMENT",
+                payload: pendingSwap,
+            });
+            return (res as ResponseWaitForSwapSettlement).payload;
+        } catch (e) {
+            throw new Error("Cannot wait for swap settlement", { cause: e });
+        }
     }
 
     async restoreSwaps(boltzFees?: FeesResponse): Promise<{
         reverseSwaps: PendingReverseSwap[];
         submarineSwaps: PendingSubmarineSwap[];
     }> {
-        const res = await this.sendMessage<
-            RequestRestoreSwaps,
-            ResponseRestoreSwaps
-        >({
-            type: "RESTORE_SWAPS",
-            payload: boltzFees,
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "RESTORE_SWAPS",
+                payload: boltzFees,
+            });
+            return (res as ResponseRestoreSwaps).payload;
+        } catch (e) {
+            throw new Error("Cannot restore swaps", { cause: e });
+        }
     }
 
     enrichReverseSwapPreimage(
@@ -243,69 +378,92 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
     }
 
     async getFees(): Promise<FeesResponse> {
-        const res = await this.sendMessage<RequestGetFees, ResponseGetFees>({
-            type: "GET_FEES",
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "GET_FEES",
+            });
+            return (res as ResponseGetFees).payload;
+        } catch (e) {
+            throw new Error("Cannot get fees", { cause: e });
+        }
     }
 
     async getLimits(): Promise<LimitsResponse> {
-        const res = await this.sendMessage<RequestGetLimits, ResponseGetLimits>(
-            {
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
                 type: "GET_LIMITS",
-            }
-        );
-        return res.payload;
+            });
+            return (res as ResponseGetLimits).payload;
+        } catch (e) {
+            throw new Error("Cannot get limits", { cause: e });
+        }
     }
 
     async getSwapStatus(swapId: string): Promise<GetSwapStatusResponse> {
-        const res = await this.sendMessage<
-            RequestGetSwapStatus,
-            ResponseGetSwapStatus
-        >({
-            type: "GET_SWAP_STATUS",
-            payload: { swapId },
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "GET_SWAP_STATUS",
+                payload: { swapId },
+            });
+            return (res as ResponseGetSwapStatus).payload;
+        } catch (e) {
+            throw new Error("Cannot get swap status", { cause: e });
+        }
     }
 
     async getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[]> {
-        const res = await this.sendMessage<
-            RequestGetPendingSubmarineSwaps,
-            ResponseGetPendingSubmarineSwaps
-        >({
-            type: "GET_PENDING_SUBMARINE_SWAPS",
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "GET_PENDING_SUBMARINE_SWAPS",
+            });
+            return (res as ResponseGetPendingSubmarineSwaps).payload;
+        } catch (e) {
+            throw new Error("Cannot get pending submarine swaps", {
+                cause: e,
+            });
+        }
     }
 
     async getPendingReverseSwaps(): Promise<PendingReverseSwap[]> {
-        const res = await this.sendMessage<
-            RequestGetPendingReverseSwaps,
-            ResponseGetPendingReverseSwaps
-        >({
-            type: "GET_PENDING_REVERSE_SWAPS",
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "GET_PENDING_REVERSE_SWAPS",
+            });
+            return (res as ResponseGetPendingReverseSwaps).payload;
+        } catch (e) {
+            throw new Error("Cannot get pending reverse swaps", { cause: e });
+        }
     }
 
     async getSwapHistory(): Promise<
         (PendingReverseSwap | PendingSubmarineSwap)[]
     > {
-        const res = await this.sendMessage<
-            RequestGetSwapHistory,
-            ResponseGetSwapHistory
-        >({
-            type: "GET_SWAP_HISTORY",
-        });
-        return res.payload;
+        try {
+            const res = await this.sendMessage({
+                id: getRandomId(),
+                tag: this.messageTag,
+                type: "GET_SWAP_HISTORY",
+            });
+            return (res as ResponseGetSwapHistory).payload;
+        } catch (e) {
+            throw new Error("Cannot get swap history", { cause: e });
+        }
     }
 
     async refreshSwapsStatus(): Promise<void> {
-        await this.sendMessage<
-            RequestRefreshSwapsStatus,
-            ResponseRefreshSwapsStatus
-        >({
+        await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
             type: "REFRESH_SWAPS_STATUS",
         });
     }
@@ -328,24 +486,20 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
         return this.dispose();
     }
 
-    private async sendMessage<
-        REQ extends RequestEnvelope = RequestEnvelope,
-        RES extends ResponseEnvelope = ResponseEnvelope,
-    >(message: Partial<REQ>): Promise<RES> {
-        const id = typeof message.id === "string" ? message.id : getRandomId();
-
+    private async sendMessage(
+        request: ArkadeLightningUpdaterRequest
+    ): Promise<ArkadeLightningUpdaterResponse> {
         return new Promise((resolve, reject) => {
             const messageHandler = (event: MessageEvent) => {
-                const response = event.data as RES;
-                if (!response) return;
-                if (response.tag !== this.messageTag) return;
-                if (response.id !== id) return;
+                const response = event.data;
+                if (request.id !== response.id) {
+                    return;
+                }
 
                 navigator.serviceWorker.removeEventListener(
                     "message",
                     messageHandler
                 );
-
                 if (response.error) {
                     reject(response.error);
                 } else {
@@ -354,12 +508,7 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
             };
 
             navigator.serviceWorker.addEventListener("message", messageHandler);
-            this.serviceWorker.postMessage({
-                tag: this.messageTag,
-                id,
-                type: "type" in message ? message.type : "NO_TYPE",
-                payload: "payload" in message ? message.payload : undefined,
-            });
+            this.serviceWorker.postMessage(request);
         });
     }
 }

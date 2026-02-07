@@ -15,6 +15,7 @@ import {
 } from "../boltz-swap-provider";
 import { NetworkName } from "@arkade-os/sdk";
 import { PendingSwap } from "../repositories/swap-repository";
+import { DEFAULT_MESSAGE_TAG } from "./arkade-lightning-message-handler";
 
 export type RequestInit = RequestEnvelope & {
     type: "INIT";
@@ -115,7 +116,7 @@ type SwapUpdaterConfig = { pollInterval?: number; debug?: boolean };
 export class SwapMessageHandler
     implements MessageHandler<SwapUpdaterRequest, SwapUpdaterResponse>
 {
-    static messageTag = "SwapUpdater";
+    static messageTag = DEFAULT_MESSAGE_TAG;
     readonly messageTag = SwapMessageHandler.messageTag;
 
     private monitoredSwaps = new Map<string, PendingSwap>();
@@ -132,7 +133,7 @@ export class SwapMessageHandler
         });
     }
 
-    private prefixed(res: Partial<SwapUpdaterResponse>) {
+    private tagged(res: Partial<SwapUpdaterResponse>) {
         return {
             tag: SwapMessageHandler.messageTag,
             ...res,
@@ -150,10 +151,10 @@ export class SwapMessageHandler
         if (message.type === "INIT") {
             console.log(`[${this.messageTag}] INIT`, message.payload);
             this.handleInit(message);
-            return this.prefixed({ id, type: "INITIALIZED" });
+            return this.tagged({ id, type: "INITIALIZED" });
         }
         if (!this.swapProvider) {
-            return this.prefixed({
+            return this.tagged({
                 id,
                 error: new Error("Swap Provider not initialized"),
             });
@@ -163,7 +164,7 @@ export class SwapMessageHandler
                 const res = await this.swapProvider.getReverseSwapTxId(
                     message.payload.swapId
                 );
-                return this.prefixed({
+                return this.tagged({
                     id,
                     type: "REVERSE_SWAP_TX_ID",
                     payload: { txid: res.id },
@@ -171,7 +172,7 @@ export class SwapMessageHandler
             }
             case "GET_WS_URL": {
                 const wsUrl = this.swapProvider.getWsUrl();
-                return this.prefixed({
+                return this.tagged({
                     id,
                     type: "WS_URL",
                     payload: { wsUrl },
@@ -183,7 +184,7 @@ export class SwapMessageHandler
                 if (swap) {
                     if (error) {
                         this.scheduleForNextTick(() =>
-                            this.prefixed({
+                            this.tagged({
                                 type: "SWAP_FAILED",
                                 broadcast: true,
                                 payload: { swap, error },
@@ -194,10 +195,10 @@ export class SwapMessageHandler
                         await this.handleSwapStatusUpdate(swap, status);
                     }
                 }
-                return this.prefixed({ id, type: "ACK" });
+                return this.tagged({ id, type: "ACK" });
             }
             case "GET_MONITORED_SWAPS":
-                return this.prefixed({
+                return this.tagged({
                     id,
                     type: "MONITORED_SWAPS",
                     payload: {
@@ -205,7 +206,7 @@ export class SwapMessageHandler
                     },
                 });
             case "GET_SWAP":
-                return this.prefixed({
+                return this.tagged({
                     id,
                     type: "GET_SWAP",
                     payload: {
@@ -217,12 +218,12 @@ export class SwapMessageHandler
             case "MONITOR_SWAP": {
                 const { swap } = (message as any).payload;
                 this.monitoredSwaps.set(swap.id, swap);
-                return this.prefixed({ id, type: "ACK" });
+                return this.tagged({ id, type: "ACK" });
             }
             case "STOP_MONITORING_SWAP": {
                 const { swapId } = (message as any).payload;
                 this.monitoredSwaps.delete(swapId);
-                return this.prefixed({ id, type: "ACK" });
+                return this.tagged({ id, type: "ACK" });
             }
             default:
                 console.warn(
@@ -330,7 +331,7 @@ export class SwapMessageHandler
 
         // notify all clients about the swap update
         this.scheduleForNextTick(() =>
-            this.prefixed({
+            this.tagged({
                 broadcast: true,
                 type: "SWAP_STATUS_UPDATED",
                 payload: { swap, previousStatus: oldStatus },
@@ -343,7 +344,7 @@ export class SwapMessageHandler
             // Emit completed event to all listeners
             logger.log(`Swap ${swap.id} completed with status: ${newStatus}`);
             this.scheduleForNextTick(() =>
-                this.prefixed({
+                this.tagged({
                     broadcast: true,
                     type: "SWAP_COMPLETED",
                     payload: { swap },
