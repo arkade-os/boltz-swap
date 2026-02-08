@@ -64,6 +64,7 @@
         "@typescript-eslint/parser": "^8.43.0",
         "eslint": "^9.35.0",
         "eventsource": "^4.1.0",
+        "indexeddbshim": "16.1.0",
         "prettier": "3.6.2",
         "tsup": "^8.5.0",
         "typescript": "^5.9.2",

@@ -73,7 +73,48 @@ type SwapUpdateCallback = (
     oldStatus: BoltzSwapStatus
 ) => void;
 
-export class SwapManager {
+export interface SwapManagerClient {
+    start(pendingSwaps: PendingSwap[]): Promise<void>;
+    stop(): Promise<void>;
+    addSwap(swap: PendingSwap): Promise<void>;
+    removeSwap(swapId: string): Promise<void>;
+    getPendingSwaps(): Promise<PendingSwap[]>;
+    subscribeToSwapUpdates(
+        swapId: string,
+        callback: SwapUpdateCallback
+    ): Promise<() => void>;
+    waitForSwapCompletion(swapId: string): Promise<{ txid: string }>;
+    isProcessing(swapId: string): Promise<boolean>;
+    hasSwap(swapId: string): Promise<boolean>;
+    getStats(): Promise<{
+        isRunning: boolean;
+        monitoredSwaps: number;
+        websocketConnected: boolean;
+        usePollingFallback: boolean;
+        currentReconnectDelay: number;
+        currentPollRetryDelay: number;
+    }>;
+    onSwapUpdate(listener: SwapUpdateListener): Promise<() => void>;
+    onSwapCompleted(listener: SwapCompletedListener): Promise<() => void>;
+    onSwapFailed(listener: SwapFailedListener): Promise<() => void>;
+    onActionExecuted(listener: ActionExecutedListener): Promise<() => void>;
+    onWebSocketConnected(
+        listener: WebSocketConnectedListener
+    ): Promise<() => void>;
+    onWebSocketDisconnected(
+        listener: WebSocketDisconnectedListener
+    ): Promise<() => void>;
+    offSwapUpdate(listener: SwapUpdateListener): Promise<void>;
+    offSwapCompleted(listener: SwapCompletedListener): Promise<void>;
+    offSwapFailed(listener: SwapFailedListener): Promise<void>;
+    offActionExecuted(listener: ActionExecutedListener): Promise<void>;
+    offWebSocketConnected(listener: WebSocketConnectedListener): Promise<void>;
+    offWebSocketDisconnected(
+        listener: WebSocketDisconnectedListener
+    ): Promise<void>;
+}
+
+export class SwapManager implements SwapManagerClient {
     private readonly swapProvider: BoltzSwapProvider;
     private readonly config: SwapManagerConfig;
 
@@ -173,7 +214,7 @@ export class SwapManager {
      * Add an event listener for swap updates
      * @returns Unsubscribe function
      */
-    onSwapUpdate(listener: SwapUpdateListener): () => void {
+    async onSwapUpdate(listener: SwapUpdateListener): Promise<() => void> {
         this.swapUpdateListeners.add(listener);
         return () => this.swapUpdateListeners.delete(listener);
     }
@@ -182,7 +223,9 @@ export class SwapManager {
      * Add an event listener for swap completion
      * @returns Unsubscribe function
      */
-    onSwapCompleted(listener: SwapCompletedListener): () => void {
+    async onSwapCompleted(
+        listener: SwapCompletedListener
+    ): Promise<() => void> {
         this.swapCompletedListeners.add(listener);
         return () => this.swapCompletedListeners.delete(listener);
     }
@@ -191,7 +234,7 @@ export class SwapManager {
      * Add an event listener for swap failures
      * @returns Unsubscribe function
      */
-    onSwapFailed(listener: SwapFailedListener): () => void {
+    async onSwapFailed(listener: SwapFailedListener): Promise<() => void> {
         this.swapFailedListeners.add(listener);
         return () => this.swapFailedListeners.delete(listener);
     }
@@ -200,7 +243,9 @@ export class SwapManager {
      * Add an event listener for executed actions (claim/refund)
      * @returns Unsubscribe function
      */
-    onActionExecuted(listener: ActionExecutedListener): () => void {
+    async onActionExecuted(
+        listener: ActionExecutedListener
+    ): Promise<() => void> {
         this.actionExecutedListeners.add(listener);
         return () => this.actionExecutedListeners.delete(listener);
     }
@@ -209,7 +254,9 @@ export class SwapManager {
      * Add an event listener for WebSocket connection
      * @returns Unsubscribe function
      */
-    onWebSocketConnected(listener: WebSocketConnectedListener): () => void {
+    async onWebSocketConnected(
+        listener: WebSocketConnectedListener
+    ): Promise<() => void> {
         this.wsConnectedListeners.add(listener);
         return () => this.wsConnectedListeners.delete(listener);
     }
@@ -218,9 +265,9 @@ export class SwapManager {
      * Add an event listener for WebSocket disconnection
      * @returns Unsubscribe function
      */
-    onWebSocketDisconnected(
+    async onWebSocketDisconnected(
         listener: WebSocketDisconnectedListener
-    ): () => void {
+    ): Promise<() => void> {
         this.wsDisconnectedListeners.add(listener);
         return () => this.wsDisconnectedListeners.delete(listener);
     }
@@ -228,42 +275,46 @@ export class SwapManager {
     /**
      * Remove an event listener for swap updates
      */
-    offSwapUpdate(listener: SwapUpdateListener): void {
+    async offSwapUpdate(listener: SwapUpdateListener): Promise<void> {
         this.swapUpdateListeners.delete(listener);
     }
 
     /**
      * Remove an event listener for swap completion
      */
-    offSwapCompleted(listener: SwapCompletedListener): void {
+    async offSwapCompleted(listener: SwapCompletedListener): Promise<void> {
         this.swapCompletedListeners.delete(listener);
     }
 
     /**
      * Remove an event listener for swap failures
      */
-    offSwapFailed(listener: SwapFailedListener): void {
+    async offSwapFailed(listener: SwapFailedListener): Promise<void> {
         this.swapFailedListeners.delete(listener);
     }
 
     /**
      * Remove an event listener for executed actions
      */
-    offActionExecuted(listener: ActionExecutedListener): void {
+    async offActionExecuted(listener: ActionExecutedListener): Promise<void> {
         this.actionExecutedListeners.delete(listener);
     }
 
     /**
      * Remove an event listener for WebSocket connection
      */
-    offWebSocketConnected(listener: WebSocketConnectedListener): void {
+    async offWebSocketConnected(
+        listener: WebSocketConnectedListener
+    ): Promise<void> {
         this.wsConnectedListeners.delete(listener);
     }
 
     /**
      * Remove an event listener for WebSocket disconnection
      */
-    offWebSocketDisconnected(listener: WebSocketDisconnectedListener): void {
+    async offWebSocketDisconnected(
+        listener: WebSocketDisconnectedListener
+    ): Promise<void> {
         this.wsDisconnectedListeners.delete(listener);
     }
 
@@ -339,7 +390,7 @@ export class SwapManager {
     /**
      * Add a new swap to monitoring
      */
-    addSwap(swap: PendingSwap): void {
+    async addSwap(swap: PendingSwap): Promise<void> {
         this.monitoredSwaps.set(swap.id, swap);
 
         // Subscribe to this swap if WebSocket is connected
@@ -353,7 +404,7 @@ export class SwapManager {
     /**
      * Remove a swap from monitoring
      */
-    removeSwap(swapId: string): void {
+    async removeSwap(swapId: string): Promise<void> {
         this.monitoredSwaps.delete(swapId);
         this.swapSubscriptions.delete(swapId);
         logger.log(`Removed swap ${swapId} from monitoring`);
@@ -362,7 +413,7 @@ export class SwapManager {
     /**
      * Get all currently monitored swaps
      */
-    getPendingSwaps(): PendingSwap[] {
+    async getPendingSwaps(): Promise<PendingSwap[]> {
         return Array.from(this.monitoredSwaps.values());
     }
 
@@ -371,10 +422,10 @@ export class SwapManager {
      * Returns an unsubscribe function
      * Useful for UI components that need to track specific swap progress
      */
-    subscribeToSwapUpdates(
+    async subscribeToSwapUpdates(
         swapId: string,
         callback: SwapUpdateCallback
-    ): () => void {
+    ): Promise<() => void> {
         if (!this.swapSubscriptions.has(swapId)) {
             this.swapSubscriptions.set(swapId, new Set());
         }
@@ -397,70 +448,70 @@ export class SwapManager {
      * Useful when you want blocking behavior even with SwapManager enabled
      */
     async waitForSwapCompletion(swapId: string): Promise<{ txid: string }> {
-        return new Promise<{ txid: string }>((resolve, reject) => {
-            let swap = this.monitoredSwaps.get(swapId);
+        // Quick checks without async executor
+        let swap = this.monitoredSwaps.get(swapId);
 
-            // If not in monitored swaps, check if it was in initial swaps (might be completed)
+        // If not in monitored swaps, check if it was in initial swaps (might be completed)
+        if (!swap) {
+            swap = this.initialSwaps.get(swapId);
             if (!swap) {
-                swap = this.initialSwaps.get(swapId);
-                if (!swap) {
-                    reject(new Error(`Swap ${swapId} not found in manager`));
-                    return;
-                }
+                throw new Error(`Swap ${swapId} not found in manager`);
             }
+        }
 
-            // Check if already in final status
-            if (this.isFinalStatus(swap.status)) {
-                if (isPendingReverseSwap(swap)) {
-                    this.swapProvider
-                        .getReverseSwapTxId(swap.id)
-                        .then((response) => resolve({ txid: response.id }))
-                        .catch((error) => reject(error));
-                } else {
-                    reject(new Error("Submarine swap already completed"));
-                }
-                return;
+        // Check if already in final status
+        if (this.isFinalStatus(swap.status)) {
+            if (isPendingReverseSwap(swap)) {
+                const response = await this.swapProvider.getReverseSwapTxId(
+                    swap.id
+                );
+                return { txid: response.id };
             }
+            throw new Error("Submarine swap already completed");
+        }
 
-            // Subscribe to swap updates
-            const unsubscribe = this.subscribeToSwapUpdates(
-                swapId,
-                (updatedSwap, _oldStatus) => {
-                    // Check if swap reached final status
-                    if (this.isFinalStatus(updatedSwap.status)) {
-                        unsubscribe();
+        return new Promise<{ txid: string }>((resolve, reject) => {
+            let unsubscribe: (() => void) | null = null;
 
-                        if (isPendingReverseSwap(updatedSwap)) {
-                            // Check if successfully claimed
-                            if (updatedSwap.status === "invoice.settled") {
-                                this.swapProvider
-                                    .getReverseSwapTxId(updatedSwap.id)
-                                    .then((response) =>
-                                        resolve({ txid: response.id })
-                                    )
-                                    .catch((error) => reject(error));
-                            } else {
-                                reject(
-                                    new Error(
-                                        `Swap failed with status: ${updatedSwap.status}`
-                                    )
-                                );
-                            }
-                        } else if (isPendingSubmarineSwap(updatedSwap)) {
-                            // Check if successfully completed
-                            if (updatedSwap.status === "transaction.claimed") {
-                                resolve({ txid: updatedSwap.id });
-                            } else {
-                                reject(
-                                    new Error(
-                                        `Swap failed with status: ${updatedSwap.status}`
-                                    )
-                                );
-                            }
-                        }
+            const handleUpdate = (
+                updatedSwap: PendingSwap,
+                _oldStatus: BoltzSwapStatus
+            ) => {
+                if (!this.isFinalStatus(updatedSwap.status)) return;
+
+                unsubscribe?.();
+
+                if (isPendingReverseSwap(updatedSwap)) {
+                    if (updatedSwap.status === "invoice.settled") {
+                        this.swapProvider
+                            .getReverseSwapTxId(updatedSwap.id)
+                            .then((response) => resolve({ txid: response.id }))
+                            .catch((error) => reject(error));
+                    } else {
+                        reject(
+                            new Error(
+                                `Swap failed with status: ${updatedSwap.status}`
+                            )
+                        );
+                    }
+                } else if (isPendingSubmarineSwap(updatedSwap)) {
+                    if (updatedSwap.status === "transaction.claimed") {
+                        resolve({ txid: updatedSwap.id });
+                    } else {
+                        reject(
+                            new Error(
+                                `Swap failed with status: ${updatedSwap.status}`
+                            )
+                        );
                     }
                 }
-            );
+            };
+
+            this.subscribeToSwapUpdates(swapId, handleUpdate)
+                .then((unsub) => {
+                    unsubscribe = unsub;
+                })
+                .catch(reject);
         });
     }
 
@@ -468,14 +519,14 @@ export class SwapManager {
      * Check if a swap is currently being processed
      * Useful for preventing race conditions
      */
-    isProcessing(swapId: string): boolean {
+    async isProcessing(swapId: string): Promise<boolean> {
         return this.swapsInProgress.has(swapId);
     }
 
     /**
      * Check if manager has a specific swap
      */
-    hasSwap(swapId: string): boolean {
+    async hasSwap(swapId: string): Promise<boolean> {
         return this.monitoredSwaps.has(swapId);
     }
 
@@ -936,14 +987,14 @@ export class SwapManager {
     /**
      * Get current manager statistics (for debugging/monitoring)
      */
-    getStats(): {
+    async getStats(): Promise<{
         isRunning: boolean;
         monitoredSwaps: number;
         websocketConnected: boolean;
         usePollingFallback: boolean;
         currentReconnectDelay: number;
         currentPollRetryDelay: number;
-    } {
+    }> {
         return {
             isRunning: this.isRunning,
             monitoredSwaps: this.monitoredSwaps.size,

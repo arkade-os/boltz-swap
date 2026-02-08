@@ -592,19 +592,21 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "SM-ADD_SWAP": {
-                    this.handler.getSwapManager()!.addSwap(message.payload);
+                    await this.handler.getSwapManager()!.addSwap(
+                        message.payload
+                    );
                     return this.tagged({ id, type: "SM-SWAP_ADDED" });
                 }
 
                 case "SM-REMOVE_SWAP": {
-                    this.handler
+                    await this.handler
                         .getSwapManager()!
                         .removeSwap(message.payload.swapId);
                     return this.tagged({ id, type: "SM-SWAP_REMOVED" });
                 }
 
                 case "SM-GET_PENDING_SWAPS": {
-                    const res = this.handler
+                    const res = await this.handler
                         .getSwapManager()!
                         .getPendingSwaps();
                     return this.tagged({
@@ -615,7 +617,7 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "SM-HAS_SWAP": {
-                    const has = this.handler
+                    const has = await this.handler
                         .getSwapManager()!
                         .hasSwap(message.payload.swapId);
                     return this.tagged({
@@ -626,7 +628,7 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "SM-IS_PROCESSING": {
-                    const processing = this.handler
+                    const processing = await this.handler
                         .getSwapManager()!
                         .isProcessing(message.payload.swapId);
                     return this.tagged({
@@ -637,7 +639,9 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "SM-GET_STATS": {
-                    const stats = this.handler.getSwapManager()!.getStats();
+                    const stats = await this.handler
+                        .getSwapManager()!
+                        .getStats();
                     return this.tagged({
                         id,
                         type: "SM-STATS",

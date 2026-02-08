@@ -64,7 +64,7 @@ import {
     extractInvoiceAmount,
     extractTimeLockFromLeafOutput,
 } from "./utils/restoration";
-import { SwapManager } from "./swap-manager";
+import { SwapManager, SwapManagerClient } from "./swap-manager";
 import { logger } from "./logger";
 import { claimVHTLCIdentity } from "./utils/identity";
 import { createVHTLCBatchHandler } from "./batch";
@@ -88,7 +88,7 @@ export interface IArkadeLightning extends AsyncDisposable {
      * Get the SwapManager instance
      * Useful for accessing manager stats or manually controlling swaps
      */
-    getSwapManager(): SwapManager | null;
+    getSwapManager(): SwapManagerClient | null;
 
     /**
      * Creates a Lightning invoice.
@@ -415,7 +415,7 @@ export class ArkadeLightning implements IArkadeLightning {
      * Get the SwapManager instance
      * Useful for accessing manager stats or manually controlling swaps
      */
-    getSwapManager(): SwapManager | null {
+    getSwapManager(): SwapManagerClient | null {
         return this.swapManager;
     }
 
@@ -534,7 +534,7 @@ export class ArkadeLightning implements IArkadeLightning {
 
         // Add to swap manager if enabled
         if (this.swapManager) {
-            this.swapManager.addSwap(pendingSwap);
+            await this.swapManager.addSwap(pendingSwap);
         }
 
         return pendingSwap;
@@ -595,7 +595,7 @@ export class ArkadeLightning implements IArkadeLightning {
 
         // Add to swap manager if enabled
         if (this.swapManager) {
-            this.swapManager.addSwap(pendingSwap);
+            await this.swapManager.addSwap(pendingSwap);
         }
 
         return pendingSwap;

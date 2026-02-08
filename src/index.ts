@@ -27,8 +27,6 @@ export {
 } from "./utils/decoding";
 export { verifySignatures } from "./utils/signatures";
 export { SwapManager } from "./swap-manager";
-export { SwapMessageHandler } from "./serviceWorker/swap-message-handler";
-export { SwSwapManagerRuntime } from "./serviceWorker/swap-manager-runtime";
 export { ArkadeLightningMessageHandler } from "./serviceWorker/arkade-lightning-message-handler";
 export { SwArkadeLightningRuntime } from "./serviceWorker/arkade-lightning-runtime";
 export { migrateToSwapRepository } from "./repositories/migrationFromContracts";

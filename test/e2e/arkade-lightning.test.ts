@@ -801,19 +801,19 @@ describe("ArkadeLightning", () => {
                 const manager = swapManagerLightning.getSwapManager()!;
 
                 // assert initial state
-                expect(manager.getStats().isRunning).toBe(false);
+                expect((await manager.getStats()).isRunning).toBe(false);
 
                 // act - start
                 await swapManagerLightning.startSwapManager();
 
                 // assert - running
-                expect(manager.getStats().isRunning).toBe(true);
+                expect((await manager.getStats()).isRunning).toBe(true);
 
                 // act - stop
                 await swapManagerLightning.stopSwapManager();
 
                 // assert - stopped
-                expect(manager.getStats().isRunning).toBe(false);
+                expect((await manager.getStats()).isRunning).toBe(false);
             });
 
             it("should throw when starting swap manager without config", async () => {
@@ -832,7 +832,7 @@ describe("ArkadeLightning", () => {
         });
 
         describe("SwapManager Stats", () => {
-            it("should return correct stats when not running", () => {
+            it("should return correct stats when not running", async () => {
                 // arrange
                 swapManagerLightning = new ArkadeLightning({
                     ...params,
@@ -844,7 +844,7 @@ describe("ArkadeLightning", () => {
                 const manager = swapManagerLightning.getSwapManager()!;
 
                 // act
-                const stats = manager.getStats();
+                const stats = await manager.getStats();
 
                 // assert
                 expect(stats.isRunning).toBe(false);
@@ -868,7 +868,7 @@ describe("ArkadeLightning", () => {
 
                 // act
                 await swapManagerLightning.startSwapManager();
-                const stats = manager.getStats();
+                const stats = await manager.getStats();
 
                 // assert
                 expect(stats.isRunning).toBe(true);
@@ -890,13 +890,13 @@ describe("ArkadeLightning", () => {
                 await swapManagerLightning.startSwapManager();
 
                 // act
-                manager.addSwap(mockReverseSwap);
+                await manager.addSwap(mockReverseSwap);
 
                 // assert
-                expect(manager.hasSwap(mockReverseSwap.id)).toBe(true);
-                expect(manager.getStats().monitoredSwaps).toBe(1);
-                expect(manager.getPendingSwaps()).toHaveLength(1);
-                expect(manager.getPendingSwaps()[0].id).toBe(
+                expect(await manager.hasSwap(mockReverseSwap.id)).toBe(true);
+                expect((await manager.getStats()).monitoredSwaps).toBe(1);
+                expect(await manager.getPendingSwaps()).toHaveLength(1);
+                expect((await manager.getPendingSwaps())[0].id).toBe(
                     mockReverseSwap.id
                 );
             });
@@ -912,15 +912,15 @@ describe("ArkadeLightning", () => {
 
                 const manager = swapManagerLightning.getSwapManager()!;
                 await swapManagerLightning.startSwapManager();
-                manager.addSwap(mockReverseSwap);
+                await manager.addSwap(mockReverseSwap);
 
                 // act
-                manager.removeSwap(mockReverseSwap.id);
+                await manager.removeSwap(mockReverseSwap.id);
 
                 // assert
-                expect(manager.hasSwap(mockReverseSwap.id)).toBe(false);
-                expect(manager.getStats().monitoredSwaps).toBe(0);
-                expect(manager.getPendingSwaps()).toHaveLength(0);
+                expect(await manager.hasSwap(mockReverseSwap.id)).toBe(false);
+                expect((await manager.getStats()).monitoredSwaps).toBe(0);
+                expect(await manager.getPendingSwaps()).toHaveLength(0);
             });
 
             it("should add multiple swaps", async () => {
@@ -942,15 +942,15 @@ describe("ArkadeLightning", () => {
                 };
 
                 // act
-                manager.addSwap(mockReverseSwap);
-                manager.addSwap(mockSubmarineSwap);
-                manager.addSwap(reverseSwap2);
+                await manager.addSwap(mockReverseSwap);
+                await manager.addSwap(mockSubmarineSwap);
+                await manager.addSwap(reverseSwap2);
 
                 // assert
-                expect(manager.getStats().monitoredSwaps).toBe(3);
-                expect(manager.hasSwap(mockReverseSwap.id)).toBe(true);
-                expect(manager.hasSwap(mockSubmarineSwap.id)).toBe(true);
-                expect(manager.hasSwap("reverse-swap-2")).toBe(true);
+                expect((await manager.getStats()).monitoredSwaps).toBe(3);
+                expect(await manager.hasSwap(mockReverseSwap.id)).toBe(true);
+                expect(await manager.hasSwap(mockSubmarineSwap.id)).toBe(true);
+                expect(await manager.hasSwap("reverse-swap-2")).toBe(true);
             });
         });
 
@@ -968,7 +968,7 @@ describe("ArkadeLightning", () => {
                 const listener = vi.fn();
 
                 // act - add listener
-                const unsubscribe = manager.onSwapUpdate(listener);
+                const unsubscribe = await manager.onSwapUpdate(listener);
 
                 // assert - unsubscribe is a function
                 expect(typeof unsubscribe).toBe("function");
@@ -990,13 +990,13 @@ describe("ArkadeLightning", () => {
                 const listener = vi.fn();
 
                 // act - add listener
-                const unsubscribe = manager.onSwapCompleted(listener);
+                const unsubscribe = await manager.onSwapCompleted(listener);
 
                 // assert
                 expect(typeof unsubscribe).toBe("function");
 
                 // act - remove listener using off method
-                manager.offSwapCompleted(listener);
+                await manager.offSwapCompleted(listener);
             });
 
             it("should add and remove swap failed listener", async () => {
@@ -1012,9 +1012,9 @@ describe("ArkadeLightning", () => {
                 const listener = vi.fn();
 
                 // act & assert
-                const unsubscribe = manager.onSwapFailed(listener);
+                const unsubscribe = await manager.onSwapFailed(listener);
                 expect(typeof unsubscribe).toBe("function");
-                manager.offSwapFailed(listener);
+                await manager.offSwapFailed(listener);
             });
 
             it("should add and remove action executed listener", async () => {
@@ -1030,9 +1030,9 @@ describe("ArkadeLightning", () => {
                 const listener = vi.fn();
 
                 // act & assert
-                const unsubscribe = manager.onActionExecuted(listener);
+                const unsubscribe = await manager.onActionExecuted(listener);
                 expect(typeof unsubscribe).toBe("function");
-                manager.offActionExecuted(listener);
+                await manager.offActionExecuted(listener);
             });
 
             it("should add and remove WebSocket connected listener", async () => {
@@ -1048,9 +1048,11 @@ describe("ArkadeLightning", () => {
                 const listener = vi.fn();
 
                 // act & assert
-                const unsubscribe = manager.onWebSocketConnected(listener);
+                const unsubscribe = await manager.onWebSocketConnected(
+                    listener
+                );
                 expect(typeof unsubscribe).toBe("function");
-                manager.offWebSocketConnected(listener);
+                await manager.offWebSocketConnected(listener);
             });
 
             it("should add and remove WebSocket disconnected listener", async () => {
@@ -1066,9 +1068,11 @@ describe("ArkadeLightning", () => {
                 const listener = vi.fn();
 
                 // act & assert
-                const unsubscribe = manager.onWebSocketDisconnected(listener);
+                const unsubscribe = await manager.onWebSocketDisconnected(
+                    listener
+                );
                 expect(typeof unsubscribe).toBe("function");
-                manager.offWebSocketDisconnected(listener);
+                await manager.offWebSocketDisconnected(listener);
             });
         });
 
@@ -1084,12 +1088,12 @@ describe("ArkadeLightning", () => {
 
                 const manager = swapManagerLightning.getSwapManager()!;
                 await swapManagerLightning.startSwapManager();
-                manager.addSwap(mockReverseSwap);
+                await manager.addSwap(mockReverseSwap);
 
                 const callback = vi.fn();
 
                 // act
-                const unsubscribe = manager.subscribeToSwapUpdates(
+                const unsubscribe = await manager.subscribeToSwapUpdates(
                     mockReverseSwap.id,
                     callback
                 );
@@ -1114,7 +1118,7 @@ describe("ArkadeLightning", () => {
                 const callback = vi.fn();
 
                 // act
-                const unsubscribe = manager.subscribeToSwapUpdates(
+                const unsubscribe = await manager.subscribeToSwapUpdates(
                     mockReverseSwap.id,
                     callback
                 );
@@ -1137,10 +1141,12 @@ describe("ArkadeLightning", () => {
 
                 const manager = swapManagerLightning.getSwapManager()!;
                 await swapManagerLightning.startSwapManager();
-                manager.addSwap(mockReverseSwap);
+                await manager.addSwap(mockReverseSwap);
 
                 // act & assert
-                expect(manager.isProcessing(mockReverseSwap.id)).toBe(false);
+                expect(
+                    await manager.isProcessing(mockReverseSwap.id)
+                ).toBe(false);
             });
 
             it("should report not processing for unknown swap", async () => {
@@ -1155,12 +1161,14 @@ describe("ArkadeLightning", () => {
                 const manager = swapManagerLightning.getSwapManager()!;
 
                 // act & assert
-                expect(manager.isProcessing("unknown-swap-id")).toBe(false);
+                expect(await manager.isProcessing("unknown-swap-id")).toBe(
+                    false
+                );
             });
         });
 
         describe("SwapManager Configuration", () => {
-            it("should use default config values", () => {
+            it("should use default config values", async () => {
                 // arrange
                 swapManagerLightning = new ArkadeLightning({
                     ...params,
@@ -1168,7 +1176,7 @@ describe("ArkadeLightning", () => {
                 });
 
                 const manager = swapManagerLightning.getSwapManager()!;
-                const stats = manager.getStats();
+                const stats = await manager.getStats();
 
                 // assert - check default reconnect delay (1000ms)
                 expect(stats.currentReconnectDelay).toBe(1000);
@@ -1176,7 +1184,7 @@ describe("ArkadeLightning", () => {
                 expect(stats.currentPollRetryDelay).toBe(5000);
             });
 
-            it("should use custom reconnect delay", () => {
+            it("should use custom reconnect delay", async () => {
                 // arrange
                 swapManagerLightning = new ArkadeLightning({
                     ...params,
@@ -1186,13 +1194,13 @@ describe("ArkadeLightning", () => {
                 });
 
                 const manager = swapManagerLightning.getSwapManager()!;
-                const stats = manager.getStats();
+                const stats = await manager.getStats();
 
                 // assert
                 expect(stats.currentReconnectDelay).toBe(2000);
             });
 
-            it("should use custom poll retry delay", () => {
+            it("should use custom poll retry delay", async () => {
                 // arrange
                 swapManagerLightning = new ArkadeLightning({
                     ...params,
@@ -1202,7 +1210,7 @@ describe("ArkadeLightning", () => {
                 });
 
                 const manager = swapManagerLightning.getSwapManager()!;
-                const stats = manager.getStats();
+                const stats = await manager.getStats();
 
                 // assert
                 expect(stats.currentPollRetryDelay).toBe(10000);
@@ -1253,9 +1261,9 @@ describe("ArkadeLightning", () => {
                 const manager = swapManagerLightning.getSwapManager()!;
 
                 // assert
-                expect(manager.getStats().monitoredSwaps).toBe(2);
-                expect(manager.hasSwap(mockReverseSwap.id)).toBe(true);
-                expect(manager.hasSwap(mockSubmarineSwap.id)).toBe(true);
+                expect((await manager.getStats()).monitoredSwaps).toBe(2);
+                expect(await manager.hasSwap(mockReverseSwap.id)).toBe(true);
+                expect(await manager.hasSwap(mockSubmarineSwap.id)).toBe(true);
             });
 
             it("should filter out completed swaps on start", async () => {
@@ -1293,11 +1301,11 @@ describe("ArkadeLightning", () => {
                 const manager = swapManagerLightning.getSwapManager()!;
 
                 // assert - only non-final swaps should be monitored
-                expect(manager.getStats().monitoredSwaps).toBe(2);
-                expect(manager.hasSwap(mockReverseSwap.id)).toBe(true);
-                expect(manager.hasSwap(mockSubmarineSwap.id)).toBe(true);
-                expect(manager.hasSwap("completed-swap")).toBe(false);
-                expect(manager.hasSwap("expired-swap")).toBe(false);
+                expect((await manager.getStats()).monitoredSwaps).toBe(2);
+                expect(await manager.hasSwap(mockReverseSwap.id)).toBe(true);
+                expect(await manager.hasSwap(mockSubmarineSwap.id)).toBe(true);
+                expect(await manager.hasSwap("completed-swap")).toBe(false);
+                expect(await manager.hasSwap("expired-swap")).toBe(false);
             });
         });
     });
@@ -1313,13 +1321,13 @@ describe("ArkadeLightning", () => {
             await manager.stop();
         });
 
-        it("should create SwapManager with default config", () => {
+        it("should create SwapManager with default config", async () => {
             // assert
             expect(manager).toBeDefined();
-            expect(manager.getStats().isRunning).toBe(false);
+            expect((await manager.getStats()).isRunning).toBe(false);
         });
 
-        it("should create SwapManager with custom config", () => {
+        it("should create SwapManager with custom config", async () => {
             // arrange
             const customManager = new SwapManager(swapProvider, {
                 enableAutoActions: false,
@@ -1330,7 +1338,9 @@ describe("ArkadeLightning", () => {
 
             // assert
             expect(customManager).toBeDefined();
-            expect(customManager.getStats().currentReconnectDelay).toBe(2000);
+            expect(
+                (await customManager.getStats()).currentReconnectDelay
+            ).toBe(2000);
         });
 
         it("should start with empty swap list", async () => {
@@ -1338,8 +1348,8 @@ describe("ArkadeLightning", () => {
             await manager.start([]);
 
             // assert
-            expect(manager.getStats().isRunning).toBe(true);
-            expect(manager.getStats().monitoredSwaps).toBe(0);
+            expect((await manager.getStats()).isRunning).toBe(true);
+            expect((await manager.getStats()).monitoredSwaps).toBe(0);
         });
 
         it("should start with pending swaps", async () => {
@@ -1347,8 +1357,8 @@ describe("ArkadeLightning", () => {
             await manager.start([mockReverseSwap, mockSubmarineSwap]);
 
             // assert
-            expect(manager.getStats().isRunning).toBe(true);
-            expect(manager.getStats().monitoredSwaps).toBe(2);
+            expect((await manager.getStats()).isRunning).toBe(true);
+            expect((await manager.getStats()).monitoredSwaps).toBe(2);
         });
 
         it("should warn when starting already running manager", async () => {
@@ -1379,7 +1389,7 @@ describe("ArkadeLightning", () => {
             await manager.start([mockReverseSwap]);
 
             // act
-            const swaps = manager.getPendingSwaps();
+            const swaps = await manager.getPendingSwaps();
 
             // assert
             expect(swaps).toHaveLength(1);
@@ -1391,8 +1401,8 @@ describe("ArkadeLightning", () => {
             await manager.start([mockReverseSwap]);
 
             // act & assert
-            expect(manager.hasSwap(mockReverseSwap.id)).toBe(true);
-            expect(manager.hasSwap("non-existent")).toBe(false);
+            expect(await manager.hasSwap(mockReverseSwap.id)).toBe(true);
+            expect(await manager.hasSwap("non-existent")).toBe(false);
         });
 
         describe("setCallbacks", () => {

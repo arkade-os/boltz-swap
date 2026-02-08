@@ -36,7 +36,7 @@ import type {
 import type { VHTLC } from "@arkade-os/sdk";
 import { IArkadeLightning } from "../arkade-lightning";
 import { IndexedDbSwapRepository } from "../repositories/IndexedDb/swap-repository";
-import type { SwapManager } from "../swap-manager";
+import type { SwapManagerClient } from "../swap-manager";
 
 export type SvcWrkArkadeLightningConfig = Pick<
     ArkadeLightningConfig,
@@ -107,7 +107,7 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
         });
     }
 
-    getSwapManager() {
+    getSwapManager(): SwapManagerClient | null {
         if (!this.withSwapManager) {
             return null;
         }
@@ -234,7 +234,7 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
             offWebSocketDisconnected: async () => {},
         };
 
-        return proxy as unknown as SwapManager;
+        return proxy as SwapManagerClient;
     }
 
     async createLightningInvoice(
