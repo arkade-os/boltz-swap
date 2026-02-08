@@ -471,7 +471,6 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
 
     async getLimits(): Promise<LimitsResponse> {
         try {
-            console.log("--- getting limits via message");
             const res = await this.sendMessage({
                 id: getRandomId(),
                 tag: this.messageTag,

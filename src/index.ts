@@ -47,7 +47,11 @@ export type {
     Network,
     Vtxo,
 } from "./types";
-export type { SwapManagerConfig, SwapManagerEvents } from "./swap-manager";
+export type {
+    SwapManagerConfig,
+    SwapManagerEvents,
+    SwapManagerClient,
+} from "./swap-manager";
 export { logger, setLogger } from "./logger";
 export type { Logger } from "./logger";
 export { IndexedDbSwapRepository } from "./repositories/IndexedDb/swap-repository";

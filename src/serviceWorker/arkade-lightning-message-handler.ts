@@ -576,7 +576,6 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "GET_LIMITS": {
-                    console.log("--- getting limits via message - 2");
                     const res = await this.handler.getLimits();
                     return this.tagged({ id, type: "LIMITS", payload: res });
                 }
