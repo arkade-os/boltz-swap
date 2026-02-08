@@ -36,7 +36,14 @@ export const DEFAULT_MESSAGE_TAG = "ARKADE_LIGHTNING_UPDATER";
 
 export type RequestInitArkLn = RequestEnvelope & {
     type: "INIT_ARKADE_LIGHTNING";
-    payload: ArkadeLightningConfig & {
+    payload: Omit<
+        ArkadeLightningConfig,
+        | "wallet"
+        | "swapRepository"
+        | "swapProvider"
+        | "refundHandler"
+        | "indexerProvider"
+    > & {
         network: Network;
         arkServerUrl: string;
         swapProvider: {
@@ -526,6 +533,7 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "GET_LIMITS": {
+                    console.log("--- getting limits via message - 2");
                     const res = await this.handler.getLimits();
                     return this.tagged({ id, type: "LIMITS", payload: res });
                 }
@@ -668,6 +676,8 @@ export class ArkadeLightningMessageHandler
             apiUrl: payload.swapProvider.baseUrl,
             network: payload.network,
         });
+
+        // TODO: refundHandler ?
 
         const handler = new ArkadeLightning({
             wallet: this.wallet,

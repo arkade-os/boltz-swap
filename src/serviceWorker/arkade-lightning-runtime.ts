@@ -1,10 +1,11 @@
 import { GetSwapStatusResponse } from "../boltz-swap-provider";
-import type {
+import {
     ArkadeLightningConfig,
     CreateLightningInvoiceRequest,
     CreateLightningInvoiceResponse,
     FeesResponse,
     LimitsResponse,
+    Network,
     PendingReverseSwap,
     PendingSubmarineSwap,
     SendLightningPaymentRequest,
@@ -15,6 +16,7 @@ import {
     ArkadeLightningUpdaterRequest,
     ArkadeLightningUpdaterResponse,
     DEFAULT_MESSAGE_TAG,
+    RequestInitArkLn,
 } from "./arkade-lightning-message-handler";
 import type {
     ResponseCreateLightningInvoice,
@@ -42,6 +44,8 @@ export type SvcWrkArkadeLightningConfig = Pick<
 > & {
     serviceWorker: ServiceWorker;
     messageTag?: string;
+    network: Network;
+    arkServerUrl: string;
 };
 
 export class SwArkadeLightningRuntime implements IArkadeLightning {
@@ -52,7 +56,7 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
         private readonly withSwapManager: boolean
     ) {}
 
-    static create(config: SvcWrkArkadeLightningConfig) {
+    static async create(config: SvcWrkArkadeLightningConfig) {
         const messageTag = config.messageTag ?? DEFAULT_MESSAGE_TAG;
 
         const swapRepository =
@@ -64,6 +68,19 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
             swapRepository,
             Boolean(config.swapManager)
         );
+
+        const initMessage: RequestInitArkLn = {
+            tag: messageTag,
+            id: getRandomId(),
+            type: "INIT_ARKADE_LIGHTNING",
+            payload: {
+                network: config.network,
+                arkServerUrl: config.arkServerUrl,
+                swapProvider: { baseUrl: config.swapProvider.getApiUrl() },
+            },
+        };
+
+        await svcArkadeLightning.sendMessage(initMessage);
 
         return svcArkadeLightning;
     }
@@ -113,7 +130,9 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
                     type: "SM-STOP",
                 });
             },
-            addSwap: async (swap: PendingReverseSwap | PendingSubmarineSwap) => {
+            addSwap: async (
+                swap: PendingReverseSwap | PendingSubmarineSwap
+            ) => {
                 await send({
                     id: getRandomId(),
                     tag,
@@ -135,9 +154,11 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
                     tag,
                     type: "SM-GET_PENDING_SWAPS",
                 });
-                return (res as ArkadeLightningUpdaterResponse & {
-                    payload: (PendingReverseSwap | PendingSubmarineSwap)[];
-                }).payload;
+                return (
+                    res as ArkadeLightningUpdaterResponse & {
+                        payload: (PendingReverseSwap | PendingSubmarineSwap)[];
+                    }
+                ).payload;
             },
             hasSwap: async (swapId: string) => {
                 const res = await send({
@@ -146,9 +167,11 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
                     type: "SM-HAS_SWAP",
                     payload: { swapId },
                 });
-                return (res as ArkadeLightningUpdaterResponse & {
-                    payload: { has: boolean };
-                }).payload.has;
+                return (
+                    res as ArkadeLightningUpdaterResponse & {
+                        payload: { has: boolean };
+                    }
+                ).payload.has;
             },
             isProcessing: async (swapId: string) => {
                 const res = await send({
@@ -157,9 +180,11 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
                     type: "SM-IS_PROCESSING",
                     payload: { swapId },
                 });
-                return (res as ArkadeLightningUpdaterResponse & {
-                    payload: { processing: boolean };
-                }).payload.processing;
+                return (
+                    res as ArkadeLightningUpdaterResponse & {
+                        payload: { processing: boolean };
+                    }
+                ).payload.processing;
             },
             getStats: async () => {
                 const res = await send({
@@ -167,16 +192,18 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
                     tag,
                     type: "SM-GET_STATS",
                 });
-                return (res as ArkadeLightningUpdaterResponse & {
-                    payload: {
-                        isRunning: boolean;
-                        monitoredSwaps: number;
-                        websocketConnected: boolean;
-                        usePollingFallback: boolean;
-                        currentReconnectDelay: number;
-                        currentPollRetryDelay: number;
-                    };
-                }).payload;
+                return (
+                    res as ArkadeLightningUpdaterResponse & {
+                        payload: {
+                            isRunning: boolean;
+                            monitoredSwaps: number;
+                            websocketConnected: boolean;
+                            usePollingFallback: boolean;
+                            currentReconnectDelay: number;
+                            currentPollRetryDelay: number;
+                        };
+                    }
+                ).payload;
             },
             waitForSwapCompletion: async (swapId: string) => {
                 const res = await send({
@@ -185,9 +212,11 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
                     type: "SM-WAIT_FOR_COMPLETION",
                     payload: { swapId },
                 });
-                return (res as ArkadeLightningUpdaterResponse & {
-                    payload: { txid: string };
-                }).payload;
+                return (
+                    res as ArkadeLightningUpdaterResponse & {
+                        payload: { txid: string };
+                    }
+                ).payload;
             },
             // Event-related APIs are stubbed for now (non-serializable callbacks)
             subscribeToSwapUpdates: async () => () => {},
@@ -392,6 +421,7 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
 
     async getLimits(): Promise<LimitsResponse> {
         try {
+            console.log("--- getting limits via message");
             const res = await this.sendMessage({
                 id: getRandomId(),
                 tag: this.messageTag,
@@ -466,16 +496,6 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
             tag: this.messageTag,
             type: "REFRESH_SWAPS_STATUS",
         });
-    }
-
-    normalizeToXOnlyPublicKey(
-        _publicKey: Uint8Array,
-        _keyName: string,
-        _swapId?: string
-    ): Uint8Array {
-        throw new Error(
-            "normalizeToXOnlyPublicKey is not supported via service worker"
-        );
     }
 
     async dispose(): Promise<void> {
