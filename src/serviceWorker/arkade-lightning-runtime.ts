@@ -51,7 +51,10 @@ export type SvcWrkArkadeLightningConfig = Pick<
 export class SwArkadeLightningRuntime implements IArkadeLightning {
     private eventListenerInitialized = false;
     private swapUpdateListeners = new Set<
-        (swap: PendingReverseSwap | PendingSubmarineSwap, oldStatus: BoltzSwapStatus) => void
+        (
+            swap: PendingReverseSwap | PendingSubmarineSwap,
+            oldStatus: BoltzSwapStatus
+        ) => void
     >();
     private swapCompletedListeners = new Set<
         (swap: PendingReverseSwap | PendingSubmarineSwap) => void
@@ -60,7 +63,10 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
         (swap: PendingReverseSwap | PendingSubmarineSwap, error: Error) => void
     >();
     private actionExecutedListeners = new Set<
-        (swap: PendingReverseSwap | PendingSubmarineSwap, action: "claim" | "refund") => void
+        (
+            swap: PendingReverseSwap | PendingSubmarineSwap,
+            action: "claim" | "refund"
+        ) => void
     >();
     private wsConnectedListeners = new Set<() => void>();
     private wsDisconnectedListeners = new Set<(error?: Error) => void>();

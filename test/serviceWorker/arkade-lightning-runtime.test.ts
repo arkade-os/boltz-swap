@@ -1,9 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SwArkadeLightningRuntime } from "../../src/serviceWorker/arkade-lightning-runtime";
-import type {
-    PendingReverseSwap,
-    PendingSubmarineSwap,
-} from "../../src/types";
+import { DEFAULT_MESSAGE_TAG } from "../../src/serviceWorker/arkade-lightning-message-handler";
+import type { PendingReverseSwap, PendingSubmarineSwap } from "../../src/types";
 import { BoltzSwapStatus } from "../../src/boltz-swap-provider";
 
 class FakeServiceWorker {
@@ -23,35 +21,61 @@ class FakeServiceWorker {
     }
 }
 
-const TAG = "ARKADE_LIGHTNING_UPDATER";
+const TAG = DEFAULT_MESSAGE_TAG;
 
 function createRuntime(fakeSw: FakeServiceWorker) {
-    (globalThis as any).navigator = {
-        serviceWorker: fakeSw,
-    } as any;
+    Object.defineProperty(globalThis, "navigator", {
+        configurable: true,
+        value: {
+            serviceWorker: fakeSw,
+        },
+    });
 
     return SwArkadeLightningRuntime.create({
         serviceWorker: fakeSw as any,
-        swapProvider: {} as any,
+        swapProvider: {
+            getApiUrl: () => "http://example.com",
+        } as any,
         swapManager: true,
     });
 }
 
 describe("SwArkadeLightningRuntime events", () => {
     let fakeSw: FakeServiceWorker;
+    let sendMessageSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
         fakeSw = new FakeServiceWorker();
+        sendMessageSpy = vi.spyOn(
+            SwArkadeLightningRuntime.prototype as any,
+            "sendMessage"
+        );
+        sendMessageSpy.mockResolvedValue({
+            id: "init",
+            tag: TAG,
+            type: "ARKADE_LIGHTNING_INITIALIZED",
+        } as any);
+    });
+
+    afterEach(() => {
+        // cleanup navigator stub
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        delete (globalThis as any).navigator;
+        sendMessageSpy.mockRestore();
     });
 
     it("forwards swap update events to listeners", async () => {
-        const runtime = createRuntime(fakeSw);
+        const runtime = await createRuntime(fakeSw);
         const mgr = runtime.getSwapManager()!;
 
         const spy = vi.fn();
         await mgr.onSwapUpdate(spy);
 
-        const swap = { id: "1", type: "reverse", status: "swap.created" } as PendingReverseSwap;
+        const swap = {
+            id: "1",
+            type: "reverse",
+            status: "swap.created",
+        } as PendingReverseSwap;
         fakeSw.emit({
             tag: TAG,
             type: "SM-EVENT-SWAP_UPDATE",
@@ -63,13 +87,17 @@ describe("SwArkadeLightningRuntime events", () => {
     });
 
     it("unsubscribe stops receiving events", async () => {
-        const runtime = createRuntime(fakeSw);
+        const runtime = await createRuntime(fakeSw);
         const mgr = runtime.getSwapManager()!;
 
         const spy = vi.fn();
         const unsub = await mgr.onSwapCompleted(spy);
 
-        const swap = { id: "2", type: "submarine", status: "transaction.claimed" } as PendingSubmarineSwap;
+        const swap = {
+            id: "2",
+            type: "submarine",
+            status: "transaction.claimed",
+        } as PendingSubmarineSwap;
         fakeSw.emit({
             tag: TAG,
             type: "SM-EVENT-SWAP_COMPLETED",
@@ -87,7 +115,7 @@ describe("SwArkadeLightningRuntime events", () => {
     });
 
     it("ignores events for other tags", async () => {
-        const runtime = createRuntime(fakeSw);
+        const runtime = await createRuntime(fakeSw);
         const mgr = runtime.getSwapManager()!;
         const spy = vi.fn();
         await mgr.onSwapFailed(spy);

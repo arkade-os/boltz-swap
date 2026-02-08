@@ -11,8 +11,10 @@ describe("ArkadeLightningMessageHandler broadcastEvent", () => {
     beforeEach(() => {
         // Fake clients API
         postMessage = vi.fn();
-        (globalThis as any).clients = {
-            matchAll: vi.fn().mockResolvedValue([{ postMessage }]),
+        (globalThis as any).self = {
+            clients: {
+                matchAll: vi.fn().mockResolvedValue([{ postMessage }]),
+            },
         };
         handler = new ArkadeLightningMessageHandler({} as SwapRepository);
     });
@@ -25,7 +27,9 @@ describe("ArkadeLightningMessageHandler broadcastEvent", () => {
             payload: { swap, oldStatus: "swap.created" as BoltzSwapStatus },
         });
 
-        expect((globalThis as any).clients.matchAll).toHaveBeenCalledTimes(1);
+        expect((globalThis as any).self.clients.matchAll).toHaveBeenCalledTimes(
+            1
+        );
         expect(postMessage).toHaveBeenCalledWith(
             expect.objectContaining({ type: "SM-EVENT-SWAP_UPDATE" })
         );

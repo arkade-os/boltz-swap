@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { SwapManager } from "../src/swap-manager";
+import { SwapManager, SwapManagerConfig } from "../src/swap-manager";
 import { BoltzSwapProvider } from "../src/boltz-swap-provider";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../src/types";
 
@@ -8,9 +8,8 @@ describe("SwapManager", () => {
     let mockWebSocket: any;
     let swapManager: SwapManager;
 
-    const swapManagerConfig = {
-        network: "regtest",
-        apiUrl: "http://localhost:9069",
+    const swapManagerConfig: SwapManagerConfig = {
+        enableAutoActions: true,
     };
 
     const mockReverseSwap: PendingReverseSwap = {
@@ -104,7 +103,8 @@ describe("SwapManager", () => {
         });
 
         it("should create SwapManager with custom config", () => {
-            swapManager = new SwapManager(swapProvider, swapManagerConfig, {
+            swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 enableAutoActions: false,
                 pollInterval: 60000,
                 reconnectDelayMs: 2000,
@@ -116,7 +116,8 @@ describe("SwapManager", () => {
             const onSwapUpdate = vi.fn();
             const onSwapCompleted = vi.fn();
 
-            swapManager = new SwapManager(swapProvider, swapManagerConfig, {
+            swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 events: {
                     onSwapUpdate,
                     onSwapCompleted,
@@ -267,7 +268,8 @@ describe("SwapManager", () => {
 
         it("should fall back to polling on WebSocket error", async () => {
             const onWebSocketDisconnected = vi.fn();
-            swapManager = new SwapManager(swapProvider, swapManagerConfig, {
+            swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 events: { onWebSocketDisconnected },
             });
             swapManager.setCallbacks({
@@ -408,8 +410,8 @@ describe("SwapManager", () => {
             onSwapCompleted = vi.fn();
             onActionExecuted = vi.fn();
 
-            swapManager = new SwapManager(swapProvider, swapManagerConfig, {
-                enableAutoActions: true,
+            swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 events: {
                     onSwapUpdate,
                     onSwapCompleted,
@@ -544,7 +546,8 @@ describe("SwapManager", () => {
         });
 
         it("should not execute action if auto-actions disabled", async () => {
-            swapManager = new SwapManager(swapProvider, swapManagerConfig, {
+            swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 enableAutoActions: false,
             });
             swapManager.setCallbacks({
@@ -598,7 +601,8 @@ describe("SwapManager", () => {
 
         it("should handle error in WebSocket message", async () => {
             const onSwapFailed = vi.fn();
-            swapManager = new SwapManager(swapProvider, swapManagerConfig, {
+            swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 events: { onSwapFailed },
             });
             swapManager.setCallbacks({
@@ -682,7 +686,8 @@ describe("SwapManager", () => {
         it("should use exponential backoff for polling fallback", async () => {
             vi.useFakeTimers();
 
-            swapManager = new SwapManager(swapProvider, swapManagerConfig, {
+            swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 pollRetryDelayMs: 1000,
             });
             swapManager.setCallbacks({
@@ -796,7 +801,8 @@ describe("SwapManager", () => {
             });
 
             // Disable auto actions so we can manually test the locking mechanism
-            swapManager = new SwapManager(swapProvider, swapManagerConfig, {
+            swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 enableAutoActions: false,
             });
 
@@ -813,18 +819,16 @@ describe("SwapManager", () => {
             await swapManager.start([claimableSwap]);
 
             // Check swap is not being processed initially
-            expect(
-                await swapManager.isProcessing("reverse-swap-1")
-            ).toBe(false);
+            expect(await swapManager.isProcessing("reverse-swap-1")).toBe(
+                false
+            );
 
             // Trigger first autonomous action (will start processing)
             const promise1 =
                 swapManager["executeAutonomousAction"](claimableSwap);
 
             // Check swap is now being processed
-            expect(await swapManager.isProcessing("reverse-swap-1")).toBe(
-                true
-            );
+            expect(await swapManager.isProcessing("reverse-swap-1")).toBe(true);
 
             // Trigger second autonomous action (should be skipped)
             const promise2 =
@@ -869,13 +873,10 @@ describe("SwapManager", () => {
 
         beforeEach(() => {
             // Mock getReverseSwapTxId to return a mock txid
-            vi.spyOn(
-                swapProvider,
-                swapManagerConfig,
-                "getReverseSwapTxId"
-            ).mockResolvedValue({
+            vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
                 id: mockTxId,
                 hex: "0200000001...",
+                timeoutBlockHeight: 10,
             });
 
             swapManager = new SwapManager(swapProvider, swapManagerConfig);
@@ -908,10 +909,9 @@ describe("SwapManager", () => {
             // Should resolve when swap reaches final status
             const result = await waitPromise;
             expect(result.txid).toBe(mockTxId);
-            expect(
-                swapProvider,
-                swapManagerConfig.getReverseSwapTxId
-            ).toHaveBeenCalledWith("reverse-swap-1");
+            expect(swapProvider.getReverseSwapTxId).toHaveBeenCalledWith(
+                "reverse-swap-1"
+            );
 
             await swapManager.stop();
         });
@@ -937,20 +937,17 @@ describe("SwapManager", () => {
             const result =
                 await swapManager.waitForSwapCompletion("reverse-swap-1");
             expect(result.txid).toBe(mockTxId);
-            expect(
-                swapProvider,
-                swapManagerConfig.getReverseSwapTxId
-            ).toHaveBeenCalledWith("reverse-swap-1");
+            expect(swapProvider.getReverseSwapTxId).toHaveBeenCalledWith(
+                "reverse-swap-1"
+            );
 
             await swapManager.stop();
         });
 
         it("should reject if getReverseSwapTxId fails", async () => {
-            vi.spyOn(
-                swapProvider,
-                swapManagerConfig,
-                "getReverseSwapTxId"
-            ).mockRejectedValue(new Error("Failed to fetch txid"));
+            vi.spyOn(swapProvider, "getReverseSwapTxId").mockRejectedValue(
+                new Error("Failed to fetch txid")
+            );
 
             const completedSwap = {
                 ...mockReverseSwap,
@@ -976,7 +973,8 @@ describe("SwapManager", () => {
             refundCallback = vi.fn();
             saveSwapCallback = vi.fn();
 
-            swapManager = new SwapManager(swapProvider, swapManagerConfig, {
+            swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 enableAutoActions: true,
             });
             swapManager.setCallbacks({
@@ -1099,8 +1097,8 @@ describe("SwapManager", () => {
 
         it("should still monitor restored swaps for status updates", async () => {
             const onSwapUpdate = vi.fn();
-            swapManager = new SwapManager(swapProvider, swapManagerConfig, {
-                enableAutoActions: true,
+            swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 events: { onSwapUpdate },
             });
             swapManager.setCallbacks({

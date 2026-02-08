@@ -39,10 +39,7 @@ export type RequestInitArkLn = RequestEnvelope & {
     type: "INIT_ARKADE_LIGHTNING";
     payload: Omit<
         ArkadeLightningConfig,
-        | "wallet"
-        | "swapRepository"
-        | "swapProvider"
-        | "indexerProvider"
+        "wallet" | "swapRepository" | "swapProvider" | "indexerProvider"
     > & {
         network: Network;
         arkServerUrl: string;
@@ -433,7 +430,9 @@ export class ArkadeLightningMessageHandler
         } as ArkadeLightningUpdaterResponse;
     }
 
-    private async broadcastEvent(event: SwapManagerEventMessage): Promise<void> {
+    private async broadcastEvent(
+        event: SwapManagerEventMessage
+    ): Promise<void> {
         const sw: any = self as any;
         if (!sw?.clients?.matchAll) return;
         const clients = await sw.clients.matchAll();
@@ -634,9 +633,9 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "SM-ADD_SWAP": {
-                    await this.handler.getSwapManager()!.addSwap(
-                        message.payload
-                    );
+                    await this.handler
+                        .getSwapManager()!
+                        .addSwap(message.payload);
                     return this.tagged({ id, type: "SM-SWAP_ADDED" });
                 }
 

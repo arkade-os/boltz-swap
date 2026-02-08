@@ -1046,9 +1046,8 @@ describe("ArkadeLightning", () => {
                 const listener = vi.fn();
 
                 // act & assert
-                const unsubscribe = await manager.onWebSocketConnected(
-                    listener
-                );
+                const unsubscribe =
+                    await manager.onWebSocketConnected(listener);
                 expect(typeof unsubscribe).toBe("function");
                 unsubscribe();
             });
@@ -1066,9 +1065,8 @@ describe("ArkadeLightning", () => {
                 const listener = vi.fn();
 
                 // act & assert
-                const unsubscribe = await manager.onWebSocketDisconnected(
-                    listener
-                );
+                const unsubscribe =
+                    await manager.onWebSocketDisconnected(listener);
                 expect(typeof unsubscribe).toBe("function");
                 unsubscribe();
             });
@@ -1142,9 +1140,9 @@ describe("ArkadeLightning", () => {
                 await manager.addSwap(mockReverseSwap);
 
                 // act & assert
-                expect(
-                    await manager.isProcessing(mockReverseSwap.id)
-                ).toBe(false);
+                expect(await manager.isProcessing(mockReverseSwap.id)).toBe(
+                    false
+                );
             });
 
             it("should report not processing for unknown swap", async () => {
@@ -1336,9 +1334,9 @@ describe("ArkadeLightning", () => {
 
             // assert
             expect(customManager).toBeDefined();
-            expect(
-                (await customManager.getStats()).currentReconnectDelay
-            ).toBe(2000);
+            expect((await customManager.getStats()).currentReconnectDelay).toBe(
+                2000
+            );
         });
 
         it("should start with empty swap list", async () => {
