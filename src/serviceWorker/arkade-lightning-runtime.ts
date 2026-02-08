@@ -1,4 +1,4 @@
-import { GetSwapStatusResponse } from "../boltz-swap-provider";
+import { GetSwapStatusResponse, BoltzSwapStatus } from "../boltz-swap-provider";
 import {
     ArkadeLightningConfig,
     CreateLightningInvoiceRequest,
@@ -49,6 +49,22 @@ export type SvcWrkArkadeLightningConfig = Pick<
 };
 
 export class SwArkadeLightningRuntime implements IArkadeLightning {
+    private eventListenerInitialized = false;
+    private swapUpdateListeners = new Set<
+        (swap: PendingReverseSwap | PendingSubmarineSwap, oldStatus: BoltzSwapStatus) => void
+    >();
+    private swapCompletedListeners = new Set<
+        (swap: PendingReverseSwap | PendingSubmarineSwap) => void
+    >();
+    private swapFailedListeners = new Set<
+        (swap: PendingReverseSwap | PendingSubmarineSwap, error: Error) => void
+    >();
+    private actionExecutedListeners = new Set<
+        (swap: PendingReverseSwap | PendingSubmarineSwap, action: "claim" | "refund") => void
+    >();
+    private wsConnectedListeners = new Set<() => void>();
+    private wsDisconnectedListeners = new Set<(error?: Error) => void>();
+
     private constructor(
         private readonly messageTag: string,
         public readonly serviceWorker: ServiceWorker,
@@ -111,6 +127,8 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
         if (!this.withSwapManager) {
             return null;
         }
+
+        this.initEventStream();
 
         const send = this.sendMessage.bind(this);
         const tag = this.messageTag;
@@ -218,20 +236,52 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
                     }
                 ).payload;
             },
-            // Event-related APIs are stubbed for now (non-serializable callbacks)
             subscribeToSwapUpdates: async () => () => {},
-            onSwapUpdate: async () => () => {},
-            onSwapCompleted: async () => () => {},
-            onSwapFailed: async () => () => {},
-            onActionExecuted: async () => () => {},
-            onWebSocketConnected: async () => () => {},
-            onWebSocketDisconnected: async () => () => {},
-            offSwapUpdate: async () => {},
-            offSwapCompleted: async () => {},
-            offSwapFailed: async () => {},
-            offActionExecuted: async () => {},
-            offWebSocketConnected: async () => {},
-            offWebSocketDisconnected: async () => {},
+            onSwapUpdate: async (
+                listener: (
+                    swap: PendingReverseSwap | PendingSubmarineSwap,
+                    oldStatus: BoltzSwapStatus
+                ) => void
+            ) => {
+                this.swapUpdateListeners.add(listener);
+                return () => this.swapUpdateListeners.delete(listener);
+            },
+            onSwapCompleted: async (
+                listener: (
+                    swap: PendingReverseSwap | PendingSubmarineSwap
+                ) => void
+            ) => {
+                this.swapCompletedListeners.add(listener);
+                return () => this.swapCompletedListeners.delete(listener);
+            },
+            onSwapFailed: async (
+                listener: (
+                    swap: PendingReverseSwap | PendingSubmarineSwap,
+                    error: Error
+                ) => void
+            ) => {
+                this.swapFailedListeners.add(listener);
+                return () => this.swapFailedListeners.delete(listener);
+            },
+            onActionExecuted: async (
+                listener: (
+                    swap: PendingReverseSwap | PendingSubmarineSwap,
+                    action: "claim" | "refund"
+                ) => void
+            ) => {
+                this.actionExecutedListeners.add(listener);
+                return () => this.actionExecutedListeners.delete(listener);
+            },
+            onWebSocketConnected: async (listener: () => void) => {
+                this.wsConnectedListeners.add(listener);
+                return () => this.wsConnectedListeners.delete(listener);
+            },
+            onWebSocketDisconnected: async (
+                listener: (error?: Error) => void
+            ) => {
+                this.wsDisconnectedListeners.add(listener);
+                return () => this.wsDisconnectedListeners.delete(listener);
+            },
         };
 
         return proxy as SwapManagerClient;
@@ -531,6 +581,59 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
             this.serviceWorker.postMessage(request);
         });
     }
+
+    private initEventStream() {
+        if (this.eventListenerInitialized) return;
+        this.eventListenerInitialized = true;
+        navigator.serviceWorker.addEventListener(
+            "message",
+            this.handleEventMessage
+        );
+    }
+
+    private handleEventMessage = (event: MessageEvent) => {
+        const data = event.data;
+        if (!data || data.tag !== this.messageTag) return;
+        if (typeof data.type !== "string") return;
+        if (!data.type.startsWith("SM-EVENT-")) return;
+
+        switch (data.type) {
+            case "SM-EVENT-SWAP_UPDATE":
+                this.swapUpdateListeners.forEach((cb) =>
+                    cb(data.payload.swap, data.payload.oldStatus)
+                );
+                break;
+            case "SM-EVENT-SWAP_COMPLETED":
+                this.swapCompletedListeners.forEach((cb) =>
+                    cb(data.payload.swap)
+                );
+                break;
+            case "SM-EVENT-SWAP_FAILED": {
+                const err = new Error(data.payload.error?.message);
+                this.swapFailedListeners.forEach((cb) =>
+                    cb(data.payload.swap, err)
+                );
+                break;
+            }
+            case "SM-EVENT-ACTION_EXECUTED":
+                this.actionExecutedListeners.forEach((cb) =>
+                    cb(data.payload.swap, data.payload.action)
+                );
+                break;
+            case "SM-EVENT-WS_CONNECTED":
+                this.wsConnectedListeners.forEach((cb) => cb());
+                break;
+            case "SM-EVENT-WS_DISCONNECTED": {
+                const err = data.payload?.errorMessage
+                    ? new Error(data.payload.errorMessage)
+                    : undefined;
+                this.wsDisconnectedListeners.forEach((cb) => cb(err));
+                break;
+            }
+            default:
+                break;
+        }
+    };
 }
 
 function getRandomId(): string {

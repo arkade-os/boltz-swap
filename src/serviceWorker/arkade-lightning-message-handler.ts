@@ -8,6 +8,7 @@ import {
 import {
     BoltzSwapProvider,
     type GetSwapStatusResponse,
+    BoltzSwapStatus,
 } from "../boltz-swap-provider";
 import { SwapRepository } from "../repositories/swap-repository";
 import {
@@ -354,6 +355,42 @@ export type ArkadeLightningUpdaterResponse =
     | ResponseSwapManagerGetStats
     | ResponseSwapManagerWaitForCompletion;
 
+type PendingSwap = PendingReverseSwap | PendingSubmarineSwap;
+
+export type SwapManagerEventMessage =
+    | {
+          tag: string;
+          type: "SM-EVENT-SWAP_UPDATE";
+          payload: { swap: PendingSwap; oldStatus: BoltzSwapStatus };
+      }
+    | {
+          tag: string;
+          type: "SM-EVENT-SWAP_COMPLETED";
+          payload: { swap: PendingSwap };
+      }
+    | {
+          tag: string;
+          type: "SM-EVENT-SWAP_FAILED";
+          payload: { swap: PendingSwap; error: { message: string } };
+      }
+    | {
+          tag: string;
+          type: "SM-EVENT-ACTION_EXECUTED";
+          payload: {
+              swap: PendingSwap;
+              action: "claim" | "refund";
+          };
+      }
+    | {
+          tag: string;
+          type: "SM-EVENT-WS_CONNECTED";
+      }
+    | {
+          tag: string;
+          type: "SM-EVENT-WS_DISCONNECTED";
+          payload?: { errorMessage?: string };
+      };
+
 export class ArkadeLightningMessageHandler
     implements
         MessageHandler<
@@ -395,6 +432,13 @@ export class ArkadeLightningMessageHandler
             ...res,
             tag: this.messageTag,
         } as ArkadeLightningUpdaterResponse;
+    }
+
+    private async broadcastEvent(event: SwapManagerEventMessage): Promise<void> {
+        const sw: any = self as any;
+        if (!sw?.clients?.matchAll) return;
+        const clients = await sw.clients.matchAll();
+        clients.forEach((client: any) => client.postMessage(event));
     }
 
     async handleMessage(
@@ -695,5 +739,52 @@ export class ArkadeLightningMessageHandler
             retryConfig: payload.retryConfig,
         });
         this.handler = handler;
+
+        const sm = handler.getSwapManager();
+        if (sm) {
+            void sm.onSwapUpdate(async (swap, oldStatus) => {
+                await this.broadcastEvent({
+                    tag: this.messageTag,
+                    type: "SM-EVENT-SWAP_UPDATE",
+                    payload: { swap, oldStatus },
+                });
+            });
+            void sm.onSwapCompleted(async (swap) => {
+                await this.broadcastEvent({
+                    tag: this.messageTag,
+                    type: "SM-EVENT-SWAP_COMPLETED",
+                    payload: { swap },
+                });
+            });
+            void sm.onSwapFailed(async (swap, error) => {
+                await this.broadcastEvent({
+                    tag: this.messageTag,
+                    type: "SM-EVENT-SWAP_FAILED",
+                    payload: { swap, error: { message: error.message } },
+                });
+            });
+            void sm.onActionExecuted(async (swap, action) => {
+                await this.broadcastEvent({
+                    tag: this.messageTag,
+                    type: "SM-EVENT-ACTION_EXECUTED",
+                    payload: { swap, action },
+                });
+            });
+            void sm.onWebSocketConnected(async () => {
+                await this.broadcastEvent({
+                    tag: this.messageTag,
+                    type: "SM-EVENT-WS_CONNECTED",
+                });
+            });
+            void sm.onWebSocketDisconnected(async (error) => {
+                await this.broadcastEvent({
+                    tag: this.messageTag,
+                    type: "SM-EVENT-WS_DISCONNECTED",
+                    payload: error
+                        ? { errorMessage: error.message }
+                        : undefined,
+                });
+            });
+        }
     }
 }

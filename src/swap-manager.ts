@@ -104,14 +104,6 @@ export interface SwapManagerClient {
     onWebSocketDisconnected(
         listener: WebSocketDisconnectedListener
     ): Promise<() => void>;
-    offSwapUpdate(listener: SwapUpdateListener): Promise<void>;
-    offSwapCompleted(listener: SwapCompletedListener): Promise<void>;
-    offSwapFailed(listener: SwapFailedListener): Promise<void>;
-    offActionExecuted(listener: ActionExecutedListener): Promise<void>;
-    offWebSocketConnected(listener: WebSocketConnectedListener): Promise<void>;
-    offWebSocketDisconnected(
-        listener: WebSocketDisconnectedListener
-    ): Promise<void>;
 }
 
 export class SwapManager implements SwapManagerClient {
@@ -270,52 +262,6 @@ export class SwapManager implements SwapManagerClient {
     ): Promise<() => void> {
         this.wsDisconnectedListeners.add(listener);
         return () => this.wsDisconnectedListeners.delete(listener);
-    }
-
-    /**
-     * Remove an event listener for swap updates
-     */
-    async offSwapUpdate(listener: SwapUpdateListener): Promise<void> {
-        this.swapUpdateListeners.delete(listener);
-    }
-
-    /**
-     * Remove an event listener for swap completion
-     */
-    async offSwapCompleted(listener: SwapCompletedListener): Promise<void> {
-        this.swapCompletedListeners.delete(listener);
-    }
-
-    /**
-     * Remove an event listener for swap failures
-     */
-    async offSwapFailed(listener: SwapFailedListener): Promise<void> {
-        this.swapFailedListeners.delete(listener);
-    }
-
-    /**
-     * Remove an event listener for executed actions
-     */
-    async offActionExecuted(listener: ActionExecutedListener): Promise<void> {
-        this.actionExecutedListeners.delete(listener);
-    }
-
-    /**
-     * Remove an event listener for WebSocket connection
-     */
-    async offWebSocketConnected(
-        listener: WebSocketConnectedListener
-    ): Promise<void> {
-        this.wsConnectedListeners.delete(listener);
-    }
-
-    /**
-     * Remove an event listener for WebSocket disconnection
-     */
-    async offWebSocketDisconnected(
-        listener: WebSocketDisconnectedListener
-    ): Promise<void> {
-        this.wsDisconnectedListeners.delete(listener);
     }
 
     /**

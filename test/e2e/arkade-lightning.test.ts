@@ -994,9 +994,7 @@ describe("ArkadeLightning", () => {
 
                 // assert
                 expect(typeof unsubscribe).toBe("function");
-
-                // act - remove listener using off method
-                await manager.offSwapCompleted(listener);
+                unsubscribe();
             });
 
             it("should add and remove swap failed listener", async () => {
@@ -1014,7 +1012,7 @@ describe("ArkadeLightning", () => {
                 // act & assert
                 const unsubscribe = await manager.onSwapFailed(listener);
                 expect(typeof unsubscribe).toBe("function");
-                await manager.offSwapFailed(listener);
+                unsubscribe();
             });
 
             it("should add and remove action executed listener", async () => {
@@ -1032,7 +1030,7 @@ describe("ArkadeLightning", () => {
                 // act & assert
                 const unsubscribe = await manager.onActionExecuted(listener);
                 expect(typeof unsubscribe).toBe("function");
-                await manager.offActionExecuted(listener);
+                unsubscribe();
             });
 
             it("should add and remove WebSocket connected listener", async () => {
@@ -1052,7 +1050,7 @@ describe("ArkadeLightning", () => {
                     listener
                 );
                 expect(typeof unsubscribe).toBe("function");
-                await manager.offWebSocketConnected(listener);
+                unsubscribe();
             });
 
             it("should add and remove WebSocket disconnected listener", async () => {
@@ -1072,7 +1070,7 @@ describe("ArkadeLightning", () => {
                     listener
                 );
                 expect(typeof unsubscribe).toBe("function");
-                await manager.offWebSocketDisconnected(listener);
+                unsubscribe();
             });
         });
 
