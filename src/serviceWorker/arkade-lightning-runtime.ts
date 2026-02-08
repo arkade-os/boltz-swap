@@ -549,7 +549,9 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
     }
 
     async dispose(): Promise<void> {
-        // TODO: stop the updater?
+        if (this.withSwapManager) {
+            await this.stopSwapManager().catch(() => {});
+        }
     }
 
     async [Symbol.asyncDispose](): Promise<void> {

@@ -76,17 +76,12 @@ export interface PendingSubmarineSwap {
     response: CreateSubmarineSwapResponse;
 }
 
-export interface RefundHandler {
-    onRefundNeeded: (swapData: PendingSubmarineSwap) => Promise<void>;
-}
-
 export interface ArkadeLightningConfig {
     wallet: IWallet;
     arkProvider?: ArkProvider;
     swapProvider: BoltzSwapProvider;
     indexerProvider?: IndexerProvider;
     feeConfig?: Partial<FeeConfig>;
-    refundHandler?: RefundHandler;
     timeoutConfig?: Partial<TimeoutConfig>;
     retryConfig?: Partial<RetryConfig>;
     /**

@@ -40,7 +40,6 @@ export type {
     PendingReverseSwap,
     DecodedInvoice,
     LimitsResponse,
-    RefundHandler,
     TimeoutConfig,
     FeesResponse,
     RetryConfig,

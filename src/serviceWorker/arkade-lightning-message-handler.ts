@@ -42,7 +42,6 @@ export type RequestInitArkLn = RequestEnvelope & {
         | "wallet"
         | "swapRepository"
         | "swapProvider"
-        | "refundHandler"
         | "indexerProvider"
     > & {
         network: Network;
@@ -724,8 +723,6 @@ export class ArkadeLightningMessageHandler
             apiUrl: payload.swapProvider.baseUrl,
             network: payload.network,
         });
-
-        // TODO: refundHandler ?
 
         const handler = new ArkadeLightning({
             wallet: this.wallet,
