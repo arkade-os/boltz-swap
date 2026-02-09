@@ -108,10 +108,7 @@ export class SwapManager {
         | ((swap: PendingChainSwap) => Promise<void>)
         | null = null;
     private claimBtcCallback:
-        | ((
-              swap: PendingChainSwap,
-              data: { transaction: { id: string; hex: string } }
-          ) => Promise<void>)
+        | ((swap: PendingChainSwap) => Promise<void>)
         | null = null;
     private refundArkCallback:
         | ((swap: PendingChainSwap) => Promise<void>)
@@ -183,10 +180,7 @@ export class SwapManager {
      */
     setChainCallbacks(callbacks: {
         claimArk: (swap: PendingChainSwap) => Promise<void>;
-        claimBtc: (
-            swap: PendingChainSwap,
-            data: { transaction: { id: string; hex: string } }
-        ) => Promise<void>;
+        claimBtc: (swap: PendingChainSwap) => Promise<void>;
         refundArk: (swap: PendingChainSwap) => Promise<void>;
         saveSwap: (swap: PendingSwap) => Promise<void>;
     }): void {
@@ -666,7 +660,7 @@ export class SwapManager {
             }
 
             const newStatus = msg.args[0].status as BoltzSwapStatus;
-            await this.handleSwapStatusUpdate(swap, newStatus, msg.args[0]);
+            await this.handleSwapStatusUpdate(swap, newStatus);
         } catch (error) {
             logger.error("Error handling WebSocket message:", error);
         }
@@ -678,8 +672,7 @@ export class SwapManager {
      */
     private async handleSwapStatusUpdate(
         swap: PendingSwap,
-        newStatus: BoltzSwapStatus,
-        data?: any
+        newStatus: BoltzSwapStatus
     ): Promise<void> {
         const oldStatus = swap.status;
 
@@ -714,7 +707,7 @@ export class SwapManager {
 
         // Execute autonomous actions if enabled
         if (this.config.enableAutoActions) {
-            await this.executeAutonomousAction(swap, data);
+            await this.executeAutonomousAction(swap);
         }
 
         // Remove from monitoring if final status
@@ -730,10 +723,7 @@ export class SwapManager {
      * Execute autonomous action based on swap status
      * Uses locking to prevent race conditions with manual operations
      */
-    private async executeAutonomousAction(
-        swap: PendingSwap,
-        data?: any
-    ): Promise<void> {
+    private async executeAutonomousAction(swap: PendingSwap): Promise<void> {
         // Skip if already processing this swap
         if (this.swapsInProgress.has(swap.id)) {
             logger.log(
@@ -795,7 +785,7 @@ export class SwapManager {
                         );
                     } else if (swap.request.to === "BTC") {
                         logger.log(`Auto-claiming BTC chain swap ${swap.id}`);
-                        await this.executeClaimBtcAction(swap, data);
+                        await this.executeClaimBtcAction(swap);
                         // Emit action executed event to all listeners
                         this.actionExecutedListeners.forEach((listener) =>
                             listener(swap, "claimBtc")
@@ -871,16 +861,13 @@ export class SwapManager {
     /**
      * Execute claim action for chain swap Ark to Btc
      */
-    private async executeClaimBtcAction(
-        swap: PendingChainSwap,
-        data: { transaction: { id: string; hex: string } }
-    ): Promise<void> {
+    private async executeClaimBtcAction(swap: PendingChainSwap): Promise<void> {
         if (!this.claimBtcCallback) {
             logger.error("claimBtc callback not set");
             return;
         }
 
-        await this.claimBtcCallback(swap, data);
+        await this.claimBtcCallback(swap);
     }
 
     /**

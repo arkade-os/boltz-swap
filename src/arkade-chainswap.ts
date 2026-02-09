@@ -51,7 +51,7 @@ import {
     detectSwap,
     OutputType,
 } from "boltz-core";
-import { randomBytes } from "crypto";
+import { randomBytes } from "@noble/hashes/utils.js";
 import { Address, OutScript, SigHash, Transaction } from "@scure/btc-signer";
 import { normalizeToXOnlyKey } from "./utils/signatures";
 import { isValidArkAddress } from "./utils/decoding";
@@ -135,11 +135,8 @@ export class ArkadeChainSwap {
                 claimArk: async (swap: PendingChainSwap) => {
                     await this.claimArk(swap);
                 },
-                claimBtc: async (
-                    swap: PendingChainSwap,
-                    data: { transaction: { id: string; hex: string } }
-                ) => {
-                    await this.claimBtc(swap, data);
+                claimBtc: async (swap: PendingChainSwap) => {
+                    await this.claimBtc(swap);
                 },
                 refundArk: async (swap: PendingChainSwap) => {
                     await this.refundArk(swap);
@@ -227,7 +224,10 @@ export class ArkadeChainSwap {
                 const { status } = await this.getSwapStatus(pendingSwap.id);
                 await this.savePendingChainSwap({ ...pendingSwap, status });
             }
-            throw new TransactionFailedError();
+            throw new TransactionFailedError({
+                message: error.message || "Failed to claim BTC",
+                isRefundable: error.isRefundable,
+            });
         }
 
         const { status } = await this.getSwapStatus(pendingSwap.id);
@@ -241,48 +241,55 @@ export class ArkadeChainSwap {
      * @returns The transaction ID of the claimed HTLC.
      * @throws SwapExpiredError, TransactionFailedError, TransactionRefundedError
      */
-    async waitAndClaimBtc(
-        pendingSwap: PendingChainSwap
-    ): Promise<{ txid: string }> {
-        return new Promise<{ txid: string }>((resolve, reject) => {
+    async waitAndClaimBtc(pendingSwap: PendingChainSwap): Promise<string> {
+        return new Promise<string>((resolve, reject) => {
             let claimStarted = false;
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
             const onStatusUpdate = async (
                 status: BoltzSwapStatus,
-                data: any
+                data: {
+                    failureReason?: string;
+                    transaction: { id: string; hex: string };
+                }
             ) => {
-                const updateSwapStatus = (status: BoltzSwapStatus) => {
-                    return this.savePendingChainSwap({
-                        ...pendingSwap,
-                        status,
-                    });
+                const updateSwapStatus = async (
+                    btcTxHex?: string
+                ): Promise<PendingChainSwap> => {
+                    const updatedSwap = { ...pendingSwap, status };
+                    if (btcTxHex) updatedSwap.btcTxHex = btcTxHex;
+                    await this.savePendingChainSwap(updatedSwap);
+                    return updatedSwap;
                 };
                 switch (status) {
                     case "transaction.mempool":
                     case "transaction.confirmed":
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         break;
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
-                        await updateSwapStatus(status);
+                        if (!data.transaction?.hex) {
+                            await updateSwapStatus();
+                            break;
+                        }
+                        const updatedSwap = await updateSwapStatus(
+                            data.transaction.hex
+                        );
                         if (claimStarted) return;
                         claimStarted = true;
-                        this.claimBtc(pendingSwap, data).catch(reject);
+                        this.claimBtc(updatedSwap).catch(reject);
                         break;
                     case "transaction.claimed":
-                        await updateSwapStatus(status);
-                        resolve({
-                            txid:
-                                data?.transaction?.id ??
-                                pendingSwap.response.id,
-                        });
+                        await updateSwapStatus();
+                        resolve(
+                            data?.transaction?.id ?? pendingSwap.response.id
+                        );
                         break;
                     case "transaction.lockupFailed":
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         await this.quoteSwap(pendingSwap.response.id);
                         break;
                     case "swap.expired":
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         reject(
                             new SwapExpiredError({
                                 isRefundable: true,
@@ -291,7 +298,7 @@ export class ArkadeChainSwap {
                         );
                         break;
                     case "transaction.failed":
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         reject(
                             new TransactionFailedError({
                                 message: data.failureReason,
@@ -300,11 +307,11 @@ export class ArkadeChainSwap {
                         );
                         break;
                     case "transaction.refunded":
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         reject(new TransactionRefundedError());
                         break;
                     default:
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         break;
                 }
             };
@@ -320,10 +327,10 @@ export class ArkadeChainSwap {
      * @param pendingSwap - The pending chain swap.
      * @param data - Swap status update data containing the lockup transaction.
      */
-    async claimBtc(
-        pendingSwap: PendingChainSwap,
-        data: { transaction: { id: string; hex: string } }
-    ): Promise<void> {
+    async claimBtc(pendingSwap: PendingChainSwap): Promise<void> {
+        if (!pendingSwap.btcTxHex)
+            throw new Error("BTC transaction hex is required");
+
         if (!pendingSwap.toAddress)
             throw new Error("Destination address is required");
 
@@ -333,7 +340,7 @@ export class ArkadeChainSwap {
         if (!pendingSwap.response.claimDetails.serverPublicKey)
             throw new Error("Missing server public key in claim details");
 
-        const lockupTx = Transaction.fromRaw(hex.decode(data.transaction.hex));
+        const lockupTx = Transaction.fromRaw(hex.decode(pendingSwap.btcTxHex));
 
         const arkInfo = await this.arkProvider.getInfo();
 
@@ -609,17 +616,18 @@ export class ArkadeChainSwap {
      * @param pendingSwap - The pending chain swap to monitor.
      * @returns The transaction ID of the claimed VHTLC.
      */
-    async waitAndClaimArk(
-        pendingSwap: PendingChainSwap
-    ): Promise<{ txid: string }> {
-        return new Promise<{ txid: string }>((resolve, reject) => {
+    async waitAndClaimArk(pendingSwap: PendingChainSwap): Promise<string> {
+        return new Promise<string>((resolve, reject) => {
             let claimStarted = false;
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
             const onStatusUpdate = async (
                 status: BoltzSwapStatus,
-                data: any
+                data: {
+                    failureReason?: string;
+                    transaction: { id: string; hex: string };
+                }
             ) => {
-                const updateSwapStatus = (status: BoltzSwapStatus) => {
+                const updateSwapStatus = () => {
                     return this.savePendingChainSwap({
                         ...pendingSwap,
                         status,
@@ -628,35 +636,33 @@ export class ArkadeChainSwap {
                 switch (status) {
                     case "transaction.server.mempool":
                     case "transaction.server.confirmed":
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         if (claimStarted) return;
                         claimStarted = true;
                         this.claimArk(pendingSwap).catch(reject);
                         break;
                     case "transaction.claimed":
-                        await updateSwapStatus(status);
-                        resolve({
-                            txid:
-                                data?.transaction?.id ??
-                                pendingSwap.response.id,
-                        });
+                        await updateSwapStatus();
+                        resolve(
+                            data?.transaction?.id ?? pendingSwap.response.id
+                        );
                         break;
                     case "transaction.claim.pending":
                         // Be nice and sign a cooperative claim for the server
                         // Not required: you can treat this as success already,
                         // the server will batch sweep eventually
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         await this.signCooperativeClaimForServer(
                             pendingSwap
                         ).catch();
-                        resolve({ txid: pendingSwap.response.id });
+                        resolve(pendingSwap.response.id); // TODO
                         break;
                     case "transaction.lockupFailed":
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         await this.quoteSwap(pendingSwap.response.id);
                         break;
                     case "swap.expired":
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         reject(
                             new SwapExpiredError({
                                 isRefundable: true,
@@ -665,7 +671,7 @@ export class ArkadeChainSwap {
                         );
                         break;
                     case "transaction.failed":
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         reject(
                             new TransactionFailedError({
                                 message: data.failureReason,
@@ -674,11 +680,11 @@ export class ArkadeChainSwap {
                         );
                         break;
                     case "transaction.refunded":
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         reject(new TransactionRefundedError());
                         break;
                     default:
-                        await updateSwapStatus(status);
+                        await updateSwapStatus();
                         break;
                 }
             };
@@ -984,14 +990,17 @@ export class ArkadeChainSwap {
     async createChainSwap(args: {
         to: Chain;
         from: Chain;
-        feeSatsPerByte: number;
+        toAddress: string;
+        feeSatsPerByte?: number;
         userLockAmount?: number;
         serverLockAmount?: number;
-        toAddress?: string;
     }): Promise<PendingChainSwap> {
         // deconstruct args and validate
-        const { to, from, feeSatsPerByte, serverLockAmount, userLockAmount } =
-            args;
+        const { to, from, serverLockAmount, userLockAmount } = args;
+
+        const feeSatsPerByte = args.feeSatsPerByte ?? 1;
+        if (feeSatsPerByte <= 0)
+            throw new SwapError({ message: "Invalid feeSatsPerByte" });
 
         // create random preimage and its hash
         const preimage = randomBytes(32);

@@ -22,7 +22,7 @@ import {
 } from "@arkade-os/sdk";
 import { VHTLC } from "@arkade-os/sdk";
 import { hex } from "@scure/base";
-import { randomBytes } from "crypto";
+import { randomBytes } from "@noble/hashes/utils.js";
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
@@ -266,6 +266,7 @@ describe("ArkadeChainSwap", () => {
         ephemeralKey: hex.encode(randomBytes(32)),
         toAddress: mock.address.btc,
         status: "swap.created",
+        btcTxHex: "mock-btc-tx-hex",
     };
 
     const mockBtcArkChainSwap: PendingChainSwap = {
@@ -507,6 +508,23 @@ describe("ArkadeChainSwap", () => {
         });
 
         describe("claimBtc", () => {
+            it("should throw error when btcTxHex is missing", async () => {
+                // arrange
+                const pendingSwap: PendingChainSwap = {
+                    ...mockArkBtcChainSwap,
+                    btcTxHex: undefined,
+                };
+
+                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                    mockArkInfo
+                );
+
+                // act & assert
+                await expect(chainSwap.claimBtc(pendingSwap)).rejects.toThrow(
+                    "BTC transaction hex is required"
+                );
+            });
+
             it("should throw error when toAddress is missing", async () => {
                 // arrange
                 const pendingSwap: PendingChainSwap = {
@@ -519,11 +537,9 @@ describe("ArkadeChainSwap", () => {
                 );
 
                 // act & assert
-                await expect(
-                    chainSwap.claimBtc(pendingSwap, {
-                        transaction: { id: "some-id", hex: "" },
-                    })
-                ).rejects.toThrow("Destination address is required");
+                await expect(chainSwap.claimBtc(pendingSwap)).rejects.toThrow(
+                    "Destination address is required"
+                );
             });
 
             it("should throw error when swap tree in claim details is missing", async () => {
@@ -544,11 +560,9 @@ describe("ArkadeChainSwap", () => {
                 );
 
                 // act & assert
-                await expect(
-                    chainSwap.claimBtc(pendingSwap, {
-                        transaction: { id: "some-id", hex: "" },
-                    })
-                ).rejects.toThrow("Missing swap tree in claim details");
+                await expect(chainSwap.claimBtc(pendingSwap)).rejects.toThrow(
+                    "Missing swap tree in claim details"
+                );
             });
 
             it("should throw error when server public key in claim details is missing", async () => {
@@ -569,11 +583,9 @@ describe("ArkadeChainSwap", () => {
                 );
 
                 // act & assert
-                await expect(
-                    chainSwap.claimBtc(pendingSwap, {
-                        transaction: { id: "some-id", hex: "" },
-                    })
-                ).rejects.toThrow("Missing server public key in claim details");
+                await expect(chainSwap.claimBtc(pendingSwap)).rejects.toThrow(
+                    "Missing server public key in claim details"
+                );
             });
         });
 
@@ -799,9 +811,7 @@ describe("ArkadeChainSwap", () => {
                 const resultPromise = chainSwap.waitAndClaimBtc(pendingSwap);
 
                 // assert
-                await expect(resultPromise).resolves.toEqual({
-                    txid: mock.id,
-                });
+                await expect(resultPromise).resolves.toEqual(mock.id);
             });
 
             it("should reject with SwapExpiredError when swap expires", async () => {
@@ -923,9 +933,9 @@ describe("ArkadeChainSwap", () => {
                 vi.spyOn(chainSwap, "verifyChainSwap").mockResolvedValueOnce(
                     true
                 );
-                vi.spyOn(chainSwap, "waitAndClaimArk").mockResolvedValueOnce({
-                    txid: mock.txid,
-                });
+                vi.spyOn(chainSwap, "waitAndClaimArk").mockResolvedValueOnce(
+                    mock.txid
+                );
                 vi.spyOn(chainSwap, "getSwapStatus").mockResolvedValueOnce({
                     status: "transaction.claimed",
                 });
@@ -1052,6 +1062,7 @@ describe("ArkadeChainSwap", () => {
                     from: "BTC",
                     feeSatsPerByte: 1,
                     userLockAmount: mock.amount,
+                    toAddress: mock.address.ark,
                 });
 
                 // assert
@@ -1241,9 +1252,7 @@ describe("ArkadeChainSwap", () => {
                 const resultPromise = chainSwap.waitAndClaimArk(pendingSwap);
 
                 // assert
-                await expect(resultPromise).resolves.toEqual({
-                    txid: mock.id,
-                });
+                await expect(resultPromise).resolves.toEqual(mock.id);
             });
 
             it("should reject with SwapExpiredError when swap expires", async () => {

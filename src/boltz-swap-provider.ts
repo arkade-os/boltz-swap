@@ -9,6 +9,7 @@ import {
     PendingChainSwap,
     PendingReverseSwap,
     PendingSubmarineSwap,
+    PendingSwap,
 } from "./types";
 import { base64 } from "@scure/base";
 
@@ -115,6 +116,10 @@ export const isReverseSuccessStatus = (status: BoltzSwapStatus): boolean => {
     return status === "invoice.settled";
 };
 
+export const isChainFailedStatus = (status: BoltzSwapStatus): boolean => {
+    return ["transaction.failed", "swap.expired"].includes(status);
+};
+
 export const isChainClaimableStatus = (status: BoltzSwapStatus): boolean => {
     return ["transaction.mempool", "transaction.confirmed"].includes(status);
 };
@@ -150,19 +155,19 @@ export const isChainSuccessStatus = (status: BoltzSwapStatus): boolean => {
 // type guards
 
 export const isPendingReverseSwap = (
-    swap: PendingSubmarineSwap | PendingReverseSwap | PendingChainSwap
+    swap: PendingSwap
 ): swap is PendingReverseSwap => {
     return swap.type === "reverse";
 };
 
 export const isPendingSubmarineSwap = (
-    swap: PendingSubmarineSwap | PendingReverseSwap | PendingChainSwap
+    swap: PendingSwap
 ): swap is PendingSubmarineSwap => {
     return swap.type === "submarine";
 };
 
 export const isPendingChainSwap = (
-    swap: PendingSubmarineSwap | PendingReverseSwap | PendingChainSwap
+    swap: PendingSwap
 ): swap is PendingChainSwap => {
     return swap.type === "chain";
 };
@@ -170,7 +175,7 @@ export const isPendingChainSwap = (
 // refundable submarine swaps are those that have failed and can be refunded
 
 export const isSubmarineSwapRefundable = (
-    swap: PendingSubmarineSwap | PendingReverseSwap
+    swap: PendingSwap
 ): swap is PendingSubmarineSwap => {
     return (
         isSubmarineRefundableStatus(swap.status) &&
@@ -181,13 +186,25 @@ export const isSubmarineSwapRefundable = (
 };
 
 export const isChainSwapRefundable = (
-    swap: PendingChainSwap
+    swap: PendingSwap
 ): swap is PendingChainSwap => {
     return (
         isChainRefundableStatus(swap.status) &&
         isPendingChainSwap(swap) &&
         swap.request.from === "ARK"
     );
+};
+
+export const isReverseSwapClaimable = (
+    swap: PendingSwap
+): swap is PendingReverseSwap => {
+    return isReverseClaimableStatus(swap.status) && isPendingReverseSwap(swap);
+};
+
+export const isChainSwapClaimable = (
+    swap: PendingSwap
+): swap is PendingChainSwap => {
+    return isChainClaimableStatus(swap.status) && isPendingChainSwap(swap);
 };
 
 // API call types and validators
@@ -1056,6 +1073,7 @@ export class BoltzSwapProvider {
             throw new SwapError({ message: "Invalid preimageHash" });
 
         // validate fee
+        feeSatsPerByte = feeSatsPerByte ?? 1;
         if (feeSatsPerByte <= 0)
             throw new SwapError({ message: "Invalid feeSatsPerByte" });
 
