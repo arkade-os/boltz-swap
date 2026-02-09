@@ -48,7 +48,7 @@ export type SvcWrkArkadeLightningConfig = Pick<
     arkServerUrl: string;
 };
 
-export class SwArkadeLightningRuntime implements IArkadeLightning {
+export class ServiceWorkerArkadeLightning implements IArkadeLightning {
     private eventListenerInitialized = false;
     private swapUpdateListeners = new Set<
         (
@@ -84,7 +84,7 @@ export class SwArkadeLightningRuntime implements IArkadeLightning {
         const swapRepository =
             config.swapRepository ?? new IndexedDbSwapRepository();
 
-        const svcArkadeLightning = new SwArkadeLightningRuntime(
+        const svcArkadeLightning = new ServiceWorkerArkadeLightning(
             messageTag,
             config.serviceWorker,
             swapRepository,

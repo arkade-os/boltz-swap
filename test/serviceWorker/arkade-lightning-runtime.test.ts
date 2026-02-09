@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { SwArkadeLightningRuntime } from "../../src/serviceWorker/arkade-lightning-runtime";
+import { ServiceWorkerArkadeLightning } from "../../src/serviceWorker/arkade-lightning-runtime";
 import { DEFAULT_MESSAGE_TAG } from "../../src/serviceWorker/arkade-lightning-message-handler";
 import type { PendingReverseSwap, PendingSubmarineSwap } from "../../src/types";
 import { BoltzSwapStatus } from "../../src/boltz-swap-provider";
@@ -31,7 +31,7 @@ function createRuntime(fakeSw: FakeServiceWorker) {
         },
     });
 
-    return SwArkadeLightningRuntime.create({
+    return ServiceWorkerArkadeLightning.create({
         serviceWorker: fakeSw as any,
         swapProvider: {
             getApiUrl: () => "http://example.com",
@@ -47,7 +47,7 @@ describe("SwArkadeLightningRuntime events", () => {
     beforeEach(() => {
         fakeSw = new FakeServiceWorker();
         sendMessageSpy = vi.spyOn(
-            SwArkadeLightningRuntime.prototype as any,
+            ServiceWorkerArkadeLightning.prototype as any,
             "sendMessage"
         );
         sendMessageSpy.mockResolvedValue({

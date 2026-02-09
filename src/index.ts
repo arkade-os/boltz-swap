@@ -28,7 +28,7 @@ export {
 export { verifySignatures } from "./utils/signatures";
 export { SwapManager } from "./swap-manager";
 export { ArkadeLightningMessageHandler } from "./serviceWorker/arkade-lightning-message-handler";
-export { SwArkadeLightningRuntime } from "./serviceWorker/arkade-lightning-runtime";
+export { ServiceWorkerArkadeLightning } from "./serviceWorker/arkade-lightning-runtime";
 export { migrateToSwapRepository } from "./repositories/migrationFromContracts";
 export type {
     CreateLightningInvoiceResponse,
