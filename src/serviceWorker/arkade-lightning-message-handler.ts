@@ -26,11 +26,9 @@ import {
 import {
     ArkProvider,
     RestArkProvider,
-} from "../../../ts-sdk/src/providers/ark";
-import {
     IndexerProvider,
     RestIndexerProvider,
-} from "../../../ts-sdk/src/providers/indexer";
+} from "@arkade-os/sdk";
 import { ArkadeLightning, IArkadeLightning } from "../arkade-lightning";
 
 export const DEFAULT_MESSAGE_TAG = "ARKADE_LIGHTNING_UPDATER";
