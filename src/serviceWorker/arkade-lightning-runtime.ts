@@ -99,6 +99,7 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
                 network: config.network,
                 arkServerUrl: config.arkServerUrl,
                 swapProvider: { baseUrl: config.swapProvider.getApiUrl() },
+                swapManager: config.swapManager,
             },
         };
 
@@ -242,7 +243,24 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
                     }
                 ).payload;
             },
-            subscribeToSwapUpdates: async () => () => {},
+            subscribeToSwapUpdates: async (
+                swapId: string,
+                callback: (
+                    swap: PendingReverseSwap | PendingSubmarineSwap,
+                    oldStatus: BoltzSwapStatus
+                ) => void
+            ) => {
+                const filteredListener = (
+                    swap: PendingReverseSwap | PendingSubmarineSwap,
+                    oldStatus: BoltzSwapStatus
+                ) => {
+                    if (swap.id === swapId) {
+                        callback(swap, oldStatus);
+                    }
+                };
+                this.swapUpdateListeners.add(filteredListener);
+                return () => this.swapUpdateListeners.delete(filteredListener);
+            },
             onSwapUpdate: async (
                 listener: (
                     swap: PendingReverseSwap | PendingSubmarineSwap,
@@ -639,8 +657,6 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
                 this.wsDisconnectedListeners.forEach((cb) => {
                     cb(err);
                 });
-                break;
-            }
                 break;
             }
             default:

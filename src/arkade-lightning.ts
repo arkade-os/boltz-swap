@@ -70,6 +70,7 @@ import { claimVHTLCIdentity } from "./utils/identity";
 import { createVHTLCBatchHandler } from "./batch";
 import { IndexedDbSwapRepository } from "./repositories/IndexedDb/swap-repository";
 import { SwapRepository } from "./repositories/swap-repository";
+import { normalizeToXOnlyPublicKey } from "./utils/keys";
 
 export interface IArkadeLightning extends AsyncDisposable {
     /**
@@ -615,21 +616,21 @@ export class ArkadeLightning implements IArkadeLightning {
         const address = await this.wallet.getAddress();
 
         // validate we are using a x-only receiver public key
-        const ourXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const ourXOnlyPublicKey = normalizeToXOnlyPublicKey(
             await this.wallet.identity.xOnlyPublicKey(),
             "our",
             pendingSwap.id
         );
 
         // validate we are using a x-only boltz public key
-        const boltzXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const boltzXOnlyPublicKey = normalizeToXOnlyPublicKey(
             hex.decode(pendingSwap.response.refundPublicKey),
             "boltz",
             pendingSwap.id
         );
 
         // validate we are using a x-only server public key
-        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const serverXOnlyPublicKey = normalizeToXOnlyPublicKey(
             hex.decode(aspInfo.signerPubkey),
             "server",
             pendingSwap.id
@@ -748,21 +749,21 @@ export class ArkadeLightning implements IArkadeLightning {
         if (!address) throw new Error("Failed to get ark address from wallet");
 
         // validate we are using a x-only public key
-        const ourXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const ourXOnlyPublicKey = normalizeToXOnlyPublicKey(
             await this.wallet.identity.xOnlyPublicKey(),
             "our",
             pendingSwap.id
         );
 
         // validate we are using a x-only server public key
-        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const serverXOnlyPublicKey = normalizeToXOnlyPublicKey(
             hex.decode(aspInfo.signerPubkey),
             "server",
             pendingSwap.id
         );
 
         // validate we are using a x-only boltz public key
-        const boltzXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const boltzXOnlyPublicKey = normalizeToXOnlyPublicKey(
             hex.decode(pendingSwap.response.claimPublicKey),
             "boltz",
             pendingSwap.id
@@ -1546,19 +1547,19 @@ export class ArkadeLightning implements IArkadeLightning {
         };
     }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string } {
         // validate we are using a x-only receiver public key
-        const receiverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const receiverXOnlyPublicKey = normalizeToXOnlyPublicKey(
             hex.decode(receiverPubkey),
             "receiver"
         );
 
         // validate we are using a x-only sender public key
-        const senderXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const senderXOnlyPublicKey = normalizeToXOnlyPublicKey(
             hex.decode(senderPubkey),
             "sender"
         );
 
         // validate we are using a x-only server public key
-        const serverXOnlyPublicKey = this.normalizeToXOnlyPublicKey(
+        const serverXOnlyPublicKey = normalizeToXOnlyPublicKey(
             hex.decode(serverPubkey),
             "server"
         );
@@ -1698,29 +1699,6 @@ export class ArkadeLightning implements IArkadeLightning {
                     );
                 });
         }
-    }
-
-    /**
-     * Validate we are using a x-only public key
-     * @param publicKey
-     * @param keyName
-     * @param swapId
-     * @returns Uint8Array
-     */
-    private normalizeToXOnlyPublicKey(
-        publicKey: Uint8Array,
-        keyName: string,
-        swapId?: string
-    ): Uint8Array {
-        if (publicKey.length === 33) {
-            return publicKey.slice(1);
-        }
-        if (publicKey.length !== 32) {
-            throw new Error(
-                `Invalid ${keyName} public key length: ${publicKey.length} ${swapId ? "for swap " + swapId : ""}`
-            );
-        }
-        return publicKey;
     }
 
     /**

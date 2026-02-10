@@ -128,4 +128,61 @@ describe("SwArkadeLightningRuntime events", () => {
 
         expect(spy).not.toHaveBeenCalled();
     });
+
+    it("subscribeToSwapUpdates filters by swapId and unsubscribes", async () => {
+        const runtime = await createRuntime(fakeSw);
+        const mgr = runtime.getSwapManager()!;
+
+        const spy = vi.fn();
+        const unsubscribe = await mgr.subscribeToSwapUpdates(
+            "target-swap",
+            spy
+        );
+
+        const matchingSwap = {
+            id: "target-swap",
+            type: "reverse",
+            status: "swap.created",
+        } as PendingReverseSwap;
+        const otherSwap = {
+            id: "other-swap",
+            type: "reverse",
+            status: "swap.created",
+        } as PendingReverseSwap;
+
+        // Matching id should invoke callback
+        fakeSw.emit({
+            tag: TAG,
+            type: "SM-EVENT-SWAP_UPDATE",
+            payload: {
+                swap: matchingSwap,
+                oldStatus: "swap.created" as BoltzSwapStatus,
+            },
+        });
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy).toHaveBeenCalledWith(matchingSwap, "swap.created");
+
+        // Different id should be ignored
+        fakeSw.emit({
+            tag: TAG,
+            type: "SM-EVENT-SWAP_UPDATE",
+            payload: {
+                swap: otherSwap,
+                oldStatus: "swap.created" as BoltzSwapStatus,
+            },
+        });
+        expect(spy).toHaveBeenCalledTimes(1);
+
+        // Unsubscribe stops further callbacks
+        unsubscribe();
+        fakeSw.emit({
+            tag: TAG,
+            type: "SM-EVENT-SWAP_UPDATE",
+            payload: {
+                swap: matchingSwap,
+                oldStatus: "swap.created" as BoltzSwapStatus,
+            },
+        });
+        expect(spy).toHaveBeenCalledTimes(1);
+    });
 });

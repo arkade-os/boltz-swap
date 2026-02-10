@@ -30,6 +30,7 @@ import {
     RestIndexerProvider,
 } from "@arkade-os/sdk";
 import { ArkadeLightning, IArkadeLightning } from "../arkade-lightning";
+import type { SwapManagerClient } from "../swap-manager";
 
 export const DEFAULT_MESSAGE_TAG = "ARKADE_LIGHTNING_UPDATER";
 
@@ -401,6 +402,7 @@ export class ArkadeLightningMessageHandler
     private wallet: IWallet | undefined;
 
     private handler: IArkadeLightning | undefined;
+    private swapManager: SwapManagerClient | null | undefined;
 
     constructor(private readonly swapRepository: SwapRepository) {}
 
@@ -412,10 +414,29 @@ export class ArkadeLightningMessageHandler
         this.wallet = opts.wallet;
     }
 
-    async stop() {}
+    async stop() {
+        const handler = this.handler;
+        if (!handler) return;
+
+        const swapManager = this.swapManager ?? handler.getSwapManager();
+        if (swapManager) {
+            await swapManager.stop();
+        }
+
+        if (typeof handler.dispose === "function") {
+            await handler.dispose();
+        }
+
+        this.swapManager = null;
+        this.handler = undefined;
+        this.wallet = undefined;
+        this.arkProvider = undefined;
+        this.indexerProvider = undefined;
+        this.swapProvider = undefined;
+    }
 
     async tick(_now: number) {
-        // No subs?
+        // Event-driven handler; no periodic work required from the service worker tick.
         return [];
     }
 
@@ -744,6 +765,7 @@ export class ArkadeLightningMessageHandler
         this.handler = handler;
 
         const sm = handler.getSwapManager();
+        this.swapManager = sm;
         if (sm) {
             void sm.onSwapUpdate(async (swap, oldStatus) => {
                 await this.broadcastEvent({
