@@ -606,35 +606,41 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
 
         switch (data.type) {
             case "SM-EVENT-SWAP_UPDATE":
-                this.swapUpdateListeners.forEach((cb) =>
-                    cb(data.payload.swap, data.payload.oldStatus)
-                );
+                this.swapUpdateListeners.forEach((cb) => {
+                    cb(data.payload.swap, data.payload.oldStatus);
+                });
                 break;
             case "SM-EVENT-SWAP_COMPLETED":
-                this.swapCompletedListeners.forEach((cb) =>
-                    cb(data.payload.swap)
-                );
+                this.swapCompletedListeners.forEach((cb) => {
+                    cb(data.payload.swap);
+                });
                 break;
             case "SM-EVENT-SWAP_FAILED": {
                 const err = new Error(data.payload.error?.message);
-                this.swapFailedListeners.forEach((cb) =>
-                    cb(data.payload.swap, err)
-                );
+                this.swapFailedListeners.forEach((cb) => {
+                    cb(data.payload.swap, err);
+                });
                 break;
             }
             case "SM-EVENT-ACTION_EXECUTED":
-                this.actionExecutedListeners.forEach((cb) =>
-                    cb(data.payload.swap, data.payload.action)
-                );
+                this.actionExecutedListeners.forEach((cb) => {
+                    cb(data.payload.swap, data.payload.action);
+                });
                 break;
             case "SM-EVENT-WS_CONNECTED":
-                this.wsConnectedListeners.forEach((cb) => cb());
+                this.wsConnectedListeners.forEach((cb) => {
+                    cb();
+                });
                 break;
             case "SM-EVENT-WS_DISCONNECTED": {
                 const err = data.payload?.errorMessage
                     ? new Error(data.payload.errorMessage)
                     : undefined;
-                this.wsDisconnectedListeners.forEach((cb) => cb(err));
+                this.wsDisconnectedListeners.forEach((cb) => {
+                    cb(err);
+                });
+                break;
+            }
                 break;
             }
             default:
