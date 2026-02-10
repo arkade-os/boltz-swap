@@ -448,11 +448,15 @@ export class ArkadeLightningMessageHandler
     ): Promise<ArkadeLightningUpdaterResponse> {
         const id = message.id;
         if (message.type === "INIT_ARKADE_LIGHTNING") {
-            await this.handleInit(message);
-            return this.tagged({
-                id,
-                type: "ARKADE_LIGHTNING_INITIALIZED",
-            });
+            try {
+                await this.handleInit(message);
+                return this.tagged({
+                    id,
+                    type: "ARKADE_LIGHTNING_INITIALIZED",
+                });
+            } catch (error) {
+                return this.tagged({ id, error: error as Error });
+            }
         }
 
         if (!this.handler || !this.wallet) {
