@@ -19,6 +19,10 @@ describe("ArkadeLightningMessageHandler broadcastEvent", () => {
         handler = new ArkadeLightningMessageHandler({} as SwapRepository);
     });
 
+    afterEach(() => {
+        delete (globalThis as any).self;
+    });
+
     it("broadcasts swap update event to all clients", async () => {
         const swap = { id: "s1" } as PendingReverseSwap;
         await (handler as any).broadcastEvent({
