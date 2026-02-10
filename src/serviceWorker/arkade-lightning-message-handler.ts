@@ -434,7 +434,13 @@ export class ArkadeLightningMessageHandler
         const sw: any = self as any;
         if (!sw?.clients?.matchAll) return;
         const clients = await sw.clients.matchAll();
-        clients.forEach((client: any) => client.postMessage(event));
+        for (const client of clients) {
+            try {
+                (client as any).postMessage(event);
+            } catch {
+                // client may have been closed; skip
+            }
+        }
     }
 
     async handleMessage(
