@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { SwapManager } from "../src/swap-manager";
+import { SwapManager, SwapManagerConfig } from "../src/swap-manager";
 import { BoltzSwapProvider } from "../src/boltz-swap-provider";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../src/types";
 
@@ -7,6 +7,10 @@ describe("SwapManager", () => {
     let swapProvider: BoltzSwapProvider;
     let mockWebSocket: any;
     let swapManager: SwapManager;
+
+    const swapManagerConfig: SwapManagerConfig = {
+        enableAutoActions: true,
+    };
 
     const mockReverseSwap: PendingReverseSwap = {
         id: "reverse-swap-1",
@@ -91,14 +95,16 @@ describe("SwapManager", () => {
     });
 
     describe("Initialization", () => {
-        it("should create SwapManager with default config", () => {
-            swapManager = new SwapManager(swapProvider);
+        it("should create SwapManager with default config", async () => {
+            swapManager = new SwapManager(swapProvider, swapManagerConfig);
             expect(swapManager).toBeDefined();
-            expect(swapManager.getStats().isRunning).toBe(false);
+            const stats = await swapManager.getStats();
+            expect(stats.isRunning).toBe(false);
         });
 
         it("should create SwapManager with custom config", () => {
             swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 enableAutoActions: false,
                 pollInterval: 60000,
                 reconnectDelayMs: 2000,
@@ -111,6 +117,7 @@ describe("SwapManager", () => {
             const onSwapCompleted = vi.fn();
 
             swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 events: {
                     onSwapUpdate,
                     onSwapCompleted,
@@ -123,7 +130,7 @@ describe("SwapManager", () => {
 
     describe("Lifecycle", () => {
         beforeEach(() => {
-            swapManager = new SwapManager(swapProvider);
+            swapManager = new SwapManager(swapProvider, swapManagerConfig);
 
             const claimCallback = vi.fn();
             const refundCallback = vi.fn();
@@ -139,7 +146,7 @@ describe("SwapManager", () => {
         it("should start with empty pending swaps", async () => {
             await swapManager.start([]);
 
-            const stats = swapManager.getStats();
+            const stats = await swapManager.getStats();
             expect(stats.isRunning).toBe(true);
             expect(stats.monitoredSwaps).toBe(0);
         });
@@ -147,7 +154,7 @@ describe("SwapManager", () => {
         it("should start with pending swaps", async () => {
             await swapManager.start([mockReverseSwap, mockSubmarineSwap]);
 
-            const stats = swapManager.getStats();
+            const stats = await swapManager.getStats();
             expect(stats.isRunning).toBe(true);
             expect(stats.monitoredSwaps).toBe(2);
         });
@@ -167,7 +174,7 @@ describe("SwapManager", () => {
             await swapManager.start([mockReverseSwap]);
             await swapManager.stop();
 
-            const stats = swapManager.getStats();
+            const stats = await swapManager.getStats();
             expect(stats.isRunning).toBe(false);
         });
 
@@ -181,7 +188,7 @@ describe("SwapManager", () => {
 
     describe("WebSocket", () => {
         beforeEach(() => {
-            swapManager = new SwapManager(swapProvider);
+            swapManager = new SwapManager(swapProvider, swapManagerConfig);
             swapManager.setCallbacks({
                 claim: vi.fn(),
                 refund: vi.fn(),
@@ -214,7 +221,7 @@ describe("SwapManager", () => {
             // Give async operations time to complete
             await new Promise((resolve) => setTimeout(resolve, 10));
 
-            const stats = swapManager.getStats();
+            const stats = await swapManager.getStats();
             expect(stats.websocketConnected).toBe(true);
         });
 
@@ -262,6 +269,7 @@ describe("SwapManager", () => {
         it("should fall back to polling on WebSocket error", async () => {
             const onWebSocketDisconnected = vi.fn();
             swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 events: { onWebSocketDisconnected },
             });
             swapManager.setCallbacks({
@@ -275,7 +283,7 @@ describe("SwapManager", () => {
             // Trigger error
             mockWebSocket.onerror(new Error("Connection failed"));
 
-            const stats = swapManager.getStats();
+            const stats = await swapManager.getStats();
             expect(stats.usePollingFallback).toBe(true);
             expect(onWebSocketDisconnected).toHaveBeenCalled();
         });
@@ -289,13 +297,13 @@ describe("SwapManager", () => {
             mockWebSocket.onopen();
             mockWebSocket.onclose();
 
-            const stats1 = swapManager.getStats();
+            const stats1 = await swapManager.getStats();
             expect(stats1.currentReconnectDelay).toBeGreaterThan(0);
 
             // Advance time to trigger reconnect
             vi.advanceTimersByTime(stats1.currentReconnectDelay);
 
-            const stats2 = swapManager.getStats();
+            const stats2 = await swapManager.getStats();
             expect(stats2.currentReconnectDelay).toBeGreaterThanOrEqual(
                 stats1.currentReconnectDelay
             );
@@ -306,7 +314,7 @@ describe("SwapManager", () => {
 
     describe("Swap Monitoring", () => {
         beforeEach(() => {
-            swapManager = new SwapManager(swapProvider);
+            swapManager = new SwapManager(swapProvider, swapManagerConfig);
             swapManager.setCallbacks({
                 claim: vi.fn(),
                 refund: vi.fn(),
@@ -331,12 +339,12 @@ describe("SwapManager", () => {
         it("should add swap to monitoring", async () => {
             await swapManager.start([]);
 
-            swapManager.addSwap(mockReverseSwap);
+            await swapManager.addSwap(mockReverseSwap);
 
-            const stats = swapManager.getStats();
+            const stats = await swapManager.getStats();
             expect(stats.monitoredSwaps).toBe(1);
 
-            const pending = swapManager.getPendingSwaps();
+            const pending = await swapManager.getPendingSwaps();
             expect(pending).toHaveLength(1);
             expect(pending[0].id).toBe("reverse-swap-1");
         });
@@ -344,9 +352,9 @@ describe("SwapManager", () => {
         it("should remove swap from monitoring", async () => {
             await swapManager.start([mockReverseSwap]);
 
-            swapManager.removeSwap("reverse-swap-1");
+            await swapManager.removeSwap("reverse-swap-1");
 
-            const stats = swapManager.getStats();
+            const stats = await swapManager.getStats();
             expect(stats.monitoredSwaps).toBe(0);
         });
 
@@ -361,7 +369,7 @@ describe("SwapManager", () => {
             // Give async operations time to complete
             await new Promise((resolve) => setTimeout(resolve, 10));
 
-            swapManager.addSwap(mockReverseSwap);
+            await swapManager.addSwap(mockReverseSwap);
 
             expect(mockWebSocket.send).toHaveBeenCalledWith(
                 JSON.stringify({
@@ -380,7 +388,7 @@ describe("SwapManager", () => {
 
             await swapManager.start([mockReverseSwap, completedSwap]);
 
-            const stats = swapManager.getStats();
+            const stats = await swapManager.getStats();
             // Only mockReverseSwap should be monitored (swap.created)
             expect(stats.monitoredSwaps).toBe(1);
         });
@@ -403,7 +411,7 @@ describe("SwapManager", () => {
             onActionExecuted = vi.fn();
 
             swapManager = new SwapManager(swapProvider, {
-                enableAutoActions: true,
+                ...swapManagerConfig,
                 events: {
                     onSwapUpdate,
                     onSwapCompleted,
@@ -533,12 +541,13 @@ describe("SwapManager", () => {
 
             expect(onSwapCompleted).toHaveBeenCalled();
 
-            const stats = swapManager.getStats();
+            const stats = await swapManager.getStats();
             expect(stats.monitoredSwaps).toBe(0);
         });
 
         it("should not execute action if auto-actions disabled", async () => {
             swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 enableAutoActions: false,
             });
             swapManager.setCallbacks({
@@ -593,6 +602,7 @@ describe("SwapManager", () => {
         it("should handle error in WebSocket message", async () => {
             const onSwapFailed = vi.fn();
             swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 events: { onSwapFailed },
             });
             swapManager.setCallbacks({
@@ -637,7 +647,7 @@ describe("SwapManager", () => {
 
     describe("Polling", () => {
         beforeEach(() => {
-            swapManager = new SwapManager(swapProvider);
+            swapManager = new SwapManager(swapProvider, swapManagerConfig);
             swapManager.setCallbacks({
                 claim: vi.fn(),
                 refund: vi.fn(),
@@ -677,6 +687,7 @@ describe("SwapManager", () => {
             vi.useFakeTimers();
 
             swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 pollRetryDelayMs: 1000,
             });
             swapManager.setCallbacks({
@@ -690,13 +701,13 @@ describe("SwapManager", () => {
             // Trigger WebSocket error to enable fallback
             mockWebSocket.onerror(new Error("Connection failed"));
 
-            const stats1 = swapManager.getStats();
+            const stats1 = await swapManager.getStats();
             expect(stats1.usePollingFallback).toBe(true);
 
             // Advance by initial delay
             await vi.advanceTimersByTimeAsync(1000);
 
-            const stats2 = swapManager.getStats();
+            const stats2 = await swapManager.getStats();
             expect(stats2.currentPollRetryDelay).toBeGreaterThan(1000);
 
             vi.useRealTimers();
@@ -705,7 +716,7 @@ describe("SwapManager", () => {
 
     describe("Per-Swap Subscriptions", () => {
         beforeEach(() => {
-            swapManager = new SwapManager(swapProvider);
+            swapManager = new SwapManager(swapProvider, swapManagerConfig);
             swapManager.setCallbacks({
                 claim: vi.fn().mockResolvedValue(undefined),
                 refund: vi.fn().mockResolvedValue(undefined),
@@ -723,7 +734,7 @@ describe("SwapManager", () => {
 
             // Subscribe to swap updates
             const updateCallback = vi.fn();
-            const unsubscribe = swapManager.subscribeToSwapUpdates(
+            const unsubscribe = await swapManager.subscribeToSwapUpdates(
                 "submarine-swap-1",
                 updateCallback
             );
@@ -754,11 +765,11 @@ describe("SwapManager", () => {
             // Subscribe two callbacks to the same swap
             const callback1 = vi.fn();
             const callback2 = vi.fn();
-            const unsubscribe1 = swapManager.subscribeToSwapUpdates(
+            const unsubscribe1 = await swapManager.subscribeToSwapUpdates(
                 "submarine-swap-1",
                 callback1
             );
-            const unsubscribe2 = swapManager.subscribeToSwapUpdates(
+            const unsubscribe2 = await swapManager.subscribeToSwapUpdates(
                 "submarine-swap-1",
                 callback2
             );
@@ -780,7 +791,7 @@ describe("SwapManager", () => {
 
     describe("Race Condition Prevention", () => {
         beforeEach(() => {
-            swapManager = new SwapManager(swapProvider);
+            swapManager = new SwapManager(swapProvider, swapManagerConfig);
         });
 
         it("should prevent concurrent processing of same swap", async () => {
@@ -791,6 +802,7 @@ describe("SwapManager", () => {
 
             // Disable auto actions so we can manually test the locking mechanism
             swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 enableAutoActions: false,
             });
 
@@ -807,14 +819,16 @@ describe("SwapManager", () => {
             await swapManager.start([claimableSwap]);
 
             // Check swap is not being processed initially
-            expect(swapManager.isProcessing("reverse-swap-1")).toBe(false);
+            expect(await swapManager.isProcessing("reverse-swap-1")).toBe(
+                false
+            );
 
             // Trigger first autonomous action (will start processing)
             const promise1 =
                 swapManager["executeAutonomousAction"](claimableSwap);
 
             // Check swap is now being processed
-            expect(swapManager.isProcessing("reverse-swap-1")).toBe(true);
+            expect(await swapManager.isProcessing("reverse-swap-1")).toBe(true);
 
             // Trigger second autonomous action (should be skipped)
             const promise2 =
@@ -826,7 +840,9 @@ describe("SwapManager", () => {
             expect(claimCallback).toHaveBeenCalledTimes(1);
 
             // Check swap is no longer being processed
-            expect(swapManager.isProcessing("reverse-swap-1")).toBe(false);
+            expect(await swapManager.isProcessing("reverse-swap-1")).toBe(
+                false
+            );
 
             await swapManager.stop();
         });
@@ -845,8 +861,8 @@ describe("SwapManager", () => {
             };
             await swapManager.start([freshSwap]);
 
-            expect(swapManager.hasSwap("reverse-swap-1")).toBe(true);
-            expect(swapManager.hasSwap("non-existent-swap")).toBe(false);
+            expect(await swapManager.hasSwap("reverse-swap-1")).toBe(true);
+            expect(await swapManager.hasSwap("non-existent-swap")).toBe(false);
 
             await swapManager.stop();
         });
@@ -860,9 +876,10 @@ describe("SwapManager", () => {
             vi.spyOn(swapProvider, "getReverseSwapTxId").mockResolvedValue({
                 id: mockTxId,
                 hex: "0200000001...",
+                timeoutBlockHeight: 10,
             });
 
-            swapManager = new SwapManager(swapProvider);
+            swapManager = new SwapManager(swapProvider, swapManagerConfig);
             swapManager.setCallbacks({
                 claim: vi.fn().mockResolvedValue(undefined),
                 refund: vi.fn().mockResolvedValue(undefined),
@@ -957,6 +974,7 @@ describe("SwapManager", () => {
             saveSwapCallback = vi.fn();
 
             swapManager = new SwapManager(swapProvider, {
+                ...swapManagerConfig,
                 enableAutoActions: true,
             });
             swapManager.setCallbacks({
@@ -1080,7 +1098,7 @@ describe("SwapManager", () => {
         it("should still monitor restored swaps for status updates", async () => {
             const onSwapUpdate = vi.fn();
             swapManager = new SwapManager(swapProvider, {
-                enableAutoActions: true,
+                ...swapManagerConfig,
                 events: { onSwapUpdate },
             });
             swapManager.setCallbacks({
@@ -1122,7 +1140,7 @@ describe("SwapManager", () => {
 
     describe("Statistics", () => {
         beforeEach(() => {
-            swapManager = new SwapManager(swapProvider);
+            swapManager = new SwapManager(swapProvider, swapManagerConfig);
             swapManager.setCallbacks({
                 claim: vi.fn(),
                 refund: vi.fn(),
@@ -1145,7 +1163,7 @@ describe("SwapManager", () => {
         });
 
         it("should return correct stats", async () => {
-            const stats1 = swapManager.getStats();
+            const stats1 = await swapManager.getStats();
             expect(stats1.isRunning).toBe(false);
             expect(stats1.monitoredSwaps).toBe(0);
             expect(stats1.websocketConnected).toBe(false);
@@ -1169,7 +1187,7 @@ describe("SwapManager", () => {
             // Give async operations time to complete
             await new Promise((resolve) => setTimeout(resolve, 10));
 
-            const stats2 = swapManager.getStats();
+            const stats2 = await swapManager.getStats();
             expect(stats2.isRunning).toBe(true);
             expect(stats2.monitoredSwaps).toBe(2);
             expect(stats2.websocketConnected).toBe(true);

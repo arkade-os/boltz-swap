@@ -27,6 +27,9 @@ export {
 } from "./utils/decoding";
 export { verifySignatures } from "./utils/signatures";
 export { SwapManager } from "./swap-manager";
+export { ArkadeLightningMessageHandler } from "./serviceWorker/arkade-lightning-message-handler";
+export { ServiceWorkerArkadeLightning } from "./serviceWorker/arkade-lightning-runtime";
+export { migrateToSwapRepository } from "./repositories/migrationFromContracts";
 export type {
     CreateLightningInvoiceResponse,
     SendLightningPaymentResponse,
@@ -37,7 +40,6 @@ export type {
     PendingReverseSwap,
     DecodedInvoice,
     LimitsResponse,
-    RefundHandler,
     TimeoutConfig,
     FeesResponse,
     RetryConfig,
@@ -45,6 +47,11 @@ export type {
     Network,
     Vtxo,
 } from "./types";
-export type { SwapManagerConfig, SwapManagerEvents } from "./swap-manager";
+export type {
+    SwapManagerConfig,
+    SwapManagerEvents,
+    SwapManagerClient,
+} from "./swap-manager";
 export { logger, setLogger } from "./logger";
 export type { Logger } from "./logger";
+export { IndexedDbSwapRepository } from "./repositories/IndexedDb/swap-repository";

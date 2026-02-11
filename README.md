@@ -229,12 +229,6 @@ manager.onWebSocketDisconnected((error) => {
 
 // Unsubscribe when no longer needed (e.g., component unmount)
 // unsubscribe();
-
-// Or use off* methods to remove specific listeners
-const listener = (swap) => console.log('completed', swap.id);
-manager.onSwapCompleted(listener);
-// Later...
-manager.offSwapCompleted(listener);
 ```
 
 **Benefits of dynamic event subscription:**
