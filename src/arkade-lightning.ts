@@ -304,6 +304,11 @@ export interface IArkadeLightning extends AsyncDisposable {
     dispose(): Promise<void>;
 }
 
+type WalletWithProviders = IWallet & {
+    arkProvider: ArkProvider;
+    indexerProvider: IndexerProvider;
+};
+
 export class ArkadeLightning implements IArkadeLightning {
     readonly wallet: IWallet;
     readonly arkProvider: ArkProvider;
@@ -319,7 +324,8 @@ export class ArkadeLightning implements IArkadeLightning {
         this.wallet = config.wallet;
         // Prioritize wallet providers, fallback to config providers for backward compatibility
         const arkProvider =
-            (config.wallet as any).arkProvider ?? config.arkProvider;
+            (config.wallet as WalletWithProviders).arkProvider ??
+            config.arkProvider;
         if (!arkProvider)
             throw new Error(
                 "Ark provider is required either in wallet or config."
@@ -327,7 +333,8 @@ export class ArkadeLightning implements IArkadeLightning {
         this.arkProvider = arkProvider;
 
         const indexerProvider =
-            (config.wallet as any).indexerProvider ?? config.indexerProvider;
+            (config.wallet as WalletWithProviders).indexerProvider ??
+            config.indexerProvider;
         if (!indexerProvider)
             throw new Error(
                 "Indexer provider is required either in wallet or config."
