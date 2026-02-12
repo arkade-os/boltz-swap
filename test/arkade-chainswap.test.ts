@@ -1190,15 +1190,15 @@ describe("ArkadeChainSwap", () => {
                 });
 
                 const pendingSwap: PendingChainSwap = {
-                    ...mockArkBtcChainSwap,
-                    response: createArkBtcChainSwapResponse,
+                    ...mockBtcArkChainSwap,
+                    response: createBtcArkChainSwapResponse,
                 };
 
                 // act & assert
                 await expect(
                     chainSwap.verifyChainSwap({
-                        to: "BTC",
-                        from: "ARK",
+                        to: "ARK",
+                        from: "BTC",
                         swap: pendingSwap,
                         arkInfo: mockArkInfo,
                     })

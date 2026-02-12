@@ -718,11 +718,11 @@ describe("ArkadeChainSwap", () => {
 
                     await chainSwap.refundArk(swap);
 
-                    for (let i = 0; i < 10; i++) {
-                        await sleep(200); // wait for wallet balance to update
-                        const { available } = await wallet.getBalance();
-                        if (available === fundAmount) break;
-                    }
+                    await waitForBalance(
+                        () => wallet.getBalance(),
+                        fundAmount,
+                        2000
+                    );
 
                     const afterRefundBalance = await wallet.getBalance();
 

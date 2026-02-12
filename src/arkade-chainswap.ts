@@ -267,7 +267,17 @@ export class ArkadeChainSwap {
                         break;
                     case "transaction.lockupFailed":
                         await updateSwapStatus();
-                        await this.quoteSwap(pendingSwap.response.id);
+                        await this.quoteSwap(pendingSwap.response.id).catch(
+                            (err) => {
+                                reject(
+                                    new SwapError({
+                                        message: `Failed to renegotiate quote: ${err.message}`,
+                                        isRefundable: true,
+                                        pendingSwap,
+                                    })
+                                );
+                            }
+                        );
                         break;
                     case "swap.expired":
                         await updateSwapStatus();
@@ -1221,8 +1231,8 @@ export class ArkadeChainSwap {
         for (const swap of await this.getPendingChainSwapsFromStorage()) {
             if (isChainFinalStatus(swap.status)) continue;
             this.getSwapStatus(swap.id)
-                .then(({ status }) => {
-                    this.savePendingChainSwap({ ...swap, status });
+                .then(async ({ status }) => {
+                    await this.savePendingChainSwap({ ...swap, status });
                 })
                 .catch((error) => {
                     console.error(

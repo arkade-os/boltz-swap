@@ -1073,7 +1073,6 @@ export class BoltzSwapProvider {
             throw new SwapError({ message: "Invalid preimageHash" });
 
         // validate fee
-        feeSatsPerByte = feeSatsPerByte ?? 1;
         if (feeSatsPerByte <= 0)
             throw new SwapError({ message: "Invalid feeSatsPerByte" });
 

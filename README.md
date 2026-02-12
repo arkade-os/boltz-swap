@@ -568,13 +568,11 @@ const arkadeChainSwap = new ArkadeChainSwap({
 
 // If autostart is false, manually start monitoring
 // (autostart is true by default, so this is only needed if you set it to false)
-if (swapManager?.autoStart === false) {
-  await arkadeLightning.startSwapManager();
-}
+await arkadeLightning.startSwapManager();
 
 // Create swaps - they're automatically monitored!
 const { invoice } = await arkadeLightning.createLightningInvoice({ amount: 5000 });
-const { btcAddress, amountToPay } = await arkadeChainSwap.btcToArk({ amountSats: 5000 })
+const { btcAddress, amountToPay } = await arkadeChainSwap.btcToArk({ receiverLockAmount: 5000 })
 // User can navigate to other pages - swap completes in background
 ```
 

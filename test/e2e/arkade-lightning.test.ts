@@ -65,11 +65,17 @@ const waitForBalance = async (
             reject(new Error("Timed out waiting for balance"));
         }, timeout);
         const intervalId = setInterval(async () => {
-            const balance = await getBalance();
-            if (balance.available >= minAmount) {
+            try {
+                const balance = await getBalance();
+                if (balance.available >= minAmount) {
+                    clearTimeout(timeoutId);
+                    clearInterval(intervalId);
+                    resolve(true);
+                }
+            } catch (err) {
                 clearTimeout(timeoutId);
                 clearInterval(intervalId);
-                resolve(true);
+                reject(err);
             }
         }, 500);
     });

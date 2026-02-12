@@ -730,7 +730,8 @@ export class ArkadeLightning {
                         await saveStatus();
                         reject(
                             new TransactionFailedError({
-                                message: data.failureReason,
+                                message:
+                                    data?.failureReason ?? "Transaction failed",
                                 isRefundable: true,
                             })
                         );
