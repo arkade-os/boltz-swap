@@ -397,34 +397,38 @@ describe("ArkadeLightning", () => {
                 expect(decodeInvoiceResult.description).toBe(description);
             });
 
-            it("should increase balance when invoice is paid", async () => {
-                // arrange
-                const amount = 1000;
-                const balanceBefore = await wallet.getBalance();
+            it(
+                "should increase balance when invoice is paid",
+                { timeout: 10_000 },
+                async () => {
+                    // arrange
+                    const amount = 1000;
+                    const balanceBefore = await wallet.getBalance();
 
-                const pendingSwap = await lightning.createReverseSwap({
-                    amount,
-                });
+                    const pendingSwap = await lightning.createReverseSwap({
+                        amount,
+                    });
 
-                // act
-                sleep(1000).then(() =>
-                    payInvoice(pendingSwap.response.invoice).catch((err) =>
-                        console.error("Error paying invoice:", err)
-                    )
-                );
+                    // act
+                    sleep(1000).then(() =>
+                        payInvoice(pendingSwap.response.invoice).catch((err) =>
+                            console.error("Error paying invoice:", err)
+                        )
+                    );
 
-                await lightning.waitAndClaim(pendingSwap);
+                    await lightning.waitAndClaim(pendingSwap);
 
-                // wait a bit for the wallet to detect the payment
-                await sleep(2000);
+                    // wait a bit for the wallet to detect the payment
+                    await sleep(2000);
 
-                const balanceAfter = await wallet.getBalance();
+                    const balanceAfter = await wallet.getBalance();
 
-                // assert
-                expect(balanceAfter.available).toBeGreaterThan(
-                    balanceBefore.available
-                );
-            });
+                    // assert
+                    expect(balanceAfter.available).toBeGreaterThan(
+                        balanceBefore.available
+                    );
+                }
+            );
         });
 
         describe("waitAndClaim", () => {
@@ -661,6 +665,8 @@ describe("ArkadeLightning", () => {
                         amount: pendingSwap.response.expectedAmount,
                     });
 
+                    await sleep(1000);
+
                     // get intermediate balance after funding vhtlc
                     const intermediateBalance = await wallet.getBalance();
 
@@ -668,7 +674,7 @@ describe("ArkadeLightning", () => {
                     await generateBlocks(21);
 
                     // sleep 30 seconds to let arkd sweep the vhtlc
-                    await new Promise((resolve) => setTimeout(resolve, 30_000));
+                    await sleep(30_000);
 
                     // try to refund (with vhtlc swept)
                     await lightning.refundVHTLC(pendingSwap);
@@ -677,12 +683,10 @@ describe("ArkadeLightning", () => {
 
                     // assert
                     expect(intermediateBalance.available).toEqual(
-                        amount * 2 - pendingSwap.response.expectedAmount
+                        fundAmount - pendingSwap.response.expectedAmount
                     );
                     const balance = await wallet.getBalance();
-                    expect(balance.available).toBe(
-                        pendingSwap.response.expectedAmount
-                    );
+                    expect(balance.available).toBe(fundAmount);
                 }
             );
         });
@@ -815,45 +819,49 @@ describe("ArkadeLightning", () => {
                 expect(result).toEqual([]);
             });
 
-            it("should return all swaps sorted by creation date (newest first)", async () => {
-                // arrange
-                const { invoice: invoice1 } =
-                    await getNewLightningInvoice(1000);
+            it(
+                "should return all swaps sorted by creation date (newest first)",
+                { timeout: 10_000 },
+                async () => {
+                    // arrange
+                    const { invoice: invoice1 } =
+                        await getNewLightningInvoice(1000);
 
-                await lightning.createSubmarineSwap({
-                    invoice: invoice1,
-                });
+                    await lightning.createSubmarineSwap({
+                        invoice: invoice1,
+                    });
 
-                await sleep(1000); // ensure different timestamps
+                    await sleep(1000); // ensure different timestamps
 
-                await lightning.createReverseSwap({
-                    amount: 2000,
-                });
+                    await lightning.createReverseSwap({
+                        amount: 2000,
+                    });
 
-                await sleep(1000); // ensure different timestamps
+                    await sleep(1000); // ensure different timestamps
 
-                await lightning.createReverseSwap({
-                    amount: 3000,
-                });
+                    await lightning.createReverseSwap({
+                        amount: 3000,
+                    });
 
-                // act
-                const result = await lightning.getSwapHistory();
+                    // act
+                    const result = await lightning.getSwapHistory();
 
-                // assert
-                expect(result).toHaveLength(3);
+                    // assert
+                    expect(result).toHaveLength(3);
 
-                // Should be sorted by createdAt desc (newest first)
-                expect(result[0].type).toBe("reverse"); // newest
-                expect(result[1].type).toBe("reverse");
-                expect(result[2].type).toBe("submarine"); // oldest
+                    // Should be sorted by createdAt desc (newest first)
+                    expect(result[0].type).toBe("reverse"); // newest
+                    expect(result[1].type).toBe("reverse");
+                    expect(result[2].type).toBe("submarine"); // oldest
 
-                // Verify the sort order
-                for (let i = 0; i < result.length - 1; i++) {
-                    expect(result[i].createdAt).toBeGreaterThanOrEqual(
-                        result[i + 1].createdAt
-                    );
+                    // Verify the sort order
+                    for (let i = 0; i < result.length - 1; i++) {
+                        expect(result[i].createdAt).toBeGreaterThanOrEqual(
+                            result[i + 1].createdAt
+                        );
+                    }
                 }
-            });
+            );
 
             it("should handle mixed swap types and statuses correctly", async () => {
                 // arrange

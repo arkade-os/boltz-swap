@@ -134,6 +134,10 @@ services:
             - "9004:9004"
         expose:
             - "9001"
+        depends_on:
+            - boltz-postgres
+            - boltz-lnd
+            - boltz-fulmine
         environment:
             BOLTZ_CONFIG: |
                 loglevel = "debug"
@@ -221,7 +225,7 @@ services:
         volumes:
             - boltz_datadir:/home/boltz/.boltz
             - lnd_datadir:/home/boltz/.lnd
-        entrypoint: sh -c 'echo "$$BOLTZ_CONFIG" > /home/boltz/.boltz/boltz.config && boltzd --datadir /home/boltz/.boltz --configpath /home/boltz/.boltz/boltz.config'
+        entrypoint: sh -c 'echo "$BOLTZ_CONFIG" > /home/boltz/.boltz/boltz.config && boltzd --datadir /home/boltz/.boltz --configpath /home/boltz/.boltz/boltz.config'
     boltz-postgres:
         image: postgres:15.4
         restart: unless-stopped
@@ -237,6 +241,8 @@ services:
     boltz-fulmine:
         image: ghcr.io/arklabshq/fulmine:v0.3.13
         container_name: boltz-fulmine
+        depends_on:
+            - arkd
         environment:
             - FULMINE_ARK_SERVER=http://arkd:7070
             - FULMINE_ESPLORA_URL=http://chopsticks:3000

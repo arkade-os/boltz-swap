@@ -3,6 +3,8 @@ import { SwapManager } from "../src/swap-manager";
 import { BoltzSwapProvider } from "../src/boltz-swap-provider";
 import { PendingReverseSwap, PendingSubmarineSwap } from "../src/types";
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 describe("SwapManager", () => {
     let swapProvider: BoltzSwapProvider;
     let mockWebSocket: any;
@@ -212,7 +214,7 @@ describe("SwapManager", () => {
             }
 
             // Give async operations time to complete
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await sleep(10);
 
             const stats = swapManager.getStats();
             expect(stats.websocketConnected).toBe(true);
@@ -227,7 +229,7 @@ describe("SwapManager", () => {
             }
 
             // Give async operations time to complete
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await sleep(10);
 
             expect(mockWebSocket.send).toHaveBeenCalledWith(
                 JSON.stringify({
@@ -359,7 +361,7 @@ describe("SwapManager", () => {
             }
 
             // Give async operations time to complete
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await sleep(10);
 
             swapManager.addSwap(mockReverseSwap);
 
@@ -609,7 +611,7 @@ describe("SwapManager", () => {
             }
 
             // Give async operations time to complete
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await sleep(10);
 
             const message = {
                 event: "update",
@@ -629,7 +631,7 @@ describe("SwapManager", () => {
             }
 
             // Give error handler time to execute
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await sleep(10);
 
             expect(onSwapFailed).toHaveBeenCalled();
         });
@@ -668,7 +670,7 @@ describe("SwapManager", () => {
             }
 
             // Give async operations time to complete (including initial poll)
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            await sleep(100);
 
             expect(global.fetch).toHaveBeenCalled();
         });
@@ -786,7 +788,7 @@ describe("SwapManager", () => {
         it("should prevent concurrent processing of same swap", async () => {
             const claimCallback = vi.fn().mockImplementation(async () => {
                 // Simulate slow claim operation
-                await new Promise((resolve) => setTimeout(resolve, 50));
+                await sleep(50);
             });
 
             // Disable auto actions so we can manually test the locking mechanism
@@ -991,7 +993,7 @@ describe("SwapManager", () => {
             mockWebSocket.onopen();
 
             // Give async operations time to complete
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await sleep(10);
 
             // Claim should NOT be called for restored swap without preimage
             expect(claimCallback).not.toHaveBeenCalled();
@@ -1013,7 +1015,7 @@ describe("SwapManager", () => {
             mockWebSocket.onopen();
 
             // Give async operations time to complete
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await sleep(10);
 
             // Refund should NOT be called for restored swap without invoice
             expect(refundCallback).not.toHaveBeenCalled();
@@ -1032,7 +1034,7 @@ describe("SwapManager", () => {
             mockWebSocket.onopen();
 
             // Give async operations time to complete
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await sleep(10);
 
             // Claim SHOULD be called for swap with valid preimage
             expect(claimCallback).toHaveBeenCalled();
@@ -1069,7 +1071,7 @@ describe("SwapManager", () => {
             });
 
             // Give async operations time to complete
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await sleep(10);
 
             // Refund SHOULD be called for swap with valid invoice
             expect(refundCallback).toHaveBeenCalled();
@@ -1167,7 +1169,7 @@ describe("SwapManager", () => {
             }
 
             // Give async operations time to complete
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await sleep(10);
 
             const stats2 = swapManager.getStats();
             expect(stats2.isRunning).toBe(true);

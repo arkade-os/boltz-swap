@@ -28,11 +28,25 @@ export async function saveSwap(
     saver: SwapSaver
 ): Promise<void> {
     if (isPendingReverseSwap(swap)) {
-        await saver.saveReverseSwap?.(swap);
+        if (saver.saveReverseSwap) {
+            await saver.saveReverseSwap(swap);
+        } else {
+            console.warn("No saveReverseSwap handler provided, swap not saved");
+        }
     } else if (isPendingSubmarineSwap(swap)) {
-        await saver.saveSubmarineSwap?.(swap);
+        if (saver.saveSubmarineSwap) {
+            await saver.saveSubmarineSwap(swap);
+        } else {
+            console.warn(
+                "No saveSubmarineSwap handler provided, swap not saved"
+            );
+        }
     } else if (isPendingChainSwap(swap)) {
-        await saver.saveChainSwap?.(swap);
+        if (saver.saveChainSwap) {
+            await saver.saveChainSwap(swap);
+        } else {
+            console.warn("No saveChainSwap handler provided, swap not saved");
+        }
     }
 }
 

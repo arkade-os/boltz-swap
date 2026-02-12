@@ -1078,8 +1078,8 @@ export class BoltzSwapProvider {
 
         // validate lock amounts
         if (
-            (serverLockAmount && userLockAmount) ||
-            (!serverLockAmount && !userLockAmount)
+            (serverLockAmount !== undefined && userLockAmount !== undefined) ||
+            (serverLockAmount === undefined && userLockAmount === undefined)
         )
             throw new SwapError({
                 message:

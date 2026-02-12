@@ -114,7 +114,7 @@ export class SwapManager {
         | ((swap: PendingChainSwap) => Promise<void>)
         | null = null;
 
-    // Callback injected by ArkadeChainSwap and ArkadeLightning)
+    // Callback injected by ArkadeChainSwap and ArkadeLightning
     private saveSwapCallback: ((swap: PendingSwap) => Promise<void>) | null =
         null;
 
