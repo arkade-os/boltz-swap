@@ -312,7 +312,7 @@ export class SwapManager {
 
         // Load pending swaps into monitoring map (only non-final swaps)
         for (const swap of pendingSwaps) {
-            if (!this.isFinalStatus(swap.status)) {
+            if (!this.isFinalStatus(swap)) {
                 this.monitoredSwaps.set(swap.id, swap);
             }
         }
@@ -423,7 +423,7 @@ export class SwapManager {
             }
 
             // Check if already in final status
-            if (this.isFinalStatus(swap.status)) {
+            if (this.isFinalStatus(swap)) {
                 if (isPendingReverseSwap(swap)) {
                     this.swapProvider
                         .getReverseSwapTxId(swap.id)
@@ -442,7 +442,7 @@ export class SwapManager {
                 swapId,
                 (updatedSwap, _oldStatus) => {
                     // Check if swap reached final status
-                    if (this.isFinalStatus(updatedSwap.status)) {
+                    if (this.isFinalStatus(updatedSwap)) {
                         unsubscribe();
 
                         if (isPendingReverseSwap(updatedSwap)) {
@@ -711,7 +711,7 @@ export class SwapManager {
         }
 
         // Remove from monitoring if final status
-        if (this.isFinalStatus(newStatus)) {
+        if (this.isFinalStatus(swap)) {
             this.monitoredSwaps.delete(swap.id);
             this.swapSubscriptions.delete(swap.id);
             // Emit completed event to all listeners
@@ -1021,11 +1021,14 @@ export class SwapManager {
     /**
      * Check if a status is final (no more updates expected)
      */
-    private isFinalStatus(status: BoltzSwapStatus): boolean {
+    private isFinalStatus(pendingSwap: PendingSwap): boolean {
+        const status = pendingSwap.status;
         return (
-            isReverseFinalStatus(status) ||
-            isSubmarineFinalStatus(status) ||
-            isChainFinalStatus(status)
+            (isPendingReverseSwap(pendingSwap) &&
+                isReverseFinalStatus(status)) ||
+            (isPendingSubmarineSwap(pendingSwap) &&
+                isSubmarineFinalStatus(status)) ||
+            (isPendingChainSwap(pendingSwap) && isChainFinalStatus(status))
         );
     }
 

@@ -267,6 +267,7 @@ describe("ArkadeChainSwap", () => {
         toAddress: mock.address.btc,
         status: "swap.created",
         btcTxHex: "mock-btc-tx-hex",
+        amount: mock.amount,
     };
 
     const mockBtcArkChainSwap: PendingChainSwap = {
@@ -280,6 +281,7 @@ describe("ArkadeChainSwap", () => {
         ephemeralKey: hex.encode(randomBytes(32)),
         toAddress: mock.address.ark,
         status: "swap.created",
+        amount: mock.amount,
     };
 
     const mockFeeInfo = {
@@ -484,26 +486,26 @@ describe("ArkadeChainSwap", () => {
                 // act & assert
                 await expect(
                     chainSwap.arkToBtc({
-                        toAddress: mock.address.btc,
-                        amountSats: 0,
+                        btcAddress: mock.address.btc,
+                        senderLockAmount: 0,
                     })
-                ).rejects.toThrow("Invalid amount in arkToBtc");
+                ).rejects.toThrow("Invalid lock amount");
                 await expect(
                     chainSwap.arkToBtc({
-                        toAddress: mock.address.btc,
-                        amountSats: -1,
+                        btcAddress: mock.address.btc,
+                        senderLockAmount: -1,
                     })
-                ).rejects.toThrow("Invalid amount in arkToBtc");
+                ).rejects.toThrow("Invalid lock amount");
             });
 
             it("should throw if toAddress is empty", async () => {
                 // act & assert
                 await expect(
                     chainSwap.arkToBtc({
-                        toAddress: "",
-                        amountSats: mock.amount,
+                        btcAddress: "",
+                        senderLockAmount: mock.amount,
                     })
-                ).rejects.toThrow("Invalid Btc address in arkToBtc");
+                ).rejects.toThrow("Destination address is required");
             });
         });
 
@@ -601,7 +603,7 @@ describe("ArkadeChainSwap", () => {
                     to: "BTC",
                     from: "ARK",
                     feeSatsPerByte: 1,
-                    userLockAmount: mock.amount,
+                    senderLockAmount: mock.amount,
                     toAddress: mock.address.btc,
                 });
 
@@ -811,7 +813,7 @@ describe("ArkadeChainSwap", () => {
                 const resultPromise = chainSwap.waitAndClaimBtc(pendingSwap);
 
                 // assert
-                await expect(resultPromise).resolves.toEqual(mock.id);
+                await expect(resultPromise).resolves.toEqual({ txid: mock.id });
             });
 
             it("should reject with SwapExpiredError when swap expires", async () => {
@@ -887,41 +889,25 @@ describe("ArkadeChainSwap", () => {
 
     describe("Btc to Ark", () => {
         describe("btcToArk", () => {
-            const toAddress = mock.address.ark;
-            it("should throw on invalid Ark address", async () => {
-                // act & assert
-                await expect(
-                    chainSwap.btcToArk({
-                        amountSats: 0,
-                        toAddress: "",
-                        onAddressGenerated: vi.fn(),
-                    })
-                ).rejects.toThrow("Invalid Ark address in btcToArk");
-            });
-
             it("should throw if amount is 0", async () => {
                 // act & assert
                 await expect(
                     chainSwap.btcToArk({
-                        amountSats: 0,
-                        toAddress: toAddress,
-                        onAddressGenerated: vi.fn(),
+                        senderLockAmount: 0,
                     })
-                ).rejects.toThrow("Invalid amount in btcToArk");
+                ).rejects.toThrow("Invalid lock amount");
             });
 
             it("should throw if amount is < 0", async () => {
                 // act & assert
                 await expect(
                     chainSwap.btcToArk({
-                        amountSats: -1,
-                        toAddress: toAddress,
-                        onAddressGenerated: vi.fn(),
+                        senderLockAmount: -1,
                     })
-                ).rejects.toThrow("Invalid amount in btcToArk");
+                ).rejects.toThrow("Invalid lock amount");
             });
 
-            it("should call onAddressGenerated with lockup address", async () => {
+            it("should return address and amount", async () => {
                 // arrange
                 const onAddressGenerated = vi.fn();
                 vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
@@ -933,25 +919,20 @@ describe("ArkadeChainSwap", () => {
                 vi.spyOn(chainSwap, "verifyChainSwap").mockResolvedValueOnce(
                     true
                 );
-                vi.spyOn(chainSwap, "waitAndClaimArk").mockResolvedValueOnce(
-                    mock.txid
-                );
+                vi.spyOn(chainSwap, "waitAndClaimArk").mockResolvedValueOnce({
+                    txid: mock.txid,
+                });
                 vi.spyOn(chainSwap, "getSwapStatus").mockResolvedValueOnce({
                     status: "transaction.claimed",
                 });
 
                 // act
-                await chainSwap.btcToArk({
-                    toAddress: mock.address.ark,
-                    amountSats: mock.amount,
-                    onAddressGenerated,
+                const result = await chainSwap.btcToArk({
+                    senderLockAmount: mock.amount,
                 });
 
                 // assert
-                expect(onAddressGenerated).toHaveBeenCalledWith(
-                    mock.address.btc,
-                    mock.amount
-                );
+                expect(result).toHaveProperty("btcAddress", mock.address.btc);
             });
         });
 
@@ -1061,7 +1042,7 @@ describe("ArkadeChainSwap", () => {
                     to: "ARK",
                     from: "BTC",
                     feeSatsPerByte: 1,
-                    userLockAmount: mock.amount,
+                    senderLockAmount: mock.amount,
                     toAddress: mock.address.ark,
                 });
 
@@ -1252,7 +1233,7 @@ describe("ArkadeChainSwap", () => {
                 const resultPromise = chainSwap.waitAndClaimArk(pendingSwap);
 
                 // assert
-                await expect(resultPromise).resolves.toEqual(mock.id);
+                await expect(resultPromise).resolves.toEqual({ txid: mock.id });
             });
 
             it("should reject with SwapExpiredError when swap expires", async () => {

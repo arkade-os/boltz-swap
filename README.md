@@ -15,7 +15,7 @@ The `BoltzSwapProvider` library extends Arkade's functionality by enabling:
 npm install @arkade-os/sdk @arkade-os/boltz-swap
 ```
 
-## Lightning swaps
+## Lightning Swaps
 
 ### Initializing the Lightning Swap Provider
 
@@ -109,10 +109,10 @@ if (limits) {
 }
 ```
 
-### Checking Swap fees
+### Checking Swap Fees
 
-You can check the fee to pay for different swap amounts supported by the Boltz service.
-This is useful to validate the user is willing to pay the fees.
+You can check the fees for different swap amounts supported by the Boltz service.
+This is useful to validate that users understand the fees they will pay.
 
 ```typescript
 // Get current swap fees
@@ -161,7 +161,7 @@ console.log('Preimage', result.preimage);
 // SwapManager handles monitoring and claiming automatically
 // Just listen to events for UI updates
 const result = await arkadeLightning.createLightningInvoice({ amount: 50000 });
-// Payment will be claimed automatically when received 
+// Payment will be claimed automatically when received
 ```
 
 **Without SwapManager (manual mode):**
@@ -323,9 +323,9 @@ const arkadeChainSwap = new ArkadeChainSwap({
 **Storage Adapters**: The Arkade SDK provides various storage adapters for different environments. For ServiceWorker environments, use `IndexedDBStorageAdapter`. For more storage options and adapters, see the [Arkade SDK storage adapters documentation](https://github.com/arkade-os/ts-sdk).
 
 
-### Checking swap limits
+### Checking Swap Limits
 
-Before creating chain swaps, you can check the minimum and maximum swap amounts supported by the Boltz service. This is useful to validate that your payment amount is within the acceptable range.
+Before creating chain swaps, you can check the minimum and maximum swap amounts supported by the Boltz service. This is useful to validate that your swap amount is within the acceptable range.
 
 ```typescript
 // Get current swap limits (in satoshis)
@@ -351,10 +351,10 @@ if (limits) {
 }
 ```
 
-### Checking Swap fees
+### Checking Swap Fees
 
-You can check the fee to pay for different swap amounts supported by the Boltz service.
-This is useful to validate the user is willing to pay the fees.
+You can check the fees for different swap amounts supported by the Boltz service.
+This is useful to validate that users understand the fees they will pay.
 
 ```typescript
 const calcChainSwapFee = async (satoshis: number, from: Chain, to: Chain): number => {
@@ -369,6 +369,99 @@ const calcChainSwapFee = async (satoshis: number, from: Chain, to: Chain): numbe
     fees.minerFees.user.lockup
   );
 };
+```
+
+
+
+
+
+### Receiving BTC Payments
+
+When defining the amount for a chain swap, you have two options:
+- `senderLockAmount`: sender will pay exactly this amount, receiver will receive less
+- `receiverLockAmount`: receiver will receive exactly this amount, sender will pay more
+
+To receive a BTC payment into your Arkade wallet:
+
+```typescript
+const { btcAddress, amountToPay, pendingSwap } = await arkadeChainSwap.btcToArk({
+  receiverLockAmount: 5000, // you will receive exactly 5000 sats, sender will pay 5000 + fees
+})
+
+// or
+
+const { btcAddress, amountToPay, pendingSwap } = await arkadeChainSwap.btcToArk({
+  senderLockAmount: 5000, // sender will send exactly 5000 sats, you will receive 5000 - fees
+})
+
+// The btcAddress and amountToPay can now be shared with the payer
+// When paid, funds will appear in your Arkade wallet
+```
+
+### Monitoring Incoming BTC Payments
+
+**With SwapManager (recommended):**
+```typescript
+// SwapManager handles monitoring and claiming automatically
+// Payment will be claimed automatically when received
+// Just listen to events for UI updates
+const result = await arkadeChainSwap.btcToArk({ receiverLockAmount: 5000 })
+```
+
+**Without SwapManager (manual mode):**
+```typescript
+// You must manually monitor - blocks until payment is received
+const receivalResult = await arkadeChainSwap.waitAndClaimArk(result.pendingSwap);
+console.log('Receival successful!');
+console.log('Transaction ID:', receivalResult.txid);
+// ⚠️ User must stay on this page - navigating away stops monitoring
+```
+
+### Sending BTC Payments
+
+When defining the amount for a chain swap, you have two options:
+- `senderLockAmount`: sender will pay exactly this amount, receiver will receive less
+- `receiverLockAmount`: receiver will receive exactly this amount, sender will pay more
+
+To send a BTC payment from your Arkade wallet:
+
+```typescript
+const { arkAddress, amountToPay, pendingSwap } = await arkadeChainSwap.arkToBtc({
+  receiverLockAmount: 5000, // receiver will receive exactly 5000 sats, you will send 5000 + fees
+})
+
+await wallet.sendBitcoin({
+  address: arkAddress,
+  amount: amountToPay,
+})
+
+// When paid, funds will appear on the BTC address
+```
+
+### Monitoring Outgoing BTC Payments
+
+**With SwapManager (recommended):**
+```typescript
+// SwapManager handles monitoring and claiming automatically
+// Payment will be claimed automatically when received
+// Just listen to events for UI updates
+const { arkAddress, amountToPay, pendingSwap } = await arkadeChainSwap.arkToBtc({
+  receiverLockAmount: 5000,
+})
+
+await wallet.sendBitcoin({
+  address: arkAddress,
+  amount: amountToPay,
+})
+```
+
+**Without SwapManager (manual mode):**
+```typescript
+// You must manually monitor - blocks until payment is received
+const sendingResult = await arkadeChainSwap.waitAndClaimBtc(result.pendingSwap);
+console.log('Sending successful!');
+console.log('Transaction ID:', sendingResult.txid);
+// ⚠️ User must stay on this page - navigating away stops monitoring
 ```
 
 ### Checking Swap Status
@@ -480,15 +573,8 @@ if (swapManager?.autoStart === false) {
 }
 
 // Create swaps - they're automatically monitored!
-const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
-
-await arkadeChainSwap.btcToArk({
-  amountSats: 21000,
-  toAddress: await wallet.getAddress(),
-  onAddressGenerated: (btcAddress: string, amountInSats: number) => {
-    showQrCode(bip21(btcAddress, amountInSats))
-  }
-})
+const { invoice } = await arkadeLightning.createLightningInvoice({ amount: 5000 });
+const { btcAddress, amountToPay } = await arkadeChainSwap.btcToArk({ amountSats: 5000 })
 // User can navigate to other pages - swap completes in background
 ```
 

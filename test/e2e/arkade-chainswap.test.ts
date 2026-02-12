@@ -26,7 +26,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const fundBtcAddress = async (address: string, amount: number) => {
     await execAsync(`${bccli} sendtoaddress ${address} ${amount / 1e8}`);
-    await generateBlocks(1); // confirm the funding transaction
+    await waitForBtcTxConfirmation(address);
 };
 
 const generateBlocks = async (numBlocks = 1) => {
@@ -36,6 +36,17 @@ const generateBlocks = async (numBlocks = 1) => {
 const getBtcAddress = async (): Promise<string> => {
     const { stdout } = await execAsync(`${bccli} getnewaddress`);
     return stdout.trim();
+};
+
+const getBtcAddressFunds = async (address: string): Promise<number> => {
+    const { stdout } = await execAsync(
+        `curl -s http://localhost:3000/address/${address}`
+    );
+    const outputJson = JSON.parse(stdout);
+    return (
+        outputJson.chain_stats.funded_txo_sum +
+        outputJson.mempool_stats.funded_txo_sum
+    );
 };
 
 const getBtcAddressTxs = async (address: string): Promise<number> => {
@@ -77,6 +88,27 @@ const waitForBalance = async (
         const intervalId = setInterval(async () => {
             const balance = await getBalance();
             if (balance.available >= minAmount) {
+                clearTimeout(timeoutId);
+                clearInterval(intervalId);
+                resolve(true);
+            }
+        }, 500);
+    });
+};
+
+const waitForSwapStatus = async (
+    getStatus: () => Promise<{ status: BoltzSwapStatus }>,
+    intendedStatus: BoltzSwapStatus,
+    timeout = 5_000
+) => {
+    await new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+            clearInterval(intervalId);
+            reject(new Error("Timed out waiting for swap status to update"));
+        }, timeout);
+        const intervalId = setInterval(async () => {
+            const { status } = await getStatus();
+            if (status === intendedStatus) {
                 clearTimeout(timeoutId);
                 clearInterval(intervalId);
                 resolve(true);
@@ -304,18 +336,77 @@ describe("ArkadeChainSwap", () => {
             it("should throw on invalid Btc address", async () => {
                 // act & assert
                 await expect(
-                    chainSwap.arkToBtc({ toAddress: "", amountSats: 21000 })
-                ).rejects.toThrow("Invalid Btc address in arkToBtc");
+                    chainSwap.arkToBtc({
+                        btcAddress: "",
+                        senderLockAmount: 21000,
+                    })
+                ).rejects.toThrow("Destination address is required");
             });
 
             it("should throw on invalid amount", async () => {
                 // act & assert
                 await expect(
                     chainSwap.arkToBtc({
-                        amountSats: 0,
-                        toAddress: await getBtcAddress(),
+                        senderLockAmount: 0,
+                        btcAddress: await getBtcAddress(),
                     })
-                ).rejects.toThrow("Invalid amount in arkToBtc");
+                ).rejects.toThrow("Invalid lock amount");
+            });
+
+            it("should create a ark payment with senderLockAmount", async () => {
+                // arrange
+                const amountSats = 21000;
+                const fundAmount = amountSats + 2100; // include buffer for fees
+                await fundWallet(fundAmount);
+
+                // act
+                const response = await chainSwap.arkToBtc({
+                    btcAddress: await getBtcAddress(),
+                    senderLockAmount: amountSats,
+                });
+
+                // assert
+                expect(response).toHaveProperty("arkAddress");
+                expect(response).toHaveProperty("amountToPay");
+                expect(response).toHaveProperty("pendingSwap");
+                expect(response.pendingSwap).toHaveProperty("id");
+                expect(response.pendingSwap).toHaveProperty("request");
+                expect(response.pendingSwap).toHaveProperty("response");
+                expect(response.pendingSwap).toHaveProperty("preimage");
+                expect(response.pendingSwap).toHaveProperty("createdAt");
+                expect(response.pendingSwap).toHaveProperty("ephemeralKey");
+                expect(response.pendingSwap).toHaveProperty("feeSatsPerByte");
+                expect(response.arkAddress.length).toBeGreaterThan(21);
+
+                expect(response.amountToPay).toEqual(amountSats);
+            });
+
+            it("should create a ark payment with receiverLockAmount", async () => {
+                // arrange
+                const amountSats = 21000;
+                const fundAmount = amountSats + 2100; // include buffer for fees
+                await fundWallet(fundAmount);
+
+                // act
+                const response = await chainSwap.arkToBtc({
+                    receiverLockAmount: amountSats,
+                    btcAddress: await getBtcAddress(),
+                });
+
+                // assert
+                expect(response).toHaveProperty("arkAddress");
+                expect(response).toHaveProperty("amountToPay");
+                expect(response).toHaveProperty("pendingSwap");
+                expect(response.pendingSwap).toHaveProperty("id");
+                expect(response.pendingSwap).toHaveProperty("request");
+                expect(response.pendingSwap).toHaveProperty("response");
+                expect(response.pendingSwap).toHaveProperty("preimage");
+                expect(response.pendingSwap).toHaveProperty("createdAt");
+                expect(response.pendingSwap).toHaveProperty("ephemeralKey");
+                expect(response.pendingSwap).toHaveProperty("feeSatsPerByte");
+                expect(response.arkAddress.length).toBeGreaterThan(21);
+
+                expect(response.amountToPay).toBeGreaterThan(amountSats);
             });
 
             it(
@@ -325,47 +416,63 @@ describe("ArkadeChainSwap", () => {
                     // arrange
                     const amountSats = 21000;
                     const fundAmount = amountSats + 2100; // include buffer for fees
-                    const toAddress = await getBtcAddress();
+                    const btcAddress = await getBtcAddress();
                     await fundWallet(fundAmount);
                     const initialArkBalance = await wallet.getBalance();
-                    const initialBtcTxs = await getBtcAddressTxs(toAddress);
+                    const initialBtcTxs = await getBtcAddressTxs(btcAddress);
 
                     // act
-                    const swap = await chainSwap.arkToBtc({
-                        toAddress,
-                        amountSats,
+                    const { arkAddress, amountToPay, pendingSwap } =
+                        await chainSwap.arkToBtc({
+                            receiverLockAmount: amountSats,
+                            btcAddress,
+                        });
+
+                    // send funds to the swap address
+                    await wallet.sendBitcoin({
+                        address: arkAddress,
+                        amount: amountToPay,
                     });
 
+                    await chainSwap.waitAndClaimBtc(pendingSwap);
+
+                    await waitForBtcTxConfirmation(btcAddress);
+
                     // assert
-                    expect(swap).toHaveProperty("id");
-                    expect(swap).toHaveProperty("request");
-                    expect(swap).toHaveProperty("response");
-                    expect(swap).toHaveProperty("preimage");
-                    expect(swap).toHaveProperty("createdAt");
-                    expect(swap).toHaveProperty("ephemeralKey");
-                    expect(swap).toHaveProperty("feeSatsPerByte");
+                    expect(pendingSwap).toHaveProperty("id");
+                    expect(pendingSwap).toHaveProperty("request");
+                    expect(pendingSwap).toHaveProperty("response");
+                    expect(pendingSwap).toHaveProperty("preimage");
+                    expect(pendingSwap).toHaveProperty("createdAt");
+                    expect(pendingSwap).toHaveProperty("ephemeralKey");
+                    expect(pendingSwap).toHaveProperty("feeSatsPerByte");
 
-                    expect(swap.type).toEqual("chain");
-                    expect(swap.toAddress).toEqual(toAddress);
-                    expect(swap.status).toEqual("transaction.claimed");
+                    expect(pendingSwap.type).toEqual("chain");
+                    expect(pendingSwap.toAddress).toEqual(btcAddress);
 
-                    expect(swap.request.to).toEqual("BTC");
-                    expect(swap.request.from).toEqual("ARK");
-                    expect(swap.request.refundPublicKey).toEqual(
+                    expect(pendingSwap.request.to).toEqual("BTC");
+                    expect(pendingSwap.request.from).toEqual("ARK");
+                    expect(pendingSwap.request.refundPublicKey).toEqual(
                         aliceCompressedPubKey
                     );
-                    expect(swap.request.serverLockAmount).toBeUndefined();
-                    expect(swap.request.userLockAmount).toEqual(amountSats);
-
-                    await waitForBtcTxConfirmation(toAddress);
+                    expect(pendingSwap.request.userLockAmount).toBeUndefined();
+                    expect(
+                        pendingSwap.request.serverLockAmount
+                    ).toBeGreaterThan(amountSats);
 
                     const finalArkBalance = await wallet.getBalance();
-                    const expected = initialArkBalance.available - amountSats;
-                    expect(finalArkBalance.available).toEqual(expected);
+                    expect(finalArkBalance.available).toBeLessThan(
+                        initialArkBalance.available
+                    );
 
-                    const finalBtcTxs = await getBtcAddressTxs(toAddress);
+                    const finalBtcTxs = await getBtcAddressTxs(btcAddress);
                     expect(initialBtcTxs).toEqual(0);
                     expect(finalBtcTxs).toEqual(1);
+
+                    const { status } = await chainSwap.getSwapStatus(
+                        pendingSwap.id
+                    );
+                    expect(status).toEqual("transaction.claimed");
                 }
             );
 
@@ -379,52 +486,110 @@ describe("ArkadeChainSwap", () => {
                         "BTC"
                     );
                     const fundAmount = amountSats + 2100; // include buffer for fees
-                    const toAddress = await getBtcAddress();
+                    const btcAddress = await getBtcAddress();
                     await fundWallet(fundAmount);
                     const initialArkBalance = await wallet.getBalance();
-                    const initialBtcTxs = await getBtcAddressTxs(toAddress);
+                    const initialBtcTxs = await getBtcAddressTxs(btcAddress);
 
                     // act
-                    const swap = await chainSwap.arkToBtc({
-                        toAddress,
-                        amountSats,
+                    const { arkAddress, amountToPay, pendingSwap } =
+                        await chainSwap.arkToBtc({
+                            receiverLockAmount: amountSats,
+                            btcAddress,
+                        });
+
+                    // send funds to the swap address
+                    await wallet.sendBitcoin({
+                        address: arkAddress,
+                        amount: amountToPay,
                     });
 
+                    await chainSwap.waitAndClaimBtc(pendingSwap);
+
+                    await waitForBtcTxConfirmation(btcAddress);
+
                     // assert
-                    expect(swap).toHaveProperty("id");
-                    expect(swap).toHaveProperty("request");
-                    expect(swap).toHaveProperty("response");
-                    expect(swap).toHaveProperty("preimage");
-                    expect(swap).toHaveProperty("createdAt");
-                    expect(swap).toHaveProperty("ephemeralKey");
-                    expect(swap).toHaveProperty("feeSatsPerByte");
-
-                    expect(swap.type).toEqual("chain");
-                    expect(swap.toAddress).toEqual(toAddress);
-                    expect(swap.status).toEqual("transaction.claimed");
-
-                    expect(swap.request.to).toEqual("BTC");
-                    expect(swap.request.from).toEqual("ARK");
-                    expect(swap.request.refundPublicKey).toEqual(
+                    expect(pendingSwap).toHaveProperty("id");
+                    expect(pendingSwap).toHaveProperty("request");
+                    expect(pendingSwap).toHaveProperty("response");
+                    expect(pendingSwap).toHaveProperty("preimage");
+                    expect(pendingSwap).toHaveProperty("createdAt");
+                    expect(pendingSwap).toHaveProperty("ephemeralKey");
+                    expect(pendingSwap).toHaveProperty("feeSatsPerByte");
+                    expect(pendingSwap.type).toEqual("chain");
+                    expect(pendingSwap.toAddress).toEqual(btcAddress);
+                    expect(pendingSwap.request.to).toEqual("BTC");
+                    expect(pendingSwap.request.from).toEqual("ARK");
+                    expect(pendingSwap.request.refundPublicKey).toEqual(
                         aliceCompressedPubKey
                     );
-                    expect(swap.request.serverLockAmount).toBeUndefined();
-                    expect(swap.request.userLockAmount).toEqual(amountSats);
-
-                    await waitForBtcTxConfirmation(toAddress);
+                    expect(pendingSwap.request.userLockAmount).toBeUndefined();
+                    expect(
+                        pendingSwap.request.serverLockAmount
+                    ).toBeGreaterThan(amountSats);
 
                     const finalArkBalance = await wallet.getBalance();
-                    const expected = initialArkBalance.available - amountSats;
-                    expect(finalArkBalance.available).toEqual(expected);
+                    expect(finalArkBalance.available).toBeLessThan(
+                        initialArkBalance.available
+                    );
 
-                    const finalBtcTxs = await getBtcAddressTxs(toAddress);
+                    const finalBtcTxs = await getBtcAddressTxs(btcAddress);
                     expect(initialBtcTxs).toEqual(0);
                     expect(finalBtcTxs).toEqual(1);
+
+                    const { status } = await chainSwap.getSwapStatus(
+                        pendingSwap.id
+                    );
+                    expect(status).toEqual("transaction.claimed");
                 }
             );
         });
 
         describe("createChainSwap", () => {
+            it.skip(
+                "should send exact amount to final recipient",
+                { timeout: 21_000 },
+                async () => {
+                    // arrange
+                    const amountSats = 4000;
+                    const fundAmount = 5000; // include buffer for fees
+                    const toAddress = await getBtcAddress();
+                    await fundWallet(fundAmount);
+
+                    // act
+                    const swap = await chainSwap.createChainSwap({
+                        to: "BTC",
+                        from: "ARK",
+                        feeSatsPerByte: 1,
+                        senderLockAmount: amountSats,
+                        toAddress,
+                    });
+
+                    await wallet.sendBitcoin({
+                        address: swap.response.lockupDetails.lockupAddress,
+                        amount: swap.response.lockupDetails.amount,
+                    });
+
+                    await chainSwap.waitAndClaimBtc(swap);
+
+                    await waitForBtcTxConfirmation(toAddress);
+
+                    const fees = await chainSwap.getFees("ARK", "BTC");
+
+                    const btcBalance = await getBtcAddressFunds(toAddress);
+
+                    // assert
+                    const finalArkBalance = await wallet.getBalance();
+                    expect(finalArkBalance.available).toEqual(
+                        fundAmount - swap.response.lockupDetails.amount
+                    );
+
+                    const { status } = await chainSwap.getSwapStatus(swap.id);
+                    expect(status).toEqual("transaction.claimed");
+
+                    expect(btcBalance).toEqual(amountSats);
+                }
+            );
             it(
                 "should automatically quote if insufficient amount sent",
                 { timeout: 21_000 },
@@ -442,7 +607,7 @@ describe("ArkadeChainSwap", () => {
                         to: "BTC",
                         from: "ARK",
                         feeSatsPerByte: 1,
-                        userLockAmount: amountSats,
+                        senderLockAmount: amountSats,
                         toAddress,
                     });
 
@@ -489,7 +654,7 @@ describe("ArkadeChainSwap", () => {
                         to: "BTC",
                         from: "ARK",
                         feeSatsPerByte: 1,
-                        userLockAmount: amountSats,
+                        senderLockAmount: amountSats,
                         toAddress,
                     });
 
@@ -535,7 +700,7 @@ describe("ArkadeChainSwap", () => {
                         to: "BTC",
                         from: "ARK",
                         feeSatsPerByte: 1,
-                        userLockAmount: amountSats,
+                        senderLockAmount: amountSats,
                         toAddress,
                     });
 
@@ -573,115 +738,128 @@ describe("ArkadeChainSwap", () => {
 
     describe("Btc to Ark swap", () => {
         describe("btcToArk", () => {
-            it("should throw on invalid Ark address", async () => {
-                // act & assert
-                await expect(
-                    chainSwap.btcToArk({
-                        toAddress: "",
-                        amountSats: 10000,
-                        onAddressGenerated: vi.fn(),
-                    })
-                ).rejects.toThrow("Invalid Ark address in btcToArk");
-            });
-
             it("should throw on invalid amount", async () => {
                 // act & assert
                 await expect(
                     chainSwap.btcToArk({
-                        amountSats: 0,
-                        toAddress: await wallet.getAddress(),
-                        onAddressGenerated: vi.fn(),
+                        receiverLockAmount: 0,
                     })
-                ).rejects.toThrow("Invalid amount in btcToArk");
+                ).rejects.toThrow("Invalid lock amount");
+            });
+
+            it("should generate a btc payment with senderLockAmount", async () => {
+                // arrange
+                const amountSats = 21000;
+
+                // act
+                const response = await chainSwap.btcToArk({
+                    senderLockAmount: amountSats,
+                });
+
+                // assert
+                expect(response).toHaveProperty("btcAddress");
+                expect(response).toHaveProperty("amountToPay");
+                expect(response).toHaveProperty("pendingSwap");
+                expect(response.pendingSwap).toHaveProperty("id");
+                expect(response.pendingSwap).toHaveProperty("request");
+                expect(response.pendingSwap).toHaveProperty("response");
+                expect(response.pendingSwap).toHaveProperty("preimage");
+                expect(response.pendingSwap).toHaveProperty("createdAt");
+                expect(response.pendingSwap).toHaveProperty("ephemeralKey");
+                expect(response.pendingSwap).toHaveProperty("feeSatsPerByte");
+                expect(response.btcAddress.length).toBeGreaterThan(21);
+
+                expect(response.amountToPay).toEqual(amountSats);
+            });
+
+            it("should generate a btc payment with receiverLockAmount", async () => {
+                // arrange
+                const amountSats = 21000;
+
+                // act
+                const response = await chainSwap.btcToArk({
+                    receiverLockAmount: amountSats,
+                });
+
+                // assert
+                expect(response).toHaveProperty("btcAddress");
+                expect(response).toHaveProperty("amountToPay");
+                expect(response).toHaveProperty("pendingSwap");
+                expect(response.pendingSwap).toHaveProperty("id");
+                expect(response.pendingSwap).toHaveProperty("request");
+                expect(response.pendingSwap).toHaveProperty("response");
+                expect(response.pendingSwap).toHaveProperty("preimage");
+                expect(response.pendingSwap).toHaveProperty("createdAt");
+                expect(response.pendingSwap).toHaveProperty("ephemeralKey");
+                expect(response.pendingSwap).toHaveProperty("feeSatsPerByte");
+                expect(response.btcAddress.length).toBeGreaterThan(21);
+
+                expect(response.amountToPay).toBeGreaterThan(amountSats);
+            });
+
+            it("serverLockAmount should be amount + claim fees", async () => {
+                // arrange
+                const amountSats = 21000;
+
+                // act
+                const fees = await chainSwap.getFees("BTC", "ARK");
+
+                const response = await chainSwap.btcToArk({
+                    receiverLockAmount: amountSats,
+                });
+
+                // assert
+                expect(response.pendingSwap.request.serverLockAmount).toEqual(
+                    amountSats + fees.minerFees.user.claim
+                );
             });
 
             it("should perform Btc to Ark chain swap successfully", async () => {
                 // arrange
                 const amountSats = 21000;
-                const toAddress = await wallet.getAddress();
-
-                const onAddressGenerated = async (
-                    address: string,
-                    amount: number
-                ) => {
-                    await fundBtcAddress(address, amount);
-                };
 
                 // act
-                const swap = await chainSwap.btcToArk({
-                    toAddress,
-                    amountSats,
-                    onAddressGenerated,
-                });
+                const { btcAddress, amountToPay, pendingSwap } =
+                    await chainSwap.btcToArk({
+                        receiverLockAmount: amountSats,
+                    });
+
+                await fundBtcAddress(btcAddress, amountToPay);
+
+                await chainSwap.waitAndClaimArk(pendingSwap);
 
                 // assert
-                expect(swap).toHaveProperty("id");
-                expect(swap).toHaveProperty("request");
-                expect(swap).toHaveProperty("response");
-                expect(swap).toHaveProperty("preimage");
-                expect(swap).toHaveProperty("createdAt");
-                expect(swap).toHaveProperty("ephemeralKey");
-                expect(swap).toHaveProperty("feeSatsPerByte");
-
-                expect(swap.type).toEqual("chain");
-                expect(swap.toAddress).toEqual(toAddress);
-                expect(swap.status).toEqual("transaction.claimed");
-
-                expect(swap.request.to).toEqual("ARK");
-                expect(swap.request.from).toEqual("BTC");
-                expect(swap.request.serverLockAmount).toBeUndefined();
-                expect(swap.request.userLockAmount).toEqual(amountSats);
-
                 const balance = await wallet.getBalance();
-                const expected = amountSats - 1000; // accounting for fees
-                expect(balance.available).toBeGreaterThanOrEqual(expected);
+                expect(balance.available).toEqual(amountSats);
             });
 
-            it("should perform Btc to Ark chain swap with minimal amount", async () => {
-                // arrange
-                const { min: amountSats } = await chainSwap.getLimits(
-                    "BTC",
-                    "ARK"
-                );
-                const toAddress = await wallet.getAddress();
+            it(
+                "should perform Btc to Ark chain swap with minimal amount",
+                { timeout: 10_000 },
+                async () => {
+                    // arrange
+                    const { min: amountSats } = await chainSwap.getLimits(
+                        "BTC",
+                        "ARK"
+                    );
 
-                const onAddressGenerated = async (
-                    address: string,
-                    amount: number
-                ) => {
-                    await fundBtcAddress(address, amount);
-                };
+                    // act
+                    const { btcAddress, amountToPay, pendingSwap } =
+                        await chainSwap.btcToArk({
+                            receiverLockAmount: amountSats,
+                        });
 
-                // act
-                const swap = await chainSwap.btcToArk({
-                    toAddress,
-                    amountSats,
-                    onAddressGenerated,
-                });
+                    await fundBtcAddress(btcAddress, amountToPay);
 
-                // assert
-                expect(swap).toHaveProperty("id");
-                expect(swap).toHaveProperty("request");
-                expect(swap).toHaveProperty("response");
-                expect(swap).toHaveProperty("preimage");
-                expect(swap).toHaveProperty("createdAt");
-                expect(swap).toHaveProperty("ephemeralKey");
-                expect(swap).toHaveProperty("feeSatsPerByte");
+                    await chainSwap.waitAndClaimArk(pendingSwap);
 
-                expect(swap.type).toEqual("chain");
-                expect(swap.toAddress).toEqual(toAddress);
-                expect(swap.status).toEqual("transaction.claimed");
-
-                expect(swap.request.to).toEqual("ARK");
-                expect(swap.request.from).toEqual("BTC");
-                expect(swap.request.serverLockAmount).toBeUndefined();
-                expect(swap.request.userLockAmount).toEqual(amountSats);
-
-                const balance = await wallet.getBalance();
-                const expected = amountSats - 1000; // accounting for fees
-                expect(balance.available).toBeGreaterThanOrEqual(expected);
-            });
+                    // assert
+                    const balance = await wallet.getBalance();
+                    expect(balance.available).toEqual(amountSats);
+                }
+            );
         });
+
         describe("createChainSwap", () => {
             it(
                 "should automatically quote if insufficient amount sent",
@@ -697,7 +875,7 @@ describe("ArkadeChainSwap", () => {
                         to: "ARK",
                         from: "BTC",
                         feeSatsPerByte: 1,
-                        userLockAmount: amountSats,
+                        senderLockAmount: amountSats,
                         toAddress,
                     });
 
@@ -705,8 +883,6 @@ describe("ArkadeChainSwap", () => {
                         swap.response.lockupDetails.lockupAddress;
 
                     await fundBtcAddress(btcAddress, sendAmount);
-
-                    await waitForBtcTxConfirmation(btcAddress);
 
                     await chainSwap.waitAndClaimArk(swap);
 
@@ -741,7 +917,7 @@ describe("ArkadeChainSwap", () => {
                         to: "ARK",
                         from: "BTC",
                         feeSatsPerByte: 1,
-                        userLockAmount: amountSats,
+                        senderLockAmount: amountSats,
                         toAddress,
                     });
 
@@ -749,8 +925,6 @@ describe("ArkadeChainSwap", () => {
                         swap.response.lockupDetails.lockupAddress;
 
                     await fundBtcAddress(btcAddress, sendAmount);
-
-                    await waitForBtcTxConfirmation(btcAddress);
 
                     await chainSwap.waitAndClaimArk(swap);
 
@@ -789,7 +963,7 @@ describe("ArkadeChainSwap", () => {
                     to: "BTC",
                     from: "ARK",
                     feeSatsPerByte: 1,
-                    userLockAmount: 10_000,
+                    senderLockAmount: 10_000,
                     toAddress: await getBtcAddress(),
                 });
 
@@ -807,7 +981,7 @@ describe("ArkadeChainSwap", () => {
                     to: "ARK",
                     from: "BTC",
                     feeSatsPerByte: 1,
-                    userLockAmount: 10_000,
+                    senderLockAmount: 10_000,
                     toAddress: await wallet.getAddress(),
                 });
 
@@ -838,18 +1012,27 @@ describe("ArkadeChainSwap", () => {
                     await fundWallet(amount + 2000); // include buffer for fees
 
                     // act
-                    await chainSwap.arkToBtc({
-                        amountSats: amount,
-                        toAddress: await getBtcAddress(),
+                    const { arkAddress, amountToPay, pendingSwap } =
+                        await chainSwap.arkToBtc({
+                            senderLockAmount: amount,
+                            btcAddress: await getBtcAddress(),
+                        });
+
+                    // send funds to the swap address
+                    await wallet.sendBitcoin({
+                        address: arkAddress,
+                        amount: amountToPay,
                     });
 
-                    // assert
-                    const pendingSwaps = await chainSwap.getSwapHistory();
+                    await chainSwap.waitAndClaimBtc(pendingSwap);
 
-                    expect(pendingSwaps).toHaveLength(1);
-                    expect(pendingSwaps[0].type).toBe("chain");
-                    expect(pendingSwaps[0].status).toBe("transaction.claimed");
-                    expect(pendingSwaps[0].request.userLockAmount).toBe(amount);
+                    // assert
+                    const history = await chainSwap.getSwapHistory();
+
+                    expect(history).toHaveLength(1);
+                    expect(history[0].type).toBe("chain");
+                    expect(history[0].status).toBe("transaction.claimed");
+                    expect(history[0].request.userLockAmount).toEqual(amount);
                 }
             );
 
@@ -861,26 +1044,23 @@ describe("ArkadeChainSwap", () => {
                     const amountSats = 10_000;
 
                     // act
-                    await chainSwap.btcToArk({
-                        amountSats,
-                        toAddress: await wallet.getAddress(),
-                        onAddressGenerated: async (
-                            address: string,
-                            amount: number
-                        ) => {
-                            await fundBtcAddress(address, amount);
-                        },
-                    });
+                    const { btcAddress, amountToPay, pendingSwap } =
+                        await chainSwap.btcToArk({
+                            senderLockAmount: amountSats,
+                        });
+
+                    await fundBtcAddress(btcAddress, amountToPay);
+
+                    await chainSwap.waitAndClaimArk(pendingSwap);
 
                     // assert
-                    const pendingSwaps = await chainSwap.getSwapHistory();
+                    await sleep(1000); // wait for swap status to update
+                    const swaps = await chainSwap.getSwapHistory();
 
-                    expect(pendingSwaps).toHaveLength(1);
-                    expect(pendingSwaps[0].type).toBe("chain");
-                    expect(pendingSwaps[0].status).toBe("transaction.claimed");
-                    expect(pendingSwaps[0].request.userLockAmount).toBe(
-                        amountSats
-                    );
+                    expect(swaps).toHaveLength(1);
+                    expect(swaps[0].type).toBe("chain");
+                    expect(swaps[0].status).toBe("transaction.claimed");
+                    expect(swaps[0].request.userLockAmount).toEqual(amountSats);
                 }
             );
 
@@ -890,7 +1070,7 @@ describe("ArkadeChainSwap", () => {
                     to: "BTC",
                     from: "ARK",
                     feeSatsPerByte: 1,
-                    userLockAmount: 10_000,
+                    senderLockAmount: 10_000,
                     toAddress: await getBtcAddress(),
                 });
 
@@ -900,7 +1080,7 @@ describe("ArkadeChainSwap", () => {
                     to: "ARK",
                     from: "BTC",
                     feeSatsPerByte: 1,
-                    userLockAmount: 20_000,
+                    senderLockAmount: 20_000,
                     toAddress: await wallet.getAddress(),
                 });
 
@@ -910,7 +1090,7 @@ describe("ArkadeChainSwap", () => {
                     to: "BTC",
                     from: "ARK",
                     feeSatsPerByte: 1,
-                    userLockAmount: 30_000,
+                    senderLockAmount: 30_000,
                     toAddress: await getBtcAddress(),
                 });
 

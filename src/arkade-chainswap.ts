@@ -29,12 +29,15 @@ import type {
     ChainFeesResponse,
     ArkadeChainSwapConfig,
     PendingSwap,
+    BtcToArkResponse,
+    ArkToBtcResponse,
 } from "./types";
 import {
     BoltzSwapProvider,
     GetSwapStatusResponse,
     isChainFinalStatus,
     BoltzSwapStatus,
+    CreateChainSwapRequest,
 } from "./boltz-swap-provider";
 import { base64, hex } from "@scure/base";
 import { ripemd160 } from "@noble/hashes/legacy.js";
@@ -54,7 +57,6 @@ import {
 import { randomBytes } from "@noble/hashes/utils.js";
 import { Address, OutScript, SigHash, Transaction } from "@scure/btc-signer";
 import { normalizeToXOnlyKey } from "./utils/signatures";
-import { isValidArkAddress } from "./utils/decoding";
 import { joinBatch, refundVHTLCwithOffchainTx } from "./utils/vhtlc";
 import { SwapManager } from "./swap-manager";
 import { saveSwap } from "./utils/swap-helpers";
@@ -161,78 +163,46 @@ export class ArkadeChainSwap {
     /**
      * Creates a chain swap from ARK to BTC.
      * @param args - Swap arguments.
-     * @param args.toAddress - Destination BTC address.
-     * @param args.amountSats - Amount in sats.
+     * @param args.btcAddress - Destination BTC address.
      * @param args.feeSatsPerByte - Optional fee rate in sats/vbyte.
-     * @returns The pending chain swap.
+     * @param args.senderLockAmount - Optional amount sender will lock in sats.
+     * @param args.receiverLockAmount - Optional amount receiver will receive in sats.
+     * @remarks One lock amount is required.
+     * @returns The payment details and pending chain swap.
      */
     async arkToBtc(args: {
-        toAddress: string;
-        amountSats: number;
+        btcAddress: string;
+        senderLockAmount?: number;
+        receiverLockAmount?: number;
         feeSatsPerByte?: number;
-    }): Promise<PendingChainSwap> {
-        // deconstruct args and validate
-        const feeSatsPerByte = args.feeSatsPerByte ?? 1;
-        const { toAddress, amountSats } = args;
-        if (!toAddress) {
-            throw new SwapError({
-                message: "Invalid Btc address in arkToBtc",
-            });
-        }
-        if (amountSats <= 0) {
-            throw new SwapError({
-                message: "Invalid amount in arkToBtc",
-            });
-        }
-
-        // get ark info
-        const arkInfo = await this.arkProvider.getInfo();
-
+    }): Promise<ArkToBtcResponse> {
         // create chain swap
         const pendingSwap = await this.createChainSwap({
             to: "BTC",
             from: "ARK",
-            feeSatsPerByte,
-            userLockAmount: amountSats,
-            toAddress,
+            feeSatsPerByte: args.feeSatsPerByte,
+            senderLockAmount: args.senderLockAmount,
+            receiverLockAmount: args.receiverLockAmount,
+            toAddress: args.btcAddress,
         });
 
         // verify swap details
         await this.verifyChainSwap({
-            arkInfo,
             to: "BTC",
             from: "ARK",
             swap: pendingSwap,
+            arkInfo: await this.arkProvider.getInfo(),
         }).catch((err) => {
             throw new SwapError({
                 message: `Chain swap verification failed: ${err.message}`,
             });
         });
 
-        // send funds to the swap address
-        await this.wallet.sendBitcoin({
-            address: pendingSwap.response.lockupDetails.lockupAddress,
-            amount: pendingSwap.response.lockupDetails.amount,
-        });
-
-        // wait for the swap to be ready and claim the HTLC
-        try {
-            await this.waitAndClaimBtc(pendingSwap);
-        } catch (error: any) {
-            if (error.isRefundable) {
-                await this.refundArk(pendingSwap);
-                const { status } = await this.getSwapStatus(pendingSwap.id);
-                await this.savePendingChainSwap({ ...pendingSwap, status });
-            }
-            throw new TransactionFailedError({
-                message: error.message || "Failed to claim BTC",
-                isRefundable: error.isRefundable,
-            });
-        }
-
-        const { status } = await this.getSwapStatus(pendingSwap.id);
-        await this.savePendingChainSwap({ ...pendingSwap, status });
-        return { ...pendingSwap, status };
+        return {
+            amountToPay: pendingSwap.response.lockupDetails.amount,
+            arkAddress: pendingSwap.response.lockupDetails.lockupAddress,
+            pendingSwap,
+        };
     }
 
     /**
@@ -241,8 +211,17 @@ export class ArkadeChainSwap {
      * @returns The transaction ID of the claimed HTLC.
      * @throws SwapExpiredError, TransactionFailedError, TransactionRefundedError
      */
-    async waitAndClaimBtc(pendingSwap: PendingChainSwap): Promise<string> {
-        return new Promise<string>((resolve, reject) => {
+    async waitAndClaimBtc(
+        pendingSwap: PendingChainSwap
+    ): Promise<{ txid: string }> {
+        // If SwapManager is enabled and has this swap, delegate to it
+        if (this.swapManager && this.swapManager.hasSwap(pendingSwap.id)) {
+            const { txid } = await this.swapManager.waitForSwapCompletion(
+                pendingSwap.id
+            );
+            return { txid };
+        }
+        return new Promise<{ txid: string }>((resolve, reject) => {
             let claimStarted = false;
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
             const onStatusUpdate = async (
@@ -280,9 +259,11 @@ export class ArkadeChainSwap {
                         break;
                     case "transaction.claimed":
                         await updateSwapStatus();
-                        resolve(
-                            data?.transaction?.id ?? pendingSwap.response.id
-                        );
+                        resolve({
+                            txid:
+                                data?.transaction?.id ??
+                                pendingSwap.response.id,
+                        });
                         break;
                     case "transaction.lockupFailed":
                         await updateSwapStatus();
@@ -324,8 +305,7 @@ export class ArkadeChainSwap {
 
     /**
      * Claim sats on BTC chain by claiming the HTLC.
-     * @param pendingSwap - The pending chain swap.
-     * @param data - Swap status update data containing the lockup transaction.
+     * @param pendingSwap - The pending chain swap with BTC transaction hex.
      */
     async claimBtc(pendingSwap: PendingChainSwap): Promise<void> {
         if (!pendingSwap.btcTxHex)
@@ -433,8 +413,8 @@ export class ArkadeChainSwap {
     }
 
     /**
-     * When an ARK to BTC swap fails, claim sats on ARK chain by claiming the VHTLC.
-     * @param pendingSwap - The pending chain swap.
+     * When an ARK to BTC swap fails, refund sats on ARK chain by claiming the VHTLC.
+     * @param pendingSwap - The pending chain swap to refund.
      */
     async refundArk(pendingSwap: PendingChainSwap): Promise<void> {
         if (!pendingSwap.response.lockupDetails.serverPublicKey)
@@ -548,67 +528,44 @@ export class ArkadeChainSwap {
     /**
      * Creates a chain swap from BTC to ARK.
      * @param args - Swap arguments.
-     * @param args.toAddress - Destination Ark address.
-     * @param args.amountSats - Amount in sats.
      * @param args.feeSatsPerByte - Optional fee rate in sats/vbyte.
-     * @param args.onAddressGenerated - Callback invoked with lockup address and amount
-     * @returns The pending chain swap.
+     * @param args.senderLockAmount - Optional amount sender will lock in sats.
+     * @param args.receiverLockAmount - Optional amount receiver will receive in sats.
+     * @remarks One lock amount is required.
+     * @returns The pending chain swap and payment details.
      */
     async btcToArk(args: {
-        toAddress: string;
-        amountSats: number;
         feeSatsPerByte?: number;
-        onAddressGenerated: (address: string, amount: number) => void;
-    }): Promise<PendingChainSwap> {
-        // deconstruct args and validate
-        const feeSatsPerByte = args.feeSatsPerByte ?? 1;
-        const { amountSats, toAddress, onAddressGenerated } = args;
-
-        if (!toAddress || !isValidArkAddress(toAddress)) {
-            throw new SwapError({
-                message: "Invalid Ark address in btcToArk",
-            });
-        }
-
-        if (amountSats <= 0) {
-            throw new SwapError({
-                message: "Invalid amount in btcToArk",
-            });
-        }
-
-        const arkInfo = await this.arkProvider.getInfo();
-
+        senderLockAmount?: number;
+        receiverLockAmount?: number;
+    }): Promise<BtcToArkResponse> {
         // create chain swap
         const pendingSwap = await this.createChainSwap({
             to: "ARK",
             from: "BTC",
-            feeSatsPerByte,
-            userLockAmount: amountSats,
-            toAddress,
+            feeSatsPerByte: args.feeSatsPerByte,
+            senderLockAmount: args.senderLockAmount,
+            receiverLockAmount: args.receiverLockAmount,
+            toAddress: await this.wallet.getAddress(),
         });
 
-        // verify swap details
+        // validate chain swap details
         await this.verifyChainSwap({
-            arkInfo,
             to: "ARK",
             from: "BTC",
             swap: pendingSwap,
+            arkInfo: await this.arkProvider.getInfo(),
         }).catch((err) => {
             throw new SwapError({
                 message: `Chain swap verification failed: ${err.message}`,
             });
         });
 
-        // notify the user of the generated lockup address
-        const { lockupAddress, amount } = pendingSwap.response.lockupDetails;
-        onAddressGenerated(lockupAddress, amount);
-
-        // wait for the swap to be ready and claim the VHTLC
-        await this.waitAndClaimArk(pendingSwap);
-
-        const { status } = await this.getSwapStatus(pendingSwap.id);
-        await this.savePendingChainSwap({ ...pendingSwap, status });
-        return { ...pendingSwap, status };
+        return {
+            amountToPay: pendingSwap.response.lockupDetails.amount,
+            btcAddress: pendingSwap.response.lockupDetails.lockupAddress,
+            pendingSwap,
+        };
     }
 
     /**
@@ -616,8 +573,17 @@ export class ArkadeChainSwap {
      * @param pendingSwap - The pending chain swap to monitor.
      * @returns The transaction ID of the claimed VHTLC.
      */
-    async waitAndClaimArk(pendingSwap: PendingChainSwap): Promise<string> {
-        return new Promise<string>((resolve, reject) => {
+    async waitAndClaimArk(
+        pendingSwap: PendingChainSwap
+    ): Promise<{ txid: string }> {
+        // If SwapManager is enabled and has this swap, delegate to it
+        if (this.swapManager && this.swapManager.hasSwap(pendingSwap.id)) {
+            const { txid } = await this.swapManager.waitForSwapCompletion(
+                pendingSwap.id
+            );
+            return { txid };
+        }
+        return new Promise<{ txid: string }>((resolve, reject) => {
             let claimStarted = false;
             // https://api.docs.boltz.exchange/lifecycle.html#swap-states
             const onStatusUpdate = async (
@@ -643,9 +609,11 @@ export class ArkadeChainSwap {
                         break;
                     case "transaction.claimed":
                         await updateSwapStatus();
-                        resolve(
-                            data?.transaction?.id ?? pendingSwap.response.id
-                        );
+                        resolve({
+                            txid:
+                                data?.transaction?.id ??
+                                pendingSwap.response.id,
+                        });
                         break;
                     case "transaction.claim.pending":
                         // Be nice and sign a cooperative claim for the server
@@ -655,7 +623,6 @@ export class ArkadeChainSwap {
                         await this.signCooperativeClaimForServer(
                             pendingSwap
                         ).catch();
-                        resolve(pendingSwap.response.id); // TODO
                         break;
                     case "transaction.lockupFailed":
                         await updateSwapStatus();
@@ -992,15 +959,34 @@ export class ArkadeChainSwap {
         from: Chain;
         toAddress: string;
         feeSatsPerByte?: number;
-        userLockAmount?: number;
-        serverLockAmount?: number;
+        senderLockAmount?: number;
+        receiverLockAmount?: number;
     }): Promise<PendingChainSwap> {
         // deconstruct args and validate
-        const { to, from, serverLockAmount, userLockAmount } = args;
+        const { to, from, receiverLockAmount, senderLockAmount, toAddress } =
+            args;
+
+        if (!toAddress)
+            throw new SwapError({ message: "Destination address is required" });
 
         const feeSatsPerByte = args.feeSatsPerByte ?? 1;
         if (feeSatsPerByte <= 0)
             throw new SwapError({ message: "Invalid feeSatsPerByte" });
+
+        let amount, serverLockAmount, userLockAmount;
+
+        if (receiverLockAmount) {
+            amount = receiverLockAmount;
+            const fees = await this.getFees(from, to);
+            serverLockAmount = receiverLockAmount + fees.minerFees.user.claim;
+        } else if (senderLockAmount) {
+            amount = senderLockAmount;
+            userLockAmount = senderLockAmount;
+        }
+
+        if (!amount || amount <= 0) {
+            throw new SwapError({ message: "Invalid lock amount" });
+        }
 
         // create random preimage and its hash
         const preimage = randomBytes(32);
@@ -1036,7 +1022,7 @@ export class ArkadeChainSwap {
             });
 
         // build request object for chain swap
-        const swapRequest = {
+        const swapRequest: CreateChainSwapRequest = {
             to,
             from,
             preimageHash,
@@ -1052,16 +1038,17 @@ export class ArkadeChainSwap {
             await this.swapProvider.createChainSwap(swapRequest);
 
         const pendingSwap: PendingChainSwap = {
-            id: swapResponse.id,
-            type: "chain",
-            feeSatsPerByte,
-            ephemeralKey: hex.encode(ephemeralKey),
+            amount,
             createdAt: Math.floor(Date.now() / 1000),
+            ephemeralKey: hex.encode(ephemeralKey),
+            feeSatsPerByte,
+            id: swapResponse.id,
             preimage: hex.encode(preimage),
             request: swapRequest,
             response: swapResponse,
             status: "swap.created",
             toAddress: args.toAddress,
+            type: "chain",
         };
 
         // save pending swap to storage if available
@@ -1203,15 +1190,31 @@ export class ArkadeChainSwap {
     }
 
     /**
+     * Waits for a swap to be claimable and then claims it.
+     * @param pendingSwap - The pending swap to wait for and claim.
+     * @returns The transaction ID of the claim.
+     */
+    async waitAndClaim(
+        pendingSwap: PendingChainSwap
+    ): Promise<{ txid: string }> {
+        if (pendingSwap.request.to === "ARK")
+            return this.waitAndClaimArk(pendingSwap);
+        if (pendingSwap.request.to === "BTC")
+            return this.waitAndClaimBtc(pendingSwap);
+        throw new SwapError({
+            message: `Unsupported swap destination: ${pendingSwap.request.to}`,
+        });
+    }
+
+    /**
      * Refreshes the status of all pending swaps in the storage provider.
      * This method iterates through all pending chain swaps, checks their current status
      * using the swap provider, and updates the storage provider accordingly.
      * It skips swaps that are already in a final status to avoid unnecessary API calls.
-     * If no storage provider is set, the method exits early.
-     * Errors during status refresh are logged to the console but do not interrupt the process.
-     * @returns void
-     * Important: a chain swap with status payment.failedToPay is considered final and won't be refreshed.
-     * User should manually retry or delete it if refund fails.
+     * Errors during status refresh are logged but do not interrupt the process.
+     * @remarks
+     * A chain swap with a final status (e.g., payment.failedToPay) won't be refreshed.
+     * Users should manually retry or delete it if refund fails.
      */
     async refreshSwapsStatus(): Promise<void> {
         // refresh status of all pending chain swaps
@@ -1233,9 +1236,9 @@ export class ArkadeChainSwap {
     // SwapManager methods
 
     /**
-     * Start the background swap manager
-     * This will load all pending swaps and begin monitoring them
-     * Automatically called when SwapManager is enabled
+     * Start the background swap manager.
+     * This will load all pending swaps and begin monitoring them.
+     * Automatically called when SwapManager is enabled.
      */
     async startSwapManager(): Promise<void> {
         if (!this.swapManager) {
@@ -1252,7 +1255,7 @@ export class ArkadeChainSwap {
     }
 
     /**
-     * Stop the background swap manager
+     * Stop the background swap manager.
      */
     async stopSwapManager(): Promise<void> {
         if (!this.swapManager) return;
@@ -1260,8 +1263,8 @@ export class ArkadeChainSwap {
     }
 
     /**
-     * Get the SwapManager instance
-     * Useful for accessing manager stats or manually controlling swaps
+     * Get the SwapManager instance.
+     * Useful for accessing manager stats or manually controlling swaps.
      */
     getSwapManager(): SwapManager | null {
         return this.swapManager;
@@ -1294,12 +1297,11 @@ export class ArkadeChainSwap {
 
     /**
      * Validates the final Ark transaction.
-     * checks that all inputs have a signature for the given pubkey
-     * and the signature is correct for the given tapscript leaf
-     * TODO: This is a simplified check, we should verify the actual signatures
-     * @param finalArkTx The final Ark transaction in PSBT format.
-     * @param _pubkey The public key of the user.
-     * @param _tapLeaves The taproot script leaves.
+     * Checks that all inputs have a witnessUtxo.
+     * Note: This is a simplified check; actual signatures should be verified separately.
+     * @param finalArkTx - The final Ark transaction in PSBT format.
+     * @param _pubkey - The public key of the user (currently unused).
+     * @param _tapLeaves - The taproot script leaves (currently unused).
      * @returns True if the final Ark transaction is valid, false otherwise.
      */
     private validFinalArkTx = (
@@ -1351,8 +1353,8 @@ export class ArkadeChainSwap {
     }
 
     /**
-     * Dispose of resources (stops SwapManager and cleans up)
-     * Can be called manually or automatically with `await using` syntax (TypeScript 5.2+)
+     * Dispose of resources (stops SwapManager and cleans up).
+     * Can be called manually or automatically with `await using` syntax (TypeScript 5.2+).
      */
     async dispose(): Promise<void> {
         if (this.swapManager) {

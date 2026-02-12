@@ -34,6 +34,17 @@ export type Network = NetworkName;
 
 export type Chain = "ARK" | "BTC";
 
+export interface ArkToBtcResponse {
+    arkAddress: string;
+    amountToPay: number;
+    pendingSwap: PendingChainSwap;
+}
+
+export interface BtcToArkResponse {
+    btcAddress: string;
+    amountToPay: number;
+    pendingSwap: PendingChainSwap;
+}
 export interface CreateLightningInvoiceRequest {
     amount: number;
     description?: string;
@@ -92,6 +103,7 @@ export interface PendingChainSwap {
     response: CreateChainSwapResponse;
     toAddress?: string;
     btcTxHex?: string;
+    amount: number;
 }
 
 export type PendingSwap =
