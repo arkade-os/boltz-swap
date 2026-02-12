@@ -96,27 +96,6 @@ const waitForBalance = async (
     });
 };
 
-const waitForSwapStatus = async (
-    getStatus: () => Promise<{ status: BoltzSwapStatus }>,
-    intendedStatus: BoltzSwapStatus,
-    timeout = 5_000
-) => {
-    await new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-            clearInterval(intervalId);
-            reject(new Error("Timed out waiting for swap status to update"));
-        }, timeout);
-        const intervalId = setInterval(async () => {
-            const { status } = await getStatus();
-            if (status === intendedStatus) {
-                clearTimeout(timeoutId);
-                clearInterval(intervalId);
-                resolve(true);
-            }
-        }, 500);
-    });
-};
-
 describe("ArkadeChainSwap", () => {
     let indexerProvider: RestIndexerProvider;
     let swapProvider: BoltzSwapProvider;
@@ -546,9 +525,54 @@ describe("ArkadeChainSwap", () => {
         });
 
         describe("createChainSwap", () => {
-            it.skip(
-                "should send exact amount to final recipient",
-                { timeout: 21_000 },
+            it(
+                "should send exact amount to btc address",
+                { timeout: 10_000 },
+                async () => {
+                    // arrange
+                    const amountSats = 4000;
+                    const fundAmount = 5000; // include buffer for fees
+                    const toAddress = await getBtcAddress();
+                    await fundWallet(fundAmount);
+
+                    // act
+                    const swap = await chainSwap.createChainSwap({
+                        to: "BTC",
+                        from: "ARK",
+                        feeSatsPerByte: 1,
+                        receiverLockAmount: amountSats,
+                        toAddress,
+                    });
+
+                    await wallet.sendBitcoin({
+                        address: swap.response.lockupDetails.lockupAddress,
+                        amount: swap.response.lockupDetails.amount,
+                    });
+
+                    await chainSwap.waitAndClaimBtc(swap);
+
+                    await waitForBalance(
+                        async () => ({
+                            available: await getBtcAddressFunds(toAddress),
+                        }),
+                        1,
+                        5_000
+                    );
+
+                    // assert
+                    const finalArkBalance = await wallet.getBalance();
+                    expect(finalArkBalance.available).toEqual(
+                        fundAmount - swap.response.lockupDetails.amount
+                    );
+
+                    const btcBalance = await getBtcAddressFunds(toAddress);
+                    expect(btcBalance).toEqual(amountSats);
+                }
+            );
+
+            it(
+                "should send less than amount to btc address",
+                { timeout: 10_000 },
                 async () => {
                     // arrange
                     const amountSats = 4000;
@@ -572,24 +596,26 @@ describe("ArkadeChainSwap", () => {
 
                     await chainSwap.waitAndClaimBtc(swap);
 
-                    await waitForBtcTxConfirmation(toAddress);
-
-                    const fees = await chainSwap.getFees("ARK", "BTC");
-
-                    const btcBalance = await getBtcAddressFunds(toAddress);
+                    await waitForBalance(
+                        async () => ({
+                            available: await getBtcAddressFunds(toAddress),
+                        }),
+                        1,
+                        5_000
+                    );
 
                     // assert
                     const finalArkBalance = await wallet.getBalance();
                     expect(finalArkBalance.available).toEqual(
-                        fundAmount - swap.response.lockupDetails.amount
+                        fundAmount - amountSats
                     );
 
-                    const { status } = await chainSwap.getSwapStatus(swap.id);
-                    expect(status).toEqual("transaction.claimed");
-
-                    expect(btcBalance).toEqual(amountSats);
+                    const btcBalance = await getBtcAddressFunds(toAddress);
+                    expect(btcBalance).toBeLessThan(amountSats);
+                    expect(btcBalance).toBeGreaterThan(0);
                 }
             );
+
             it(
                 "should automatically quote if insufficient amount sent",
                 { timeout: 21_000 },
@@ -814,24 +840,28 @@ describe("ArkadeChainSwap", () => {
                 );
             });
 
-            it("should perform Btc to Ark chain swap successfully", async () => {
-                // arrange
-                const amountSats = 21000;
+            it(
+                "should perform Btc to Ark chain swap successfully",
+                { timeout: 10_000 },
+                async () => {
+                    // arrange
+                    const amountSats = 21000;
 
-                // act
-                const { btcAddress, amountToPay, pendingSwap } =
-                    await chainSwap.btcToArk({
-                        receiverLockAmount: amountSats,
-                    });
+                    // act
+                    const { btcAddress, amountToPay, pendingSwap } =
+                        await chainSwap.btcToArk({
+                            receiverLockAmount: amountSats,
+                        });
 
-                await fundBtcAddress(btcAddress, amountToPay);
+                    await fundBtcAddress(btcAddress, amountToPay);
 
-                await chainSwap.waitAndClaimArk(pendingSwap);
+                    await chainSwap.waitAndClaimArk(pendingSwap);
 
-                // assert
-                const balance = await wallet.getBalance();
-                expect(balance.available).toEqual(amountSats);
-            });
+                    // assert
+                    const balance = await wallet.getBalance();
+                    expect(balance.available).toEqual(amountSats);
+                }
+            );
 
             it(
                 "should perform Btc to Ark chain swap with minimal amount",
@@ -861,6 +891,53 @@ describe("ArkadeChainSwap", () => {
         });
 
         describe("createChainSwap", () => {
+            it(
+                "should send exact amount to ark address",
+                { timeout: 10_000 },
+                async () => {
+                    // arrange
+                    const amountSats = 4000;
+
+                    // act
+                    const { btcAddress, amountToPay, pendingSwap } =
+                        await chainSwap.btcToArk({
+                            receiverLockAmount: amountSats,
+                        });
+
+                    await fundBtcAddress(btcAddress, amountToPay);
+
+                    await chainSwap.waitAndClaimArk(pendingSwap);
+
+                    // assert
+                    const balance = await wallet.getBalance();
+                    expect(balance.available).toEqual(amountSats);
+                }
+            );
+
+            it(
+                "should send less than amount to ark address",
+                { timeout: 10_000 },
+                async () => {
+                    // arrange
+                    const amountSats = 4000;
+
+                    // act
+                    const { btcAddress, amountToPay, pendingSwap } =
+                        await chainSwap.btcToArk({
+                            senderLockAmount: amountSats,
+                        });
+
+                    await fundBtcAddress(btcAddress, amountToPay);
+
+                    await chainSwap.waitAndClaimArk(pendingSwap);
+
+                    // assert
+                    const balance = await wallet.getBalance();
+                    expect(balance.available).toBeLessThan(amountSats);
+                    expect(balance.available).toBeGreaterThan(0);
+                }
+            );
+
             it(
                 "should automatically quote if insufficient amount sent",
                 { timeout: 10_000 },

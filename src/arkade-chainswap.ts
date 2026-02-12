@@ -349,6 +349,15 @@ export class ArkadeChainSwap {
             swapTree.tree
         );
         const swapOutput = detectSwap(musig.aggPubkey, lockupTx)!;
+        if (!swapOutput)
+            throw new Error("Swap output not found in transaction");
+
+        const feeToDeliverExactAmount = BigInt(
+            pendingSwap.request.serverLockAmount
+                ? pendingSwap.request.serverLockAmount - pendingSwap.amount
+                : 0
+        );
+
         const claimTx = targetFee(1, (fee) =>
             constructClaimTransaction(
                 [
@@ -368,7 +377,7 @@ export class ArkadeChainSwap {
                 OutScript.encode(
                     Address(network).decode(pendingSwap.toAddress!)
                 ),
-                fee
+                feeToDeliverExactAmount > fee ? feeToDeliverExactAmount : fee
             )
         );
 
