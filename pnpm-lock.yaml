@@ -9,19 +9,19 @@ importers:
   .:
     dependencies:
       '@arkade-os/sdk':
-        specifier: 0.3.12
-        version: 0.3.12
+        specifier: 0.3.13
+        version: 0.3.13
       '@noble/curves':
         specifier: ^2.0.1
         version: 2.0.1
       '@noble/hashes':
-        specifier: ^2.0.1
+        specifier: 2.0.1
         version: 2.0.1
       '@scure/base':
-        specifier: ^2.0.0
+        specifier: 2.0.0
         version: 2.0.0
       '@scure/btc-signer':
-        specifier: ^2.0.1
+        specifier: 2.0.1
         version: 2.0.1
       bip68:
         specifier: ^1.0.4
@@ -72,8 +72,8 @@ importers:
 
 packages:
 
-  '@arkade-os/sdk@0.3.12':
-    resolution: {integrity: sha512-/zE8XiDo6yOCaspMcO3Gua/gLGYmYLRFbqaD1ORkaGI7hH/Gq+m0tkIwArVlwtK50loHK4jvS8clovcaV9CARg==}
+  '@arkade-os/sdk@0.3.13':
+    resolution: {integrity: sha512-eC6XGifqVf2Xu+sf/3T2duUgLiXlgh/IQXHD+v09wsu8ik/CZedH4gvQpetTjRMKti3DdY/QVLC1OQTKKWgvqQ==}
     engines: {node: '>=20.0.0'}
 
   '@boltz/bitcoin-ops@2.0.0':
@@ -306,9 +306,10 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@marcbachmann/cel-js@7.0.0':
-    resolution: {integrity: sha512-sbtR8pvTAsDPiyigebwLyqweLnocmBS9MG5tTnVUL2PZ9Hc2Dj2e4tnvTcZ1s463Og9NKD59TaPvTK9CEZQhiQ==}
+  '@marcbachmann/cel-js@7.3.1':
+    resolution: {integrity: sha512-P6o26TvjStT8V8+8EF+yq9Pp7ZFV00bpiUMbssr76XbIZGxaB+NNWeBp6WNxOrR9gp0JPzvJueCKHpOs5LE9PQ==}
     engines: {node: '>=20.19.0'}
+    hasBin: true
 
   '@noble/curves@2.0.0':
     resolution: {integrity: sha512-RiwZZeJnsTnhT+/gg2KvITJZhK5oagQrpZo+yQyd3mv3D5NAG2qEeEHpw7IkXRlpkoD45wl2o4ydHAvY9wyEfw==}
@@ -1624,9 +1625,9 @@ packages:
 
 snapshots:
 
-  '@arkade-os/sdk@0.3.12':
+  '@arkade-os/sdk@0.3.13':
     dependencies:
-      '@marcbachmann/cel-js': 7.0.0
+      '@marcbachmann/cel-js': 7.3.1
       '@noble/curves': 2.0.0
       '@noble/secp256k1': 3.0.0
       '@scure/base': 2.0.0
@@ -1791,7 +1792,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@marcbachmann/cel-js@7.0.0': {}
+  '@marcbachmann/cel-js@7.3.1': {}
 
   '@noble/curves@2.0.0':
     dependencies:
