@@ -225,7 +225,7 @@ services:
         volumes:
             - boltz_datadir:/home/boltz/.boltz
             - lnd_datadir:/home/boltz/.lnd
-        entrypoint: sh -c 'echo "$BOLTZ_CONFIG" > /home/boltz/.boltz/boltz.config && boltzd --datadir /home/boltz/.boltz --configpath /home/boltz/.boltz/boltz.config'
+        entrypoint: sh -c 'echo "$$BOLTZ_CONFIG" > /home/boltz/.boltz/boltz.config && boltzd --datadir /home/boltz/.boltz --configpath /home/boltz/.boltz/boltz.config'
     boltz-postgres:
         image: postgres:15.4
         restart: unless-stopped
