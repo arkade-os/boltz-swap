@@ -245,7 +245,7 @@ export class ArkadeChainSwap {
                         await updateSwapStatus();
                         break;
                     case "transaction.server.mempool":
-                    case "transaction.server.confirmed":
+                    case "transaction.server.confirmed": {
                         if (!data.transaction?.hex) {
                             await updateSwapStatus();
                             break;
@@ -257,6 +257,7 @@ export class ArkadeChainSwap {
                         claimStarted = true;
                         this.claimBtc(updatedSwap).catch(reject);
                         break;
+                    }
                     case "transaction.claimed":
                         await updateSwapStatus();
                         resolve({
