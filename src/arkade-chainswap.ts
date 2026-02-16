@@ -1073,6 +1073,9 @@ export class ArkadeChainSwap {
         // save pending swap to storage if available
         await this.savePendingChainSwap(pendingSwap);
 
+        // add swap to SwapManager if enabled
+        this.swapManager?.addSwap(pendingSwap);
+
         return pendingSwap;
     }
 
