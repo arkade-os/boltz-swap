@@ -52,7 +52,6 @@ export async function saveSwap(
 
 /**
  * Update a reverse swap's status and save it
- * This pattern appears ~10+ times in arkade-lightning.ts
  */
 export async function updateReverseSwapStatus(
     swap: PendingReverseSwap,
@@ -69,13 +68,28 @@ export async function updateReverseSwapStatus(
 
 /**
  * Update a submarine swap's status and save it
- * This pattern appears ~10+ times in arkade-lightning.ts
  */
 export async function updateSubmarineSwapStatus(
     swap: PendingSubmarineSwap,
     status: PendingSubmarineSwap["status"],
     saveFunc: (swap: PendingSubmarineSwap) => Promise<void>,
     additionalFields?: Partial<PendingSubmarineSwap>
+): Promise<void> {
+    await saveFunc({
+        ...swap,
+        status,
+        ...additionalFields,
+    });
+}
+
+/**
+ * Update a chain swap's status and save it
+ */
+export async function updateChainSwapStatus(
+    swap: PendingChainSwap,
+    status: PendingChainSwap["status"],
+    saveFunc: (swap: PendingChainSwap) => Promise<void>,
+    additionalFields?: Partial<PendingChainSwap>
 ): Promise<void> {
     await saveFunc({
         ...swap,

@@ -111,11 +111,7 @@ export type PendingSwap =
     | PendingSubmarineSwap
     | PendingChainSwap;
 
-export interface RefundHandler {
-    onRefundNeeded: (swapData: PendingSubmarineSwap) => Promise<void>;
-}
-
-export interface ArkadeChainSwapConfig {
+export interface ArkadeSwapsConfig {
     wallet: Wallet | ServiceWorkerWallet;
     arkProvider?: ArkProvider;
     swapProvider: BoltzSwapProvider;
@@ -127,40 +123,6 @@ export interface ArkadeChainSwapConfig {
      * - `SwapManagerConfig` object: SwapManager enabled with custom configuration
      */
     swapManager?: boolean | (SwapManagerConfig & { autoStart?: boolean });
-}
-
-export interface ArkadeLightningConfig {
-    wallet: Wallet | ServiceWorkerWallet;
-    arkProvider?: ArkProvider;
-    swapProvider: BoltzSwapProvider;
-    indexerProvider?: IndexerProvider;
-    feeConfig?: Partial<FeeConfig>;
-    refundHandler?: RefundHandler;
-    timeoutConfig?: Partial<TimeoutConfig>;
-    retryConfig?: Partial<RetryConfig>;
-    /**
-     * Enable background swap monitoring and autonomous actions.
-     * - `false` or `undefined`: SwapManager disabled
-     * - `true`: SwapManager enabled with default configuration
-     * - `SwapManagerConfig` object: SwapManager enabled with custom configuration
-     */
-    swapManager?: boolean | (SwapManagerConfig & { autoStart?: boolean });
-}
-
-export interface TimeoutConfig {
-    swapExpiryBlocks: number;
-    invoiceExpirySeconds: number;
-    claimDelayBlocks: number;
-}
-
-export interface FeeConfig {
-    maxMinerFeeSats: number;
-    maxSwapFeeSats: number;
-}
-
-export interface RetryConfig {
-    maxAttempts: number;
-    delayMs: number;
 }
 
 export interface DecodedInvoice {

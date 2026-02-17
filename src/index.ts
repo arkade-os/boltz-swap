@@ -1,5 +1,4 @@
-export { ArkadeChainSwap } from "./arkade-chainswap";
-export { ArkadeLightning } from "./arkade-lightning";
+export { ArkadeSwaps } from "./arkade-swaps";
 export {
     BoltzSwapProvider,
     BoltzSwapStatus,
@@ -48,6 +47,7 @@ export {
     saveSwap,
     updateReverseSwapStatus,
     updateSubmarineSwapStatus,
+    updateChainSwapStatus,
 } from "./utils/swap-helpers";
 export type { SwapSaver } from "./utils/swap-helpers";
 export { SwapManager } from "./swap-manager";
@@ -57,8 +57,7 @@ export type {
     SendLightningPaymentResponse,
     SendLightningPaymentRequest,
     IncomingPaymentSubscription,
-    ArkadeChainSwapConfig,
-    ArkadeLightningConfig,
+    ArkadeSwapsConfig,
     PendingSubmarineSwap,
     PendingReverseSwap,
     ChainFeesResponse,
@@ -67,15 +66,15 @@ export type {
     BtcToArkResponse,
     DecodedInvoice,
     LimitsResponse,
-    RefundHandler,
-    TimeoutConfig,
     FeesResponse,
     PendingSwap,
-    RetryConfig,
-    FeeConfig,
     Network,
     Vtxo,
 } from "./types";
-export type { SwapManagerConfig, SwapManagerEvents } from "./swap-manager";
+export type {
+    SwapManagerConfig,
+    SwapManagerEvents,
+    SwapManagerCallbacks,
+} from "./swap-manager";
 export { logger, setLogger } from "./logger";
 export type { Logger } from "./logger";

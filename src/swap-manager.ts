@@ -65,6 +65,15 @@ type SwapUpdateCallback = (
     oldStatus: BoltzSwapStatus
 ) => void;
 
+export interface SwapManagerCallbacks {
+    claim: (swap: PendingReverseSwap) => Promise<void>;
+    refund: (swap: PendingSubmarineSwap) => Promise<void>;
+    claimArk: (swap: PendingChainSwap) => Promise<void>;
+    claimBtc: (swap: PendingChainSwap) => Promise<void>;
+    refundArk: (swap: PendingChainSwap) => Promise<void>;
+    saveSwap: (swap: PendingSwap) => Promise<void>;
+}
+
 export class SwapManager {
     private readonly swapProvider: BoltzSwapProvider;
     private readonly config: SwapManagerConfig;
@@ -95,15 +104,13 @@ export class SwapManager {
     // Per-swap subscriptions for UI hooks
     private swapSubscriptions = new Map<string, Set<SwapUpdateCallback>>();
 
-    // Callbacks for actions (injected by ArkadeLightning)
+    // Action callbacks (injected via setCallbacks)
     private claimCallback:
         | ((swap: PendingReverseSwap) => Promise<void>)
         | null = null;
     private refundCallback:
         | ((swap: PendingSubmarineSwap) => Promise<void>)
         | null = null;
-
-    // Callbacks for actions (injected by ArkadeChainSwap)
     private claimArkCallback:
         | ((swap: PendingChainSwap) => Promise<void>)
         | null = null;
@@ -113,8 +120,6 @@ export class SwapManager {
     private refundArkCallback:
         | ((swap: PendingChainSwap) => Promise<void>)
         | null = null;
-
-    // Callback injected by ArkadeChainSwap and ArkadeLightning
     private saveSwapCallback: ((swap: PendingSwap) => Promise<void>) | null =
         null;
 
@@ -123,7 +128,7 @@ export class SwapManager {
         config: SwapManagerConfig = {}
     ) {
         this.swapProvider = swapProvider;
-        // Note: autostart is not stored - it's only used by ArkadeLightning
+        // Note: autostart is not stored - it's only used by ArkadeSwaps
         this.config = {
             enableAutoActions: config.enableAutoActions ?? true,
             pollInterval: config.pollInterval ?? 30000,
@@ -161,29 +166,12 @@ export class SwapManager {
     }
 
     /**
-     * Set callbacks for claim, refund, and save operations
-     * These are called by the manager when autonomous actions are needed
+     * Set callbacks for claim, refund, and save operations.
+     * These are called by the manager when autonomous actions are needed.
      */
-    setCallbacks(callbacks: {
-        claim: (swap: PendingReverseSwap) => Promise<void>;
-        refund: (swap: PendingSubmarineSwap) => Promise<void>;
-        saveSwap: (swap: PendingSwap) => Promise<void>;
-    }): void {
+    setCallbacks(callbacks: SwapManagerCallbacks): void {
         this.claimCallback = callbacks.claim;
         this.refundCallback = callbacks.refund;
-        this.saveSwapCallback = callbacks.saveSwap;
-    }
-
-    /**
-     * Set callbacks for claim, refund, and save operations
-     * These are called by the manager when autonomous actions are needed
-     */
-    setChainCallbacks(callbacks: {
-        claimArk: (swap: PendingChainSwap) => Promise<void>;
-        claimBtc: (swap: PendingChainSwap) => Promise<void>;
-        refundArk: (swap: PendingChainSwap) => Promise<void>;
-        saveSwap: (swap: PendingSwap) => Promise<void>;
-    }): void {
         this.claimArkCallback = callbacks.claimArk;
         this.claimBtcCallback = callbacks.claimBtc;
         this.refundArkCallback = callbacks.refundArk;

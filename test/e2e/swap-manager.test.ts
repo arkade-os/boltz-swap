@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { ArkadeLightning } from "../../src/arkade-lightning";
+import { ArkadeSwaps } from "../../src/arkade-swaps";
 import {
     RestIndexerProvider,
     RestArkProvider,
@@ -14,11 +14,11 @@ import { pubECDSA } from "@scure/btc-signer/utils.js";
 import { BoltzSwapProvider } from "../../src";
 
 describe("SwapManager", () => {
-    let swapManagerLightning: ArkadeLightning;
+    let swapManagerInstance: ArkadeSwaps;
     let indexerProvider: RestIndexerProvider;
     let swapProvider: BoltzSwapProvider;
     let arkProvider: RestArkProvider;
-    let lightning: ArkadeLightning;
+    let swaps: ArkadeSwaps;
     let identity: Identity;
     let wallet: Wallet;
 
@@ -48,8 +48,8 @@ describe("SwapManager", () => {
             }),
         });
 
-        // Create ArkadeLightning instance
-        lightning = new ArkadeLightning({
+        // Create ArkadeSwaps instance
+        swaps = new ArkadeSwaps({
             wallet,
             swapProvider,
             arkProvider,
@@ -62,15 +62,15 @@ describe("SwapManager", () => {
 
     afterEach(async () => {
         // Clean up swap manager after each test
-        if (swapManagerLightning) {
-            await swapManagerLightning.stopSwapManager();
+        if (swapManagerInstance) {
+            await swapManagerInstance.stopSwapManager();
         }
     });
 
     describe("Initialization with SwapManager", () => {
         it("should instantiate with swapManager enabled (boolean true)", () => {
             // act
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -79,12 +79,12 @@ describe("SwapManager", () => {
             });
 
             // assert
-            expect(swapManagerLightning.getSwapManager()).not.toBeNull();
+            expect(swapManagerInstance.getSwapManager()).not.toBeNull();
         });
 
         it("should instantiate with swapManager config object", () => {
             // act
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -96,12 +96,12 @@ describe("SwapManager", () => {
             });
 
             // assert
-            expect(swapManagerLightning.getSwapManager()).not.toBeNull();
+            expect(swapManagerInstance.getSwapManager()).not.toBeNull();
         });
 
         it("should have null swapManager when disabled", () => {
             // act
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -110,17 +110,17 @@ describe("SwapManager", () => {
             });
 
             // assert
-            expect(swapManagerLightning.getSwapManager()).toBeNull();
+            expect(swapManagerInstance.getSwapManager()).toBeNull();
         });
 
         it("should have null swapManager when not configured", () => {
-            // assert - using the default lightning instance without swapManager
-            expect(lightning.getSwapManager()).toBeNull();
+            // assert - using the default instance without swapManager
+            expect(swaps.getSwapManager()).toBeNull();
         });
 
         it("should have SwapManager interface methods", () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -129,7 +129,7 @@ describe("SwapManager", () => {
             });
 
             // act
-            const manager = swapManagerLightning.getSwapManager();
+            const manager = swapManagerInstance.getSwapManager();
 
             // assert
             expect(manager).not.toBeNull();
@@ -155,7 +155,7 @@ describe("SwapManager", () => {
     describe("SwapManager Lifecycle", () => {
         it("should start and stop swap manager manually", async () => {
             // arrange - create with autoStart disabled
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -165,19 +165,19 @@ describe("SwapManager", () => {
                 },
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
 
             // assert initial state
             expect(manager.getStats().isRunning).toBe(false);
 
             // act - start
-            await swapManagerLightning.startSwapManager();
+            await swapManagerInstance.startSwapManager();
 
             // assert - running
             expect(manager.getStats().isRunning).toBe(true);
 
             // act - stop
-            await swapManagerLightning.stopSwapManager();
+            await swapManagerInstance.stopSwapManager();
 
             // assert - stopped
             expect(manager.getStats().isRunning).toBe(false);
@@ -185,21 +185,21 @@ describe("SwapManager", () => {
 
         it("should throw when starting swap manager without config", async () => {
             // assert
-            await expect(lightning.startSwapManager()).rejects.toThrow(
+            await expect(swaps.startSwapManager()).rejects.toThrow(
                 "SwapManager is not enabled"
             );
         });
 
         it("should not throw when stopping disabled swap manager", async () => {
             // act & assert
-            await expect(lightning.stopSwapManager()).resolves.toBeUndefined();
+            await expect(swaps.stopSwapManager()).resolves.toBeUndefined();
         });
     });
 
     describe("SwapManager Stats", () => {
         it("should return correct stats when not running", () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -209,7 +209,7 @@ describe("SwapManager", () => {
                 },
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
 
             // act
             const stats = manager.getStats();
@@ -225,7 +225,7 @@ describe("SwapManager", () => {
 
         it("should return correct stats when running", async () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -235,10 +235,10 @@ describe("SwapManager", () => {
                 },
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
 
             // act
-            await swapManagerLightning.startSwapManager();
+            await swapManagerInstance.startSwapManager();
             const stats = manager.getStats();
 
             // assert
@@ -250,7 +250,7 @@ describe("SwapManager", () => {
     describe("SwapManager Event Listeners", () => {
         it("should add and remove swap update listener", async () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -260,7 +260,7 @@ describe("SwapManager", () => {
                 },
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
             const listener = vi.fn();
 
             // act - add listener
@@ -275,7 +275,7 @@ describe("SwapManager", () => {
 
         it("should add and remove swap completed listener", async () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -285,7 +285,7 @@ describe("SwapManager", () => {
                 },
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
             const listener = vi.fn();
 
             // act - add listener
@@ -300,7 +300,7 @@ describe("SwapManager", () => {
 
         it("should add and remove swap failed listener", async () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -310,7 +310,7 @@ describe("SwapManager", () => {
                 },
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
             const listener = vi.fn();
 
             // act & assert
@@ -321,7 +321,7 @@ describe("SwapManager", () => {
 
         it("should add and remove action executed listener", async () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -331,7 +331,7 @@ describe("SwapManager", () => {
                 },
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
             const listener = vi.fn();
 
             // act & assert
@@ -342,7 +342,7 @@ describe("SwapManager", () => {
 
         it("should add and remove WebSocket connected listener", async () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -352,7 +352,7 @@ describe("SwapManager", () => {
                 },
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
             const listener = vi.fn();
 
             // act & assert
@@ -363,7 +363,7 @@ describe("SwapManager", () => {
 
         it("should add and remove WebSocket disconnected listener", async () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -373,7 +373,7 @@ describe("SwapManager", () => {
                 },
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
             const listener = vi.fn();
 
             // act & assert
@@ -386,7 +386,7 @@ describe("SwapManager", () => {
     describe("SwapManager Configuration", () => {
         it("should use default config values", () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -394,7 +394,7 @@ describe("SwapManager", () => {
                 swapManager: true,
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
             const stats = manager.getStats();
 
             // assert - check default reconnect delay (1000ms)
@@ -405,7 +405,7 @@ describe("SwapManager", () => {
 
         it("should use custom reconnect delay", () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -415,7 +415,7 @@ describe("SwapManager", () => {
                 },
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
             const stats = manager.getStats();
 
             // assert
@@ -424,7 +424,7 @@ describe("SwapManager", () => {
 
         it("should use custom poll retry delay", () => {
             // arrange
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -434,7 +434,7 @@ describe("SwapManager", () => {
                 },
             });
 
-            const manager = swapManagerLightning.getSwapManager()!;
+            const manager = swapManagerInstance.getSwapManager()!;
             const stats = manager.getStats();
 
             // assert
@@ -448,7 +448,7 @@ describe("SwapManager", () => {
             const onSwapFailed = vi.fn();
 
             // act
-            swapManagerLightning = new ArkadeLightning({
+            swapManagerInstance = new ArkadeSwaps({
                 wallet,
                 arkProvider,
                 swapProvider,
@@ -463,7 +463,7 @@ describe("SwapManager", () => {
             });
 
             // assert - should not throw
-            expect(swapManagerLightning.getSwapManager()).not.toBeNull();
+            expect(swapManagerInstance.getSwapManager()).not.toBeNull();
         });
     });
 });

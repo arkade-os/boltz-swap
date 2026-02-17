@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SwapManager } from "../src/swap-manager";
 import { BoltzSwapProvider } from "../src/boltz-swap-provider";
-import { PendingReverseSwap, PendingSubmarineSwap } from "../src/types";
+import {
+    PendingChainSwap,
+    PendingReverseSwap,
+    PendingSubmarineSwap,
+} from "../src/types";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -59,6 +63,56 @@ describe("SwapManager", () => {
             },
         },
     };
+
+    const mockChainSwap: PendingChainSwap = {
+        id: "chain-swap-1",
+        type: "chain",
+        createdAt: Date.now() / 1000,
+        status: "swap.created",
+        request: {
+            from: "ARK",
+            to: "BTC",
+            userLockAmount: 100000,
+            claimPublicKey: "0".repeat(66),
+            refundPublicKey: "0".repeat(66),
+        },
+        response: {
+            id: "chain-swap-1",
+            claimDetails: {
+                amount: 95000,
+                lockupAddress: "bc1qtest",
+                serverPublicKey: "0".repeat(66),
+                timeoutBlockHeight: 500,
+                swapTree: {
+                    claimLeaf: { version: 192, output: "0".repeat(64) },
+                    refundLeaf: { version: 192, output: "0".repeat(64) },
+                },
+            },
+            lockupDetails: {
+                amount: 100000,
+                lockupAddress: "ark1test",
+                serverPublicKey: "0".repeat(66),
+                timeoutBlockHeight: 600,
+                swapTree: {
+                    claimLeaf: { version: 192, output: "0".repeat(64) },
+                    refundLeaf: { version: 192, output: "0".repeat(64) },
+                },
+            },
+        },
+    };
+
+    /** Create a full SwapManagerCallbacks object with vi.fn() for each callback */
+    function makeCallbacks(overrides: Record<string, any> = {}) {
+        return {
+            claim: vi.fn(),
+            refund: vi.fn(),
+            claimArk: vi.fn(),
+            claimBtc: vi.fn(),
+            refundArk: vi.fn(),
+            saveSwap: vi.fn(),
+            ...overrides,
+        };
+    }
 
     beforeEach(() => {
         // Mock WebSocket
@@ -126,16 +180,7 @@ describe("SwapManager", () => {
     describe("Lifecycle", () => {
         beforeEach(() => {
             swapManager = new SwapManager(swapProvider);
-
-            const claimCallback = vi.fn();
-            const refundCallback = vi.fn();
-            const saveSwapCallback = vi.fn();
-
-            swapManager.setCallbacks({
-                claim: claimCallback,
-                refund: refundCallback,
-                saveSwap: saveSwapCallback,
-            });
+            swapManager.setCallbacks(makeCallbacks());
         });
 
         it("should start with empty pending swaps", async () => {
@@ -184,11 +229,7 @@ describe("SwapManager", () => {
     describe("WebSocket", () => {
         beforeEach(() => {
             swapManager = new SwapManager(swapProvider);
-            swapManager.setCallbacks({
-                claim: vi.fn(),
-                refund: vi.fn(),
-                saveSwap: vi.fn(),
-            });
+            swapManager.setCallbacks(makeCallbacks());
 
             // Mock fetch for polling (needed when WebSocket connects)
             global.fetch = vi.fn(() =>
@@ -266,11 +307,7 @@ describe("SwapManager", () => {
             swapManager = new SwapManager(swapProvider, {
                 events: { onWebSocketDisconnected },
             });
-            swapManager.setCallbacks({
-                claim: vi.fn(),
-                refund: vi.fn(),
-                saveSwap: vi.fn(),
-            });
+            swapManager.setCallbacks(makeCallbacks());
 
             await swapManager.start([]);
 
@@ -309,11 +346,7 @@ describe("SwapManager", () => {
     describe("Swap Monitoring", () => {
         beforeEach(() => {
             swapManager = new SwapManager(swapProvider);
-            swapManager.setCallbacks({
-                claim: vi.fn(),
-                refund: vi.fn(),
-                saveSwap: vi.fn(),
-            });
+            swapManager.setCallbacks(makeCallbacks());
 
             // Mock fetch for polling (needed when WebSocket connects)
             global.fetch = vi.fn(() =>
@@ -413,11 +446,13 @@ describe("SwapManager", () => {
                 },
             });
 
-            swapManager.setCallbacks({
-                claim: claimCallback,
-                refund: refundCallback,
-                saveSwap: saveSwapCallback,
-            });
+            swapManager.setCallbacks(
+                makeCallbacks({
+                    claim: claimCallback,
+                    refund: refundCallback,
+                    saveSwap: saveSwapCallback,
+                })
+            );
 
             // Mock fetch for polling (needed when WebSocket connects)
             global.fetch = vi.fn(() =>
@@ -543,11 +578,13 @@ describe("SwapManager", () => {
             swapManager = new SwapManager(swapProvider, {
                 enableAutoActions: false,
             });
-            swapManager.setCallbacks({
-                claim: claimCallback,
-                refund: refundCallback,
-                saveSwap: saveSwapCallback,
-            });
+            swapManager.setCallbacks(
+                makeCallbacks({
+                    claim: claimCallback,
+                    refund: refundCallback,
+                    saveSwap: saveSwapCallback,
+                })
+            );
 
             await swapManager.start([mockReverseSwap]);
             mockWebSocket.onopen();
@@ -597,11 +634,7 @@ describe("SwapManager", () => {
             swapManager = new SwapManager(swapProvider, {
                 events: { onSwapFailed },
             });
-            swapManager.setCallbacks({
-                claim: vi.fn(),
-                refund: vi.fn(),
-                saveSwap: vi.fn(),
-            });
+            swapManager.setCallbacks(makeCallbacks());
 
             await swapManager.start([mockReverseSwap]);
 
@@ -640,11 +673,7 @@ describe("SwapManager", () => {
     describe("Polling", () => {
         beforeEach(() => {
             swapManager = new SwapManager(swapProvider);
-            swapManager.setCallbacks({
-                claim: vi.fn(),
-                refund: vi.fn(),
-                saveSwap: vi.fn(),
-            });
+            swapManager.setCallbacks(makeCallbacks());
 
             // Mock fetch for polling
             global.fetch = vi.fn(() =>
@@ -681,11 +710,7 @@ describe("SwapManager", () => {
             swapManager = new SwapManager(swapProvider, {
                 pollRetryDelayMs: 1000,
             });
-            swapManager.setCallbacks({
-                claim: vi.fn(),
-                refund: vi.fn(),
-                saveSwap: vi.fn(),
-            });
+            swapManager.setCallbacks(makeCallbacks());
 
             await swapManager.start([mockReverseSwap]);
 
@@ -708,11 +733,13 @@ describe("SwapManager", () => {
     describe("Per-Swap Subscriptions", () => {
         beforeEach(() => {
             swapManager = new SwapManager(swapProvider);
-            swapManager.setCallbacks({
-                claim: vi.fn().mockResolvedValue(undefined),
-                refund: vi.fn().mockResolvedValue(undefined),
-                saveSwap: vi.fn().mockResolvedValue(undefined),
-            });
+            swapManager.setCallbacks(
+                makeCallbacks({
+                    claim: vi.fn().mockResolvedValue(undefined),
+                    refund: vi.fn().mockResolvedValue(undefined),
+                    saveSwap: vi.fn().mockResolvedValue(undefined),
+                })
+            );
         });
 
         it("should subscribe to swap updates", async () => {
@@ -796,11 +823,13 @@ describe("SwapManager", () => {
                 enableAutoActions: false,
             });
 
-            swapManager.setCallbacks({
-                claim: claimCallback,
-                refund: vi.fn().mockResolvedValue(undefined),
-                saveSwap: vi.fn().mockResolvedValue(undefined),
-            });
+            swapManager.setCallbacks(
+                makeCallbacks({
+                    claim: claimCallback,
+                    refund: vi.fn().mockResolvedValue(undefined),
+                    saveSwap: vi.fn().mockResolvedValue(undefined),
+                })
+            );
 
             const claimableSwap = {
                 ...mockReverseSwap,
@@ -834,11 +863,7 @@ describe("SwapManager", () => {
         });
 
         it("should check if manager has swap", async () => {
-            swapManager.setCallbacks({
-                claim: vi.fn().mockResolvedValue(undefined),
-                refund: vi.fn().mockResolvedValue(undefined),
-                saveSwap: vi.fn().mockResolvedValue(undefined),
-            });
+            swapManager.setCallbacks(makeCallbacks());
 
             // Create a fresh copy to avoid mutations from other tests
             const freshSwap = {
@@ -865,11 +890,7 @@ describe("SwapManager", () => {
             });
 
             swapManager = new SwapManager(swapProvider);
-            swapManager.setCallbacks({
-                claim: vi.fn().mockResolvedValue(undefined),
-                refund: vi.fn().mockResolvedValue(undefined),
-                saveSwap: vi.fn().mockResolvedValue(undefined),
-            });
+            swapManager.setCallbacks(makeCallbacks());
         });
 
         it("should wait for reverse swap completion", async () => {
@@ -961,11 +982,13 @@ describe("SwapManager", () => {
             swapManager = new SwapManager(swapProvider, {
                 enableAutoActions: true,
             });
-            swapManager.setCallbacks({
-                claim: claimCallback,
-                refund: refundCallback,
-                saveSwap: saveSwapCallback,
-            });
+            swapManager.setCallbacks(
+                makeCallbacks({
+                    claim: claimCallback,
+                    refund: refundCallback,
+                    saveSwap: saveSwapCallback,
+                })
+            );
 
             // Mock fetch for polling
             global.fetch = vi.fn(() =>
@@ -1085,11 +1108,13 @@ describe("SwapManager", () => {
                 enableAutoActions: true,
                 events: { onSwapUpdate },
             });
-            swapManager.setCallbacks({
-                claim: claimCallback,
-                refund: refundCallback,
-                saveSwap: saveSwapCallback,
-            });
+            swapManager.setCallbacks(
+                makeCallbacks({
+                    claim: claimCallback,
+                    refund: refundCallback,
+                    saveSwap: saveSwapCallback,
+                })
+            );
 
             const restoredReverseSwap: PendingReverseSwap = {
                 ...mockReverseSwap,
@@ -1125,11 +1150,7 @@ describe("SwapManager", () => {
     describe("Statistics", () => {
         beforeEach(() => {
             swapManager = new SwapManager(swapProvider);
-            swapManager.setCallbacks({
-                claim: vi.fn(),
-                refund: vi.fn(),
-                saveSwap: vi.fn(),
-            });
+            swapManager.setCallbacks(makeCallbacks());
 
             // Mock fetch for polling (needed when WebSocket connects)
             global.fetch = vi.fn(() =>
