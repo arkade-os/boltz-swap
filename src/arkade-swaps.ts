@@ -1823,6 +1823,9 @@ export class ArkadeSwaps {
     // Storage queries
     // =========================================================================
 
+    /**
+     * Returns pending submarine swaps (those with status `invoice.set`).
+     */
     async getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[]> {
         const swaps = await this.getPendingSubmarineSwapsFromStorage();
         if (!swaps) return [];
@@ -1831,6 +1834,9 @@ export class ArkadeSwaps {
         );
     }
 
+    /**
+     * Returns pending reverse swaps (those with status `swap.created`).
+     */
     async getPendingReverseSwaps(): Promise<PendingReverseSwap[]> {
         const swaps = await this.getPendingReverseSwapsFromStorage();
         if (!swaps) return [];
@@ -1839,6 +1845,9 @@ export class ArkadeSwaps {
         );
     }
 
+    /**
+     * Returns pending chain swaps (those with status `swap.created`).
+     */
     async getPendingChainSwaps(): Promise<PendingChainSwap[]> {
         const swaps = await this.getPendingChainSwapsFromStorage();
         return swaps.filter((swap) => swap.status === "swap.created");
