@@ -12,6 +12,8 @@ import {
     CreateReverseSwapRequest,
     CreateSubmarineSwapRequest,
     BoltzSwapStatus,
+    CreateChainSwapRequest,
+    CreateChainSwapResponse,
 } from "./boltz-swap-provider";
 import { SwapManagerConfig } from "./swap-manager";
 
@@ -30,6 +32,19 @@ export interface Vtxo {
 
 export type Network = NetworkName;
 
+export type Chain = "ARK" | "BTC";
+
+export interface ArkToBtcResponse {
+    arkAddress: string;
+    amountToPay: number;
+    pendingSwap: PendingChainSwap;
+}
+
+export interface BtcToArkResponse {
+    btcAddress: string;
+    amountToPay: number;
+    pendingSwap: PendingChainSwap;
+}
 export interface CreateLightningInvoiceRequest {
     amount: number;
     description?: string;
@@ -76,8 +91,42 @@ export interface PendingSubmarineSwap {
     response: CreateSubmarineSwapResponse;
 }
 
+export interface PendingChainSwap {
+    id: string;
+    type: "chain";
+    preimage: string;
+    createdAt: number;
+    ephemeralKey: string;
+    feeSatsPerByte: number;
+    status: BoltzSwapStatus;
+    request: CreateChainSwapRequest;
+    response: CreateChainSwapResponse;
+    toAddress?: string;
+    btcTxHex?: string;
+    amount: number;
+}
+
+export type PendingSwap =
+    | PendingReverseSwap
+    | PendingSubmarineSwap
+    | PendingChainSwap;
+
 export interface RefundHandler {
     onRefundNeeded: (swapData: PendingSubmarineSwap) => Promise<void>;
+}
+
+export interface ArkadeChainSwapConfig {
+    wallet: Wallet | ServiceWorkerWallet;
+    arkProvider?: ArkProvider;
+    swapProvider: BoltzSwapProvider;
+    indexerProvider?: IndexerProvider;
+    /**
+     * Enable background swap monitoring and autonomous actions.
+     * - `false` or `undefined`: SwapManager disabled
+     * - `true`: SwapManager enabled with default configuration
+     * - `SwapManagerConfig` object: SwapManager enabled with custom configuration
+     */
+    swapManager?: boolean | (SwapManagerConfig & { autoStart?: boolean });
 }
 
 export interface ArkadeLightningConfig {
@@ -149,6 +198,17 @@ export interface FeesResponse {
         minerFees: {
             lockup: number;
             claim: number;
+        };
+    };
+}
+
+export interface ChainFeesResponse {
+    percentage: number;
+    minerFees: {
+        server: number;
+        user: {
+            claim: number;
+            lockup: number;
         };
     };
 }

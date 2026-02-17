@@ -1,14 +1,31 @@
+export { ArkadeChainSwap } from "./arkade-chainswap";
 export { ArkadeLightning } from "./arkade-lightning";
 export {
     BoltzSwapProvider,
     BoltzSwapStatus,
+    isChainClaimableStatus,
+    isChainFailedStatus,
+    isChainFinalStatus,
+    isChainPendingStatus,
+    isChainRefundableStatus,
+    isChainSuccessStatus,
+    isChainSwapClaimable,
+    isChainSwapRefundable,
+    isPendingChainSwap,
     isPendingReverseSwap,
     isPendingSubmarineSwap,
-    isSubmarineFinalStatus,
-    isSubmarineSwapRefundable,
-    isSubmarineRefundableStatus,
     isReverseClaimableStatus,
+    isReverseFailedStatus,
     isReverseFinalStatus,
+    isReversePendingStatus,
+    isReverseSuccessStatus,
+    isReverseSwapClaimable,
+    isSubmarineFailedStatus,
+    isSubmarineFinalStatus,
+    isSubmarinePendingStatus,
+    isSubmarineSuccessStatus,
+    isSubmarineRefundableStatus,
+    isSubmarineSwapRefundable,
 } from "./boltz-swap-provider";
 export {
     SwapError,
@@ -24,6 +41,7 @@ export {
     decodeInvoice,
     getInvoicePaymentHash,
     getInvoiceSatoshis,
+    isValidArkAddress,
 } from "./utils/decoding";
 export { verifySignatures } from "./utils/signatures";
 export {
@@ -35,17 +53,24 @@ export type { SwapSaver } from "./utils/swap-helpers";
 export { SwapManager } from "./swap-manager";
 export type {
     CreateLightningInvoiceResponse,
+    CreateLightningInvoiceRequest,
     SendLightningPaymentResponse,
     SendLightningPaymentRequest,
     IncomingPaymentSubscription,
+    ArkadeChainSwapConfig,
     ArkadeLightningConfig,
     PendingSubmarineSwap,
     PendingReverseSwap,
+    ChainFeesResponse,
+    PendingChainSwap,
+    ArkToBtcResponse,
+    BtcToArkResponse,
     DecodedInvoice,
     LimitsResponse,
     RefundHandler,
     TimeoutConfig,
     FeesResponse,
+    PendingSwap,
     RetryConfig,
     FeeConfig,
     Network,
