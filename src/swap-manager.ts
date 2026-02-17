@@ -7,10 +7,21 @@ import {
     isSubmarineFinalStatus,
     isReverseClaimableStatus,
     isSubmarineRefundableStatus,
+    isPendingChainSwap,
+    isChainClaimableStatus,
+    isChainRefundableStatus,
+    isChainFinalStatus,
 } from "./boltz-swap-provider";
-import { PendingReverseSwap, PendingSubmarineSwap } from "./types";
+import {
+    PendingChainSwap,
+    PendingReverseSwap,
+    PendingSubmarineSwap,
+    PendingSwap,
+} from "./types";
 import { NetworkError } from "./errors";
 import { logger } from "./logger";
+
+type Actions = "claim" | "refund" | "claimArk" | "claimBtc" | "refundArk";
 
 export interface SwapManagerConfig {
     /** Auto claim/refund swaps (default: true) */
@@ -30,43 +41,24 @@ export interface SwapManagerConfig {
 }
 
 export interface SwapManagerEvents {
-    onSwapUpdate?: (
-        swap: PendingReverseSwap | PendingSubmarineSwap,
-        oldStatus: BoltzSwapStatus
-    ) => void;
-    onSwapCompleted?: (swap: PendingReverseSwap | PendingSubmarineSwap) => void;
-    onSwapFailed?: (
-        swap: PendingReverseSwap | PendingSubmarineSwap,
-        error: Error
-    ) => void;
-    onActionExecuted?: (
-        swap: PendingReverseSwap | PendingSubmarineSwap,
-        action: "claim" | "refund"
-    ) => void;
+    onSwapUpdate?: (swap: PendingSwap, oldStatus: BoltzSwapStatus) => void;
+    onSwapCompleted?: (swap: PendingSwap) => void;
+    onSwapFailed?: (swap: PendingSwap, error: Error) => void;
+    onActionExecuted?: (swap: PendingSwap, action: Actions) => void;
     onWebSocketConnected?: () => void;
     onWebSocketDisconnected?: (error?: Error) => void;
 }
 
 // Event listener types
 type SwapUpdateListener = (
-    swap: PendingReverseSwap | PendingSubmarineSwap,
+    swap: PendingSwap,
     oldStatus: BoltzSwapStatus
 ) => void;
-type SwapCompletedListener = (
-    swap: PendingReverseSwap | PendingSubmarineSwap
-) => void;
-type SwapFailedListener = (
-    swap: PendingReverseSwap | PendingSubmarineSwap,
-    error: Error
-) => void;
-type ActionExecutedListener = (
-    swap: PendingReverseSwap | PendingSubmarineSwap,
-    action: "claim" | "refund"
-) => void;
+type SwapCompletedListener = (swap: PendingSwap) => void;
+type SwapFailedListener = (swap: PendingSwap, error: Error) => void;
+type ActionExecutedListener = (swap: PendingSwap, action: Actions) => void;
 type WebSocketConnectedListener = () => void;
 type WebSocketDisconnectedListener = (error?: Error) => void;
-
-type PendingSwap = PendingReverseSwap | PendingSubmarineSwap;
 
 type SwapUpdateCallback = (
     swap: PendingSwap,
@@ -104,6 +96,21 @@ export interface SwapManagerClient {
     onWebSocketDisconnected(
         listener: WebSocketDisconnectedListener
     ): Promise<() => void>;
+    offSwapUpdate(listener: SwapUpdateListener): void;
+    offSwapCompleted(listener: SwapCompletedListener): void;
+    offSwapFailed(listener: SwapFailedListener): void;
+    offActionExecuted(listener: ActionExecutedListener): void;
+    offWebSocketConnected(listener: WebSocketConnectedListener): void;
+    offWebSocketDisconnected(listener: WebSocketDisconnectedListener): void;
+}
+
+export interface SwapManagerCallbacks {
+    claim: (swap: PendingReverseSwap) => Promise<void>;
+    refund: (swap: PendingSubmarineSwap) => Promise<void>;
+    claimArk: (swap: PendingChainSwap) => Promise<void>;
+    claimBtc: (swap: PendingChainSwap) => Promise<void>;
+    refundArk: (swap: PendingChainSwap) => Promise<void>;
+    saveSwap: (swap: PendingSwap) => Promise<void>;
 }
 
 export class SwapManager implements SwapManagerClient {
@@ -136,12 +143,21 @@ export class SwapManager implements SwapManagerClient {
     // Per-swap subscriptions for UI hooks
     private swapSubscriptions = new Map<string, Set<SwapUpdateCallback>>();
 
-    // Callbacks for actions (injected by ArkadeLightning)
+    // Action callbacks (injected via setCallbacks)
     private claimCallback:
         | ((swap: PendingReverseSwap) => Promise<void>)
         | null = null;
     private refundCallback:
         | ((swap: PendingSubmarineSwap) => Promise<void>)
+        | null = null;
+    private claimArkCallback:
+        | ((swap: PendingChainSwap) => Promise<void>)
+        | null = null;
+    private claimBtcCallback:
+        | ((swap: PendingChainSwap) => Promise<void>)
+        | null = null;
+    private refundArkCallback:
+        | ((swap: PendingChainSwap) => Promise<void>)
         | null = null;
     private saveSwapCallback: ((swap: PendingSwap) => Promise<void>) | null =
         null;
@@ -151,7 +167,7 @@ export class SwapManager implements SwapManagerClient {
         config: SwapManagerConfig = {}
     ) {
         this.swapProvider = swapProvider;
-        // Note: autostart is not stored - it's only used by ArkadeLightning
+        // Note: autostart is not stored - it's only used by ArkadeSwaps
         this.config = {
             enableAutoActions: config.enableAutoActions ?? true,
             pollInterval: config.pollInterval ?? 30000,
@@ -189,16 +205,15 @@ export class SwapManager implements SwapManagerClient {
     }
 
     /**
-     * Set callbacks for claim, refund, and save operations
-     * These are called by the manager when autonomous actions are needed
+     * Set callbacks for claim, refund, and save operations.
+     * These are called by the manager when autonomous actions are needed.
      */
-    setCallbacks(callbacks: {
-        claim: (swap: PendingReverseSwap) => Promise<void>;
-        refund: (swap: PendingSubmarineSwap) => Promise<void>;
-        saveSwap: (swap: PendingSwap) => Promise<void>;
-    }): void {
+    setCallbacks(callbacks: SwapManagerCallbacks): void {
         this.claimCallback = callbacks.claim;
         this.refundCallback = callbacks.refund;
+        this.claimArkCallback = callbacks.claimArk;
+        this.claimBtcCallback = callbacks.claimBtc;
+        this.refundArkCallback = callbacks.refundArk;
         this.saveSwapCallback = callbacks.saveSwap;
     }
 
@@ -264,6 +279,36 @@ export class SwapManager implements SwapManagerClient {
         return () => this.wsDisconnectedListeners.delete(listener);
     }
 
+    /** Remove a swap update listener */
+    offSwapUpdate(listener: SwapUpdateListener): void {
+        this.swapUpdateListeners.delete(listener);
+    }
+
+    /** Remove a swap completed listener */
+    offSwapCompleted(listener: SwapCompletedListener): void {
+        this.swapCompletedListeners.delete(listener);
+    }
+
+    /** Remove a swap failed listener */
+    offSwapFailed(listener: SwapFailedListener): void {
+        this.swapFailedListeners.delete(listener);
+    }
+
+    /** Remove an action executed listener */
+    offActionExecuted(listener: ActionExecutedListener): void {
+        this.actionExecutedListeners.delete(listener);
+    }
+
+    /** Remove a WebSocket connected listener */
+    offWebSocketConnected(listener: WebSocketConnectedListener): void {
+        this.wsConnectedListeners.delete(listener);
+    }
+
+    /** Remove a WebSocket disconnected listener */
+    offWebSocketDisconnected(listener: WebSocketDisconnectedListener): void {
+        this.wsDisconnectedListeners.delete(listener);
+    }
+
     /**
      * Start the swap manager
      * This will:
@@ -288,14 +333,10 @@ export class SwapManager implements SwapManagerClient {
 
         // Load pending swaps into monitoring map (only non-final swaps)
         for (const swap of pendingSwaps) {
-            if (!this.isFinalStatus(swap.status)) {
+            if (!this.isFinalStatus(swap)) {
                 this.monitoredSwaps.set(swap.id, swap);
             }
         }
-
-        logger.log(
-            `SwapManager started with ${this.monitoredSwaps.size} pending swaps`
-        );
 
         // Try to connect WebSocket, fall back to polling if it fails
         await this.connectWebSocket();
@@ -329,8 +370,6 @@ export class SwapManager implements SwapManagerClient {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
         }
-
-        logger.log("SwapManager stopped");
     }
 
     /**
@@ -343,8 +382,6 @@ export class SwapManager implements SwapManagerClient {
         if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
             this.subscribeToSwap(swap.id);
         }
-
-        logger.log(`Added swap ${swap.id} to monitoring`);
     }
 
     /**
@@ -406,14 +443,17 @@ export class SwapManager implements SwapManagerClient {
         }
 
         // Check if already in final status
-        if (this.isFinalStatus(swap.status)) {
+        if (this.isFinalStatus(swap)) {
             if (isPendingReverseSwap(swap)) {
                 const response = await this.swapProvider.getReverseSwapTxId(
                     swap.id
                 );
                 return { txid: response.id };
             }
-            throw new Error("Submarine swap already completed");
+            if (isPendingSubmarineSwap(swap)) {
+                throw new Error("Submarine swap already completed");
+            }
+            throw new Error("Chain swap already completed");
         }
 
         return new Promise<{ txid: string }>((resolve, reject) => {
@@ -423,7 +463,7 @@ export class SwapManager implements SwapManagerClient {
                 updatedSwap: PendingSwap,
                 _oldStatus: BoltzSwapStatus
             ) => {
-                if (!this.isFinalStatus(updatedSwap.status)) return;
+                if (!this.isFinalStatus(updatedSwap)) return;
 
                 unsubscribe?.();
 
@@ -441,6 +481,16 @@ export class SwapManager implements SwapManagerClient {
                         );
                     }
                 } else if (isPendingSubmarineSwap(updatedSwap)) {
+                    if (updatedSwap.status === "transaction.claimed") {
+                        resolve({ txid: updatedSwap.id });
+                    } else {
+                        reject(
+                            new Error(
+                                `Swap failed with status: ${updatedSwap.status}`
+                            )
+                        );
+                    }
+                } else if (isPendingChainSwap(updatedSwap)) {
                     if (updatedSwap.status === "transaction.claimed") {
                         resolve({ txid: updatedSwap.id });
                     } else {
@@ -503,7 +553,6 @@ export class SwapManager implements SwapManagerClient {
 
             this.websocket.onopen = () => {
                 clearTimeout(connectionTimeout);
-                logger.log("WebSocket connected");
 
                 // Reset reconnect delay on successful connection
                 this.currentReconnectDelay = this.config.reconnectDelayMs!;
@@ -528,7 +577,6 @@ export class SwapManager implements SwapManagerClient {
 
             this.websocket.onclose = () => {
                 clearTimeout(connectionTimeout);
-                logger.log("WebSocket disconnected");
 
                 this.websocket = null;
 
@@ -558,10 +606,6 @@ export class SwapManager implements SwapManagerClient {
         this.isReconnecting = false;
         this.websocket = null;
         this.usePollingFallback = true;
-
-        logger.warn(
-            "WebSocket unavailable, using polling fallback with increasing interval"
-        );
 
         // Start polling with exponential backoff
         this.startPollingFallback();
@@ -659,8 +703,6 @@ export class SwapManager implements SwapManagerClient {
         // Update swap status
         swap.status = newStatus;
 
-        logger.log(`Swap ${swap.id} status: ${oldStatus} → ${newStatus}`);
-
         // Emit update event to all listeners
         this.swapUpdateListeners.forEach((listener) =>
             listener(swap, oldStatus)
@@ -690,12 +732,11 @@ export class SwapManager implements SwapManagerClient {
         }
 
         // Remove from monitoring if final status
-        if (this.isFinalStatus(newStatus)) {
+        if (this.isFinalStatus(swap)) {
             this.monitoredSwaps.delete(swap.id);
             this.swapSubscriptions.delete(swap.id);
             // Emit completed event to all listeners
             this.swapCompletedListeners.forEach((listener) => listener(swap));
-            logger.log(`Swap ${swap.id} completed with status: ${newStatus}`);
         }
     }
 
@@ -753,6 +794,37 @@ export class SwapManager implements SwapManagerClient {
                         listener(swap, "refund")
                     );
                 }
+            } else if (isPendingChainSwap(swap)) {
+                if (isChainClaimableStatus(swap.status)) {
+                    // Determine if it's Ark or BTC claim
+                    if (swap.request.to === "ARK") {
+                        logger.log(`Auto-claiming ARK chain swap ${swap.id}`);
+                        await this.executeClaimArkAction(swap);
+                        // Emit action executed event to all listeners
+                        this.actionExecutedListeners.forEach((listener) =>
+                            listener(swap, "claimArk")
+                        );
+                    } else if (swap.request.to === "BTC") {
+                        logger.log(`Auto-claiming BTC chain swap ${swap.id}`);
+                        await this.executeClaimBtcAction(swap);
+                        // Emit action executed event to all listeners
+                        this.actionExecutedListeners.forEach((listener) =>
+                            listener(swap, "claimBtc")
+                        );
+                    }
+                } else if (isChainRefundableStatus(swap.status)) {
+                    if (swap.request.from === "ARK") {
+                        logger.log(`Auto-refunding ARK chain swap ${swap.id}`);
+                        await this.executeRefundArkAction(swap);
+                        // Emit action executed event to all listeners
+                        this.actionExecutedListeners.forEach((listener) =>
+                            listener(swap, "refundArk")
+                        );
+                    }
+                    if (swap.request.from === "BTC") {
+                        // TODO: Implement BTC refund if needed
+                    }
+                }
             }
         } catch (error) {
             logger.error(
@@ -796,6 +868,44 @@ export class SwapManager implements SwapManagerClient {
     }
 
     /**
+     * Execute claim action for chain swap Btc to Ark
+     */
+    private async executeClaimArkAction(swap: PendingChainSwap): Promise<void> {
+        if (!this.claimArkCallback) {
+            logger.error("claimArk callback not set");
+            return;
+        }
+
+        await this.claimArkCallback(swap);
+    }
+
+    /**
+     * Execute claim action for chain swap Ark to Btc
+     */
+    private async executeClaimBtcAction(swap: PendingChainSwap): Promise<void> {
+        if (!this.claimBtcCallback) {
+            logger.error("claimBtc callback not set");
+            return;
+        }
+
+        await this.claimBtcCallback(swap);
+    }
+
+    /**
+     * Execute refund action for chain swap Ark to Btc
+     */
+    private async executeRefundArkAction(
+        swap: PendingChainSwap
+    ): Promise<void> {
+        if (!this.refundArkCallback) {
+            logger.error("refundArk callback not set");
+            return;
+        }
+
+        await this.refundArkCallback(swap);
+    }
+
+    /**
      * Save swap to storage
      */
     private async saveSwap(swap: PendingSwap): Promise<void> {
@@ -817,8 +927,6 @@ export class SwapManager implements SwapManagerClient {
             return;
         }
 
-        logger.log("Resuming actionable swaps...");
-
         for (const swap of this.monitoredSwaps.values()) {
             try {
                 // Check if swap needs action based on current status
@@ -833,6 +941,18 @@ export class SwapManager implements SwapManagerClient {
                     isSubmarineRefundableStatus(swap.status)
                 ) {
                     logger.log(`Resuming refund for swap ${swap.id}`);
+                    await this.executeAutonomousAction(swap);
+                } else if (
+                    isPendingChainSwap(swap) &&
+                    isChainClaimableStatus(swap.status)
+                ) {
+                    logger.log(`Resuming chain claim for swap ${swap.id}`);
+                    await this.executeAutonomousAction(swap);
+                } else if (
+                    isPendingChainSwap(swap) &&
+                    isChainRefundableStatus(swap.status)
+                ) {
+                    logger.log(`Resuming chain refund for swap ${swap.id}`);
                     await this.executeAutonomousAction(swap);
                 }
             } catch (error) {
@@ -885,8 +1005,6 @@ export class SwapManager implements SwapManagerClient {
                 this.startPollingFallback();
             }
         }, this.currentPollRetryDelay);
-
-        logger.log(`Next polling fallback in ${this.currentPollRetryDelay}ms`);
     }
 
     /**
@@ -899,8 +1017,6 @@ export class SwapManager implements SwapManagerClient {
      */
     private async pollAllSwaps(): Promise<void> {
         if (this.monitoredSwaps.size === 0) return;
-
-        logger.log(`Polling ${this.monitoredSwaps.size} swaps...`);
 
         const pollPromises = Array.from(this.monitoredSwaps.values()).map(
             async (swap) => {
@@ -926,8 +1042,15 @@ export class SwapManager implements SwapManagerClient {
     /**
      * Check if a status is final (no more updates expected)
      */
-    private isFinalStatus(status: BoltzSwapStatus): boolean {
-        return isReverseFinalStatus(status) || isSubmarineFinalStatus(status);
+    private isFinalStatus(pendingSwap: PendingSwap): boolean {
+        const status = pendingSwap.status;
+        return (
+            (isPendingReverseSwap(pendingSwap) &&
+                isReverseFinalStatus(status)) ||
+            (isPendingSubmarineSwap(pendingSwap) &&
+                isSubmarineFinalStatus(status)) ||
+            (isPendingChainSwap(pendingSwap) && isChainFinalStatus(status))
+        );
     }
 
     /**

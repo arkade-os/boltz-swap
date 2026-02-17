@@ -1,11 +1,12 @@
 import { GetSwapStatusResponse, BoltzSwapStatus } from "../boltz-swap-provider";
 import {
-    ArkadeLightningConfig,
+    ArkadeSwapsConfig,
     CreateLightningInvoiceRequest,
     CreateLightningInvoiceResponse,
     FeesResponse,
     LimitsResponse,
     Network,
+    PendingChainSwap,
     PendingReverseSwap,
     PendingSubmarineSwap,
     SendLightningPaymentRequest,
@@ -34,12 +35,12 @@ import type {
     ResponseWaitForSwapSettlement,
 } from "./arkade-lightning-message-handler";
 import type { VHTLC } from "@arkade-os/sdk";
-import { IArkadeLightning } from "../arkade-lightning";
+import { IArkadeLightning } from "../arkade-swaps";
 import { IndexedDbSwapRepository } from "../repositories/IndexedDb/swap-repository";
 import type { SwapManagerClient } from "../swap-manager";
 
 export type SvcWrkArkadeLightningConfig = Pick<
-    ArkadeLightningConfig,
+    ArkadeSwapsConfig,
     "swapManager" | "swapProvider" | "swapRepository"
 > & {
     serviceWorker: ServiceWorker;
@@ -306,6 +307,24 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
                 this.wsDisconnectedListeners.add(listener);
                 return () => this.wsDisconnectedListeners.delete(listener);
             },
+            offSwapUpdate: (listener: any) => {
+                this.swapUpdateListeners.delete(listener);
+            },
+            offSwapCompleted: (listener: any) => {
+                this.swapCompletedListeners.delete(listener);
+            },
+            offSwapFailed: (listener: any) => {
+                this.swapFailedListeners.delete(listener);
+            },
+            offActionExecuted: (listener: any) => {
+                this.actionExecutedListeners.delete(listener);
+            },
+            offWebSocketConnected: (listener: any) => {
+                this.wsConnectedListeners.delete(listener);
+            },
+            offWebSocketDisconnected: (listener: any) => {
+                this.wsDisconnectedListeners.delete(listener);
+            },
         };
 
         return proxy as SwapManagerClient;
@@ -549,7 +568,7 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
     }
 
     async getSwapHistory(): Promise<
-        (PendingReverseSwap | PendingSubmarineSwap)[]
+        (PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap)[]
     > {
         try {
             const res = await this.sendMessage({

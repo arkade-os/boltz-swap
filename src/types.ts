@@ -11,6 +11,8 @@ import {
     CreateReverseSwapRequest,
     CreateSubmarineSwapRequest,
     BoltzSwapStatus,
+    CreateChainSwapRequest,
+    CreateChainSwapResponse,
 } from "./boltz-swap-provider";
 import { SwapManagerConfig } from "./swap-manager";
 import { SwapRepository } from "./repositories/swap-repository";
@@ -30,6 +32,19 @@ export interface Vtxo {
 
 export type Network = NetworkName;
 
+export type Chain = "ARK" | "BTC";
+
+export interface ArkToBtcResponse {
+    arkAddress: string;
+    amountToPay: number;
+    pendingSwap: PendingChainSwap;
+}
+
+export interface BtcToArkResponse {
+    btcAddress: string;
+    amountToPay: number;
+    pendingSwap: PendingChainSwap;
+}
 export interface CreateLightningInvoiceRequest {
     amount: number;
     description?: string;
@@ -76,14 +91,31 @@ export interface PendingSubmarineSwap {
     response: CreateSubmarineSwapResponse;
 }
 
-export interface ArkadeLightningConfig {
+export interface PendingChainSwap {
+    id: string;
+    type: "chain";
+    preimage: string;
+    createdAt: number;
+    ephemeralKey: string;
+    feeSatsPerByte: number;
+    status: BoltzSwapStatus;
+    request: CreateChainSwapRequest;
+    response: CreateChainSwapResponse;
+    toAddress?: string;
+    btcTxHex?: string;
+    amount: number;
+}
+
+export type PendingSwap =
+    | PendingReverseSwap
+    | PendingSubmarineSwap
+    | PendingChainSwap;
+
+export interface ArkadeSwapsConfig {
     wallet: IWallet;
     arkProvider?: ArkProvider;
     swapProvider: BoltzSwapProvider;
     indexerProvider?: IndexerProvider;
-    feeConfig?: Partial<FeeConfig>;
-    timeoutConfig?: Partial<TimeoutConfig>;
-    retryConfig?: Partial<RetryConfig>;
     /**
      * Enable background swap monitoring and autonomous actions.
      * - `false` or `undefined`: SwapManager disabled
@@ -97,22 +129,6 @@ export interface ArkadeLightningConfig {
      * - `SwapRepository` object: SwapRepository enabled with custom configuration
      */
     swapRepository?: SwapRepository;
-}
-
-export interface TimeoutConfig {
-    swapExpiryBlocks: number;
-    invoiceExpirySeconds: number;
-    claimDelayBlocks: number;
-}
-
-export interface FeeConfig {
-    maxMinerFeeSats: number;
-    maxSwapFeeSats: number;
-}
-
-export interface RetryConfig {
-    maxAttempts: number;
-    delayMs: number;
 }
 
 export interface DecodedInvoice {
@@ -150,6 +166,17 @@ export interface FeesResponse {
         minerFees: {
             lockup: number;
             claim: number;
+        };
+    };
+}
+
+export interface ChainFeesResponse {
+    percentage: number;
+    minerFees: {
+        server: number;
+        user: {
+            claim: number;
+            lockup: number;
         };
     };
 }

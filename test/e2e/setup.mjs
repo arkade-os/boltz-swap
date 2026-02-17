@@ -133,9 +133,28 @@ async function faucet(address, amount, maxRetries = 10, retryDelay = 1000) {
     throw new Error(`Timed out waiting for faucet transaction to confirm.`);
 }
 
-async function waitForArkReady(maxRetries = 10, retryDelay = 1000) {
-    const cmd = "docker exec arkd arkd wallet status";
-    return waitForCmd(cmd, maxRetries, retryDelay);
+async function waitForServerInfo(maxRetries = 10, retryDelay = 1000) {
+    console.log("Waiting for ark server info to be available...");
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            const serverInfoResponse = execSync(
+                "curl -s http://localhost:7070/v1/info",
+                { encoding: "utf8" }
+            );
+            const serverInfo = JSON.parse(serverInfoResponse);
+            if (serverInfo && serverInfo.signerPubkey) {
+                console.log(`  ✔ Signer pubkey ${serverInfo.signerPubkey}`);
+                return serverInfo;
+            }
+        } catch {
+            // Ignore errors and retry
+        }
+        if (i < maxRetries - 1) {
+            console.log(`  Waiting... (${i + 1}/${maxRetries})`);
+        }
+        await sleep(retryDelay);
+    }
+    throw new Error("ark server info not available after maximum retries");
 }
 
 async function setupArkServer() {
@@ -147,7 +166,6 @@ async function setupArkServer() {
         // Wait for ark server to be ready first
         await waitForArkServer();
 
-        // nigiri already initializes arkd
         // Create and unlock arkd wallet
         console.log("Creating ark wallet...");
         await execCommand(
@@ -167,10 +185,7 @@ async function setupArkServer() {
         await waitForWalletReady();
 
         // Get and log the server info
-        const serverInfo = JSON.parse(
-            execSync("curl -s http://localhost:7070/v1/info").toString()
-        );
-        console.log(`\nark Server Public Key: ${serverInfo.signerPubkey}`);
+        await waitForServerInfo();
 
         // Get arkd address and fund it with nigiri faucet
         console.log("\nFunding ark wallet...");
@@ -179,10 +194,14 @@ async function setupArkServer() {
         );
         console.log(`  Address: ${arkdAddress}`);
 
-        for (let i = 0; i < 10; i++) {
+        // Generate 20+ blocks with txs so that bitcoin core estimatesmartfee returns some value
+        // This is needed by Boltzd to set the fee for the onchain transactions, but could be
+        // useful for the tests as well to have some blocks mined and not be in the very
+        // early stages of the chain
+        for (let i = 0; i < 21; i++) {
             await execCommand(`nigiri faucet ${arkdAddress}`, true);
         }
-        console.log("  ✔ Funded with 10 BTC");
+        console.log("  ✔ Funded with 21 BTC");
 
         // Wait for transaction to be confirmed
         await sleep(5000);
@@ -297,9 +316,6 @@ async function setupBoltz() {
         await execCommand(`${lncli} payinvoice --force ${invoice}`, true);
         console.log("  ✔ Channel balanced (50k sats each side)");
 
-        console.log("\nWaiting for ark to be ready...");
-        await waitForArkReady();
-
         console.log("\nStarting Fulmine container...");
         await execCommand(
             "docker compose -f test.docker-compose.yml up -d boltz-fulmine",
@@ -308,9 +324,16 @@ async function setupBoltz() {
         console.log("  ✔ Container started");
         await sleep(5000);
 
+        console.log("\nGenerating Fulmine seed...");
+        const seedResponse = execSync(
+            "curl -s http://localhost:7003/api/v1/wallet/genseed"
+        );
+        const seed = JSON.parse(seedResponse).hex;
+        console.log(`  Seed: ${seed}`);
+
         console.log("\nCreating Fulmine wallet...");
         await execCommand(
-            `curl -s -X POST http://localhost:7003/api/v1/wallet/create -H "Content-Type: application/json" -d '{"private_key": "5b9902c1098cc0f4c7e91066ef3227e292d994a50ebc33961ac6daa656fd242e", "password": "password", "server_url": "http://arkd:7070"}'`,
+            `curl -s -X POST http://localhost:7003/api/v1/wallet/create -H "Content-Type: application/json" -d '{"private_key": "${seed}", "password": "secret", "server_url": "http://arkd:7070"}'`,
             true
         );
         console.log("  ✔ Wallet created");
@@ -319,7 +342,7 @@ async function setupBoltz() {
 
         console.log("\nUnlocking Fulmine wallet...");
         await execCommand(
-            `curl -s -X POST http://localhost:7003/api/v1/wallet/unlock -H "Content-Type: application/json" -d '{"password": "password"}'`,
+            `curl -s -X POST http://localhost:7003/api/v1/wallet/unlock -H "Content-Type: application/json" -d '{"password": "secret"}'`,
             true
         );
         console.log("  ✔ Wallet unlocked");
@@ -337,7 +360,7 @@ async function setupBoltz() {
         console.log(`  Address: ${fulmineAddress}`);
 
         console.log("\nFunding Fulmine address...");
-        await faucet(fulmineAddress, 1);
+        await faucet(fulmineAddress, 0.1);
 
         console.log("\nSettling funds in Fulmine...");
         await execCommand(
@@ -372,6 +395,7 @@ async function setup() {
     try {
         await setupArkServer();
         await setupBoltz();
+        await sleep(10000); // wait for everything to stabilize
         console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         console.log("  ✓ regtest setup completed successfully");
         console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
