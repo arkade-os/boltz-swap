@@ -8,6 +8,7 @@ import type { AsyncStorageTaskQueue } from "@arkade-os/sdk/worker/expo";
 import type { BoltzSwapProvider } from "../boltz-swap-provider";
 import type { SwapRepository } from "../repositories/swap-repository";
 import type { ArkadeLightningConfig } from "../types";
+import type { Network } from "../types";
 
 /**
  * Dependencies injected into every swap processor at runtime.
@@ -35,7 +36,7 @@ export interface SwapTaskDependencies {
 export interface PersistedSwapBackgroundConfig {
     boltzApiUrl: string;
     arkServerUrl: string;
-    network: string;
+    network: Network;
 }
 
 /**

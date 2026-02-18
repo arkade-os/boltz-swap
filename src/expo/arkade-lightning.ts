@@ -31,10 +31,10 @@ function getRandomId(): string {
  * claim/refund.
  *
  * In the background (Expo BackgroundTask), a separate
- * {@link SwapsPollProcessor} handles HTTP-based polling and best-effort
+ * {@link import("./swapsPollProcessor").swapsPollProcessor} handles HTTP-based polling and best-effort
  * claim/refund within the ~30s execution window.
  *
- * The foreground interval does NOT run SwapsPollProcessor — it only
+ * The foreground interval does NOT run swap polling — it only
  * acknowledges background outbox results and re-seeds the task queue
  * for the next background wake.
  *
@@ -131,15 +131,13 @@ export class ExpoArkadeLightning implements IArkadeLightning {
                 const message =
                     err instanceof Error ? err.message : String(err);
                 const code =
-                    typeof err === "object" &&
-                    err !== null &&
-                    "code" in err &&
-                    typeof (err as any).code === "string"
-                        ? (err as any).code
+                    typeof err === "object" && err !== null && "code" in err
+                        ? (err as { code?: unknown }).code
                         : undefined;
+                const codeString = typeof code === "string" ? code : undefined;
 
                 const isModuleNotFound =
-                    code === "MODULE_NOT_FOUND" ||
+                    codeString === "MODULE_NOT_FOUND" ||
                     /cannot find module/i.test(message) ||
                     /module not found/i.test(message);
 
@@ -218,15 +216,13 @@ export class ExpoArkadeLightning implements IArkadeLightning {
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             const code =
-                typeof err === "object" &&
-                err !== null &&
-                "code" in err &&
-                typeof (err as any).code === "string"
-                    ? (err as any).code
+                typeof err === "object" && err !== null && "code" in err
+                    ? (err as { code?: unknown }).code
                     : undefined;
+            const codeString = typeof code === "string" ? code : undefined;
 
             const isModuleNotFound =
-                code === "MODULE_NOT_FOUND" ||
+                codeString === "MODULE_NOT_FOUND" ||
                 /cannot find module/i.test(message) ||
                 /module not found/i.test(message);
 

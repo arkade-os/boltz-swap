@@ -4,6 +4,7 @@ import {
     ExpoArkProvider,
     ExpoIndexerProvider,
 } from "@arkade-os/sdk/adapters/expo";
+import type { IWallet } from "@arkade-os/sdk";
 import { BoltzSwapProvider } from "../boltz-swap-provider";
 import { swapsPollProcessor, SWAP_POLL_TASK_TYPE } from "./swapsPollProcessor";
 import type {
@@ -62,6 +63,31 @@ function getRandomId(): string {
     return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+function createBackgroundWalletShim(args: {
+    identity: IWallet["identity"];
+    getAddress: IWallet["getAddress"];
+}): IWallet {
+    const notImplemented = (method: keyof IWallet): never => {
+        throw new Error(
+            `[boltz-swap] Background wallet shim: "${String(method)}" is not implemented`
+        );
+    };
+
+    return {
+        identity: args.identity,
+        getAddress: args.getAddress,
+        getBoardingAddress: async () => notImplemented("getBoardingAddress"),
+        getBalance: async () => notImplemented("getBalance"),
+        getVtxos: async () => notImplemented("getVtxos"),
+        getBoardingUtxos: async () => notImplemented("getBoardingUtxos"),
+        getTransactionHistory: async () =>
+            notImplemented("getTransactionHistory"),
+        getContractManager: async () => notImplemented("getContractManager"),
+        sendBitcoin: async () => notImplemented("sendBitcoin"),
+        settle: async () => notImplemented("settle"),
+    };
+}
+
 // ── Public API ───────────────────────────────────────────────────
 
 /**
@@ -115,12 +141,13 @@ export function defineExpoSwapBackgroundTask(
                 config.arkServerUrl
             );
             const swapProvider = new BoltzSwapProvider({
-                network: config.network as any,
+                network: config.network,
                 apiUrl: config.boltzApiUrl,
             });
 
-            // Build minimal wallet-like object for ArkadeLightning
-            const wallet = {
+            // Minimal IWallet implementation used only for claim/refund.
+            // Any unexpected calls will throw a clear error.
+            const wallet = createBackgroundWalletShim({
                 identity,
                 getAddress: async () => {
                     const { ArkAddress } = await import("@arkade-os/sdk");
@@ -139,7 +166,7 @@ export function defineExpoSwapBackgroundTask(
                         hrp
                     ).encode();
                 },
-            };
+            });
 
             const deps: SwapTaskDependencies = {
                 swapRepository,
@@ -147,7 +174,7 @@ export function defineExpoSwapBackgroundTask(
                 arkProvider,
                 indexerProvider,
                 identity,
-                wallet: wallet as any,
+                wallet,
             };
 
             await runTasks(taskQueue, [swapsPollProcessor], deps);
@@ -197,6 +224,8 @@ export async function registerExpoSwapBackgroundTask(
 ): Promise<void> {
     const BackgroundTask = requireBackgroundTask();
     await BackgroundTask.registerTaskAsync(taskName, {
+        // expo-background-task expects minutes:
+        // https://docs.expo.dev/versions/latest/sdk/background-task/#backgroundtaskoptions
         minimumInterval: options?.minimumInterval ?? 15,
     });
 }

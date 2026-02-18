@@ -12,6 +12,9 @@ import {
 import { ArkadeLightning } from "../arkade-lightning";
 import { logger } from "../logger";
 
+/**
+ * Task type identifier for {@link swapsPollProcessor}.
+ */
 export const SWAP_POLL_TASK_TYPE = "swap-poll";
 
 /**

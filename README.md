@@ -132,11 +132,8 @@ const arkadeLightning = new ArkadeLightning({
   },
 });
 
-// If autostart is false, manually start monitoring
-// (autostart is true by default, so this is only needed if you set it to false)
-if (config.swapManager?.autostart === false) {
-  await arkadeLightning.startSwapManager();
-}
+// Since autoStart is false, start monitoring manually:
+await arkadeLightning.startSwapManager();
 
 // Create swaps - they're automatically monitored!
 const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
@@ -331,6 +328,110 @@ const result = await arkadeLightning.createLightningInvoice({ amount: 50000 });
 // MUST manually monitor - blocks until complete
 await arkadeLightning.waitAndClaim(result.pendingSwap);
 // User must stay on this page - navigating away stops monitoring
+```
+
+## Expo / React Native
+
+Expo/React Native cannot run a long-lived Service Worker, and background work is executed by the OS for a short window (typically every ~15+ minutes). To enable best-effort background claim/refund for swaps, use `ExpoArkadeLightning` plus a background task defined at global scope.
+
+### Prerequisites
+
+- Install Expo background task dependencies:
+
+```bash
+npx expo install expo-task-manager expo-background-task
+npx expo install @react-native-async-storage/async-storage expo-secure-store
+npx expo install expo-crypto
+npx expo install expo-sqlite && npm install indexeddbshim
+```
+
+- If you rely on the default IndexedDB-backed repositories in Expo, call `setupExpoDb()` **before any SDK/boltz-swap import**:
+
+```ts
+import { setupExpoDb } from "@arkade-os/sdk/adapters/expo-db";
+
+setupExpoDb();
+```
+
+- Expo requires a `crypto.getRandomValues()` polyfill for cryptographic operations:
+
+```ts
+import * as Crypto from "expo-crypto";
+if (!global.crypto) global.crypto = {} as any;
+global.crypto.getRandomValues = Crypto.getRandomValues;
+```
+
+### 1) Define the background task (global scope)
+
+`TaskManager.defineTask()` must be called at module scope before React mounts.
+
+```ts
+// App entry point (e.g., _layout.tsx) — GLOBAL SCOPE
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
+import { SingleKey } from "@arkade-os/sdk";
+import { AsyncStorageTaskQueue } from "@arkade-os/sdk/worker/expo";
+import { IndexedDbSwapRepository } from "@arkade-os/boltz-swap";
+import { defineExpoSwapBackgroundTask } from "@arkade-os/boltz-swap/expo";
+
+const swapTaskQueue = new AsyncStorageTaskQueue(AsyncStorage, "ark:swap-queue");
+const swapRepository = new IndexedDbSwapRepository();
+
+defineExpoSwapBackgroundTask("ark-swap-poll", {
+  taskQueue: swapTaskQueue,
+  swapRepository,
+  identityFactory: async () => {
+    const key = await SecureStore.getItemAsync("ark-private-key");
+    if (!key) throw new Error("Missing private key in SecureStore");
+    return SingleKey.fromHex(key);
+  },
+});
+```
+
+### 2) Set up `ExpoArkadeLightning` (component/provider)
+
+Use an `IWallet` implementation that provides `arkProvider` and `indexerProvider` (for example `ExpoWallet` from `@arkade-os/sdk/wallet/expo`, or `Wallet.create()` with `ExpoArkProvider` / `ExpoIndexerProvider`).
+
+```ts
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ExpoWallet } from "@arkade-os/sdk/wallet/expo";
+import { AsyncStorageTaskQueue } from "@arkade-os/sdk/worker/expo";
+import { BoltzSwapProvider } from "@arkade-os/boltz-swap";
+import { ExpoArkadeLightning } from "@arkade-os/boltz-swap/expo";
+
+// Used by ExpoWallet's background task (defined via @arkade-os/sdk/wallet/expo)
+const walletTaskQueue = new AsyncStorageTaskQueue(AsyncStorage, "ark:wallet-queue");
+
+const wallet = await ExpoWallet.setup({
+  identity, // same identity used by identityFactory()
+  arkServerUrl: "https://mutinynet.arkade.sh",
+  storage: { walletRepository, contractRepository },
+  background: {
+    taskName: "ark-wallet-poll",
+    taskQueue: walletTaskQueue,
+    foregroundIntervalMs: 20_000,
+    minimumBackgroundInterval: 15,
+  },
+});
+
+const swapProvider = new BoltzSwapProvider({
+  apiUrl: "https://api.boltz.mutinynet.arkade.sh",
+  network: "mutinynet",
+});
+
+const arkLn = await ExpoArkadeLightning.setup({
+  wallet,
+  swapProvider,
+  swapRepository, // must match the one used in defineExpoSwapBackgroundTask
+  background: {
+    taskName: "ark-swap-poll",
+    taskQueue: swapTaskQueue, // must match the one used in defineExpoSwapBackgroundTask
+    foregroundIntervalMs: 20_000,
+    minimumBackgroundInterval: 15,
+  },
+});
+
+await arkLn.createLightningInvoice({ amount: 1000 });
 ```
 
 ## Checking Swap Limits
