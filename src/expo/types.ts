@@ -68,5 +68,12 @@ export interface DefineSwapBackgroundTaskOptions {
  * Configuration for {@link ExpoArkadeLightning.setup}.
  */
 export interface ExpoArkadeLightningConfig extends ArkadeLightningConfig {
+    /**
+     * Ark server base URL (e.g. "https://ark.example.com").
+     *
+     * Recommended for type-safe background rehydration. If omitted,
+     * ExpoArkadeLightning will attempt to derive it from the ArkProvider.
+     */
+    arkServerUrl?: string;
     background: ExpoSwapBackgroundConfig;
 }

@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@arkade-os/sdk':
-        specifier: file:../ts-sdk
-        version: file:../ts-sdk
+        specifier: https://github.com/arkade-os/ts-sdk.git#next
+        version: https://codeload.github.com/arkade-os/ts-sdk/tar.gz/8dd0733772e8f1dc498dc07b05afdcfe40efa69d
       '@noble/hashes':
         specifier: 2.0.1
         version: 2.0.1
@@ -72,8 +72,9 @@ importers:
 
 packages:
 
-  '@arkade-os/sdk@file:../ts-sdk':
-    resolution: {directory: ../ts-sdk, type: directory}
+  '@arkade-os/sdk@https://codeload.github.com/arkade-os/ts-sdk/tar.gz/8dd0733772e8f1dc498dc07b05afdcfe40efa69d':
+    resolution: {tarball: https://codeload.github.com/arkade-os/ts-sdk/tar.gz/8dd0733772e8f1dc498dc07b05afdcfe40efa69d}
+    version: 0.3.13
     engines: {node: '>=22.12.0 <23', pnpm: '>=10.25.0 <11'}
     peerDependencies:
       '@react-native-async-storage/async-storage': '>=1.0.0'
@@ -1432,7 +1433,7 @@ packages:
 
 snapshots:
 
-  '@arkade-os/sdk@file:../ts-sdk':
+  '@arkade-os/sdk@https://codeload.github.com/arkade-os/ts-sdk/tar.gz/8dd0733772e8f1dc498dc07b05afdcfe40efa69d':
     dependencies:
       '@kukks/bitcoin-descriptors': 3.1.0
       '@marcbachmann/cel-js': 7.3.1

@@ -194,7 +194,7 @@ export async function registerExpoSwapBackgroundTask(
 ): Promise<void> {
     const BackgroundTask = requireBackgroundTask();
     await BackgroundTask.registerTaskAsync(taskName, {
-        minimumInterval: (options?.minimumInterval ?? 15) * 60,
+        minimumInterval: options?.minimumInterval ?? 15,
     });
 }
 

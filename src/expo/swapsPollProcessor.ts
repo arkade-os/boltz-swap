@@ -35,7 +35,13 @@ export const swapsPollProcessor: TaskProcessor<SwapTaskDependencies> = {
         item: TaskItem,
         deps: SwapTaskDependencies
     ): Promise<Omit<TaskResult, "id" | "executedAt">> {
-        const { swapRepository, swapProvider, wallet } = deps;
+        const {
+            swapRepository,
+            swapProvider,
+            wallet,
+            arkProvider,
+            indexerProvider,
+        } = deps;
 
         const allSwaps = await swapRepository.getAllSwaps();
 
@@ -57,6 +63,8 @@ export const swapsPollProcessor: TaskProcessor<SwapTaskDependencies> = {
         // Create a temporary ArkadeLightning without SwapManager for claim/refund logic
         const tempLightning = new ArkadeLightning({
             wallet,
+            arkProvider,
+            indexerProvider,
             swapProvider,
             swapManager: false,
             swapRepository,
@@ -104,12 +112,12 @@ export const swapsPollProcessor: TaskProcessor<SwapTaskDependencies> = {
                     }
 
                     // Attempt refund for submarine swaps with refundable status
+                    const swapWithStatus = isPendingSubmarineSwap(swap)
+                        ? { ...swap, status: currentStatus }
+                        : null;
                     if (
                         isPendingSubmarineSwap(swap) &&
-                        isSubmarineSwapRefundable({
-                            ...swap,
-                            status: currentStatus,
-                        })
+                        isSubmarineSwapRefundable(swapWithStatus!)
                     ) {
                         // Skip restored swaps without invoice or preimageHash
                         if (!swap.request.invoice && !swap.preimageHash) {
@@ -120,7 +128,7 @@ export const swapsPollProcessor: TaskProcessor<SwapTaskDependencies> = {
                         }
 
                         try {
-                            await tempLightning.refundVHTLC(swap);
+                            await tempLightning.refundVHTLC(swapWithStatus!);
                             refunded++;
                         } catch (refundError) {
                             logger.error(

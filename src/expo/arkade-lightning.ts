@@ -42,6 +42,7 @@ function getRandomId(): string {
  * ```ts
  * const arkLn = await ExpoArkadeLightning.setup({
  *     wallet,
+ *     arkServerUrl: "https://ark.example.com",
  *     swapProvider,
  *     swapManager: true,
  *     background: {
@@ -89,10 +90,21 @@ export class ExpoArkadeLightning implements IArkadeLightning {
 
         const { taskQueue } = config.background;
 
+        const derivedArkServerUrl = (
+            inner.arkProvider as unknown as { serverUrl?: string }
+        ).serverUrl;
+        const arkServerUrl = config.arkServerUrl ?? derivedArkServerUrl;
+        if (!arkServerUrl) {
+            throw new Error(
+                "Ark server URL is required for Expo background rehydration. " +
+                    "Pass `arkServerUrl` to ExpoArkadeLightning.setup()."
+            );
+        }
+
         // Persist config for background handler rehydration
         const bgConfig: PersistedSwapBackgroundConfig = {
             boltzApiUrl: config.swapProvider.getApiUrl(),
-            arkServerUrl: (inner.arkProvider as any).serverUrl,
+            arkServerUrl,
             network: config.swapProvider.getNetwork(),
         };
         await taskQueue.persistConfig(bgConfig);
@@ -115,8 +127,28 @@ export class ExpoArkadeLightning implements IArkadeLightning {
                             config.background.minimumBackgroundInterval,
                     }
                 );
-            } catch {
-                // expo-background-task not installed — foreground-only mode
+            } catch (err) {
+                const message =
+                    err instanceof Error ? err.message : String(err);
+                const code =
+                    typeof err === "object" &&
+                    err !== null &&
+                    "code" in err &&
+                    typeof (err as any).code === "string"
+                        ? (err as any).code
+                        : undefined;
+
+                const isModuleNotFound =
+                    code === "MODULE_NOT_FOUND" ||
+                    /cannot find module/i.test(message) ||
+                    /module not found/i.test(message);
+
+                if (!isModuleNotFound) {
+                    console.warn(
+                        `[boltz-swap] Failed to register background task "${config.background.taskName}":`,
+                        err
+                    );
+                }
             }
         }
 
@@ -183,8 +215,28 @@ export class ExpoArkadeLightning implements IArkadeLightning {
                 "./background"
             );
             await unregisterExpoSwapBackgroundTask(this.taskName);
-        } catch {
-            // expo-background-task not installed — nothing to unregister
+        } catch (err) {
+            const message =
+                err instanceof Error ? err.message : String(err);
+            const code =
+                typeof err === "object" &&
+                err !== null &&
+                "code" in err &&
+                typeof (err as any).code === "string"
+                    ? (err as any).code
+                    : undefined;
+
+            const isModuleNotFound =
+                code === "MODULE_NOT_FOUND" ||
+                /cannot find module/i.test(message) ||
+                /module not found/i.test(message);
+
+            if (!isModuleNotFound) {
+                console.warn(
+                    `[boltz-swap] Failed to unregister background task "${this.taskName}":`,
+                    err
+                );
+            }
         }
     }
 
