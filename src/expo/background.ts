@@ -1,6 +1,9 @@
 import type { TaskItem } from "@arkade-os/sdk/worker/expo";
 import { runTasks } from "@arkade-os/sdk/worker/expo";
-import { ExpoArkProvider, ExpoIndexerProvider } from "@arkade-os/sdk/adapters/expo";
+import {
+    ExpoArkProvider,
+    ExpoIndexerProvider,
+} from "@arkade-os/sdk/adapters/expo";
 import { BoltzSwapProvider } from "../boltz-swap-provider";
 import { swapsPollProcessor, SWAP_POLL_TASK_TYPE } from "./swapsPollProcessor";
 import type {

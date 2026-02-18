@@ -216,8 +216,7 @@ export class ExpoArkadeLightning implements IArkadeLightning {
             );
             await unregisterExpoSwapBackgroundTask(this.taskName);
         } catch (err) {
-            const message =
-                err instanceof Error ? err.message : String(err);
+            const message = err instanceof Error ? err.message : String(err);
             const code =
                 typeof err === "object" &&
                 err !== null &&
@@ -290,9 +289,7 @@ export class ExpoArkadeLightning implements IArkadeLightning {
         return this.inner.refundVHTLC(pendingSwap);
     }
 
-    waitAndClaim(
-        pendingSwap: PendingReverseSwap
-    ): Promise<{ txid: string }> {
+    waitAndClaim(pendingSwap: PendingReverseSwap): Promise<{ txid: string }> {
         return this.inner.waitAndClaim(pendingSwap);
     }
 
@@ -359,9 +356,7 @@ export class ExpoArkadeLightning implements IArkadeLightning {
         return this.inner.getPendingReverseSwaps();
     }
 
-    getSwapHistory(): Promise<
-        (PendingReverseSwap | PendingSubmarineSwap)[]
-    > {
+    getSwapHistory(): Promise<(PendingReverseSwap | PendingSubmarineSwap)[]> {
         return this.inner.getSwapHistory();
     }
 

@@ -102,7 +102,9 @@ describe("swapsPollProcessor", () => {
         swapRepository = new InMemorySwapRepository();
 
         mockSwapProvider = {
-            getSwapStatus: vi.fn().mockResolvedValue({ status: "swap.created" }),
+            getSwapStatus: vi
+                .fn()
+                .mockResolvedValue({ status: "swap.created" }),
             getApiUrl: vi.fn().mockReturnValue("http://localhost:9069"),
             getNetwork: vi.fn().mockReturnValue("regtest"),
         };
@@ -163,12 +165,8 @@ describe("swapsPollProcessor", () => {
     });
 
     it("should poll non-final swaps", async () => {
-        await swapRepository.saveSwap(
-            createReverseSwap("r1", "swap.created")
-        );
-        await swapRepository.saveSwap(
-            createSubmarineSwap("s1", "invoice.set")
-        );
+        await swapRepository.saveSwap(createReverseSwap("r1", "swap.created"));
+        await swapRepository.saveSwap(createSubmarineSwap("s1", "invoice.set"));
 
         (mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>)
             .mockResolvedValueOnce({ status: "swap.created" })
@@ -184,12 +182,11 @@ describe("swapsPollProcessor", () => {
     });
 
     it("should persist status changes", async () => {
-        await swapRepository.saveSwap(
-            createReverseSwap("r1", "swap.created")
-        );
+        await swapRepository.saveSwap(createReverseSwap("r1", "swap.created"));
 
-        (mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>)
-            .mockResolvedValueOnce({ status: "transaction.mempool" });
+        (
+            mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>
+        ).mockResolvedValueOnce({ status: "transaction.mempool" });
 
         await swapsPollProcessor.execute(createTaskItem(), deps);
 
@@ -201,8 +198,9 @@ describe("swapsPollProcessor", () => {
         const swap = createReverseSwap("r1", "swap.created", "");
         await swapRepository.saveSwap(swap);
 
-        (mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>)
-            .mockResolvedValueOnce({ status: "transaction.confirmed" });
+        (
+            mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>
+        ).mockResolvedValueOnce({ status: "transaction.confirmed" });
 
         const result = await swapsPollProcessor.execute(createTaskItem(), deps);
 
@@ -219,8 +217,9 @@ describe("swapsPollProcessor", () => {
         });
         await swapRepository.saveSwap(swap);
 
-        (mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>)
-            .mockResolvedValueOnce({ status: "invoice.failedToPay" });
+        (
+            mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>
+        ).mockResolvedValueOnce({ status: "invoice.failedToPay" });
 
         const result = await swapsPollProcessor.execute(createTaskItem(), deps);
 
@@ -232,12 +231,11 @@ describe("swapsPollProcessor", () => {
     });
 
     it("should attempt claim for claimable reverse swap", async () => {
-        await swapRepository.saveSwap(
-            createReverseSwap("r1", "swap.created")
-        );
+        await swapRepository.saveSwap(createReverseSwap("r1", "swap.created"));
 
-        (mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>)
-            .mockResolvedValueOnce({ status: "transaction.confirmed" });
+        (
+            mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>
+        ).mockResolvedValueOnce({ status: "transaction.confirmed" });
 
         const result = await swapsPollProcessor.execute(createTaskItem(), deps);
 
@@ -255,8 +253,9 @@ describe("swapsPollProcessor", () => {
         });
         await swapRepository.saveSwap(swap);
 
-        (mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>)
-            .mockResolvedValueOnce({ status: "invoice.failedToPay" });
+        (
+            mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>
+        ).mockResolvedValueOnce({ status: "invoice.failedToPay" });
 
         const result = await swapsPollProcessor.execute(createTaskItem(), deps);
 
@@ -268,12 +267,11 @@ describe("swapsPollProcessor", () => {
     });
 
     it("should count errors when getSwapStatus fails", async () => {
-        await swapRepository.saveSwap(
-            createReverseSwap("r1", "swap.created")
-        );
+        await swapRepository.saveSwap(createReverseSwap("r1", "swap.created"));
 
-        (mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>)
-            .mockRejectedValueOnce(new Error("Network error"));
+        (
+            mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>
+        ).mockRejectedValueOnce(new Error("Network error"));
 
         const result = await swapsPollProcessor.execute(createTaskItem(), deps);
 
@@ -284,12 +282,11 @@ describe("swapsPollProcessor", () => {
     });
 
     it("should return failed when all polls error", async () => {
-        await swapRepository.saveSwap(
-            createReverseSwap("r1", "swap.created")
-        );
+        await swapRepository.saveSwap(createReverseSwap("r1", "swap.created"));
 
-        (mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>)
-            .mockRejectedValueOnce(new Error("Network error"));
+        (
+            mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>
+        ).mockRejectedValueOnce(new Error("Network error"));
 
         const result = await swapsPollProcessor.execute(createTaskItem(), deps);
 
@@ -297,12 +294,8 @@ describe("swapsPollProcessor", () => {
     });
 
     it("should continue processing other swaps when one fails", async () => {
-        await swapRepository.saveSwap(
-            createReverseSwap("r1", "swap.created")
-        );
-        await swapRepository.saveSwap(
-            createReverseSwap("r2", "swap.created")
-        );
+        await swapRepository.saveSwap(createReverseSwap("r1", "swap.created"));
+        await swapRepository.saveSwap(createReverseSwap("r2", "swap.created"));
 
         (mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>)
             .mockRejectedValueOnce(new Error("Network error"))
@@ -318,21 +311,18 @@ describe("swapsPollProcessor", () => {
     });
 
     it("should handle claim error gracefully", async () => {
-        const { ArkadeLightning } = await import(
-            "../../src/arkade-lightning"
-        );
+        const { ArkadeLightning } = await import("../../src/arkade-lightning");
         (ArkadeLightning as any).mockImplementation(() => ({
             claimVHTLC: vi.fn().mockRejectedValue(new Error("Claim failed")),
             refundVHTLC: vi.fn().mockResolvedValue(undefined),
             dispose: vi.fn().mockResolvedValue(undefined),
         }));
 
-        await swapRepository.saveSwap(
-            createReverseSwap("r1", "swap.created")
-        );
+        await swapRepository.saveSwap(createReverseSwap("r1", "swap.created"));
 
-        (mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>)
-            .mockResolvedValueOnce({ status: "transaction.confirmed" });
+        (
+            mockSwapProvider.getSwapStatus as ReturnType<typeof vi.fn>
+        ).mockResolvedValueOnce({ status: "transaction.confirmed" });
 
         const result = await swapsPollProcessor.execute(createTaskItem(), deps);
 
