@@ -147,8 +147,9 @@ const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
 - **Fallback polling** with exponential backoff if WebSocket fails
 - **Auto-claim/refund** executes when status allows
 - **Resumes on app reopen** - loads pending swaps, polls latest status, executes refunds if expired
-- **⚠️ Requires app running** - stops when app closes (service worker support planned)
-  - If swaps expire while app is closed, refunds execute automatically on next app launch
+- **⚠️ Default `ArkadeLightning` requires the app running** - monitoring stops when the app/tab closes
+  - For browser background monitoring, use `ServiceWorkerArkadeLightning`
+  - If swaps expire while closed, refunds execute automatically on next app launch (unless claimed/refunded by your background runtime)
 
 ### Configuration Options
 
