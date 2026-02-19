@@ -1,0 +1,362 @@
+import type { TaskItem } from "@arkade-os/sdk/worker/expo";
+import type { IArkadeLightning } from "../arkade-lightning";
+import { ArkadeLightning } from "../arkade-lightning";
+import type { SwapManagerClient } from "../swap-manager";
+import type {
+    CreateLightningInvoiceRequest,
+    CreateLightningInvoiceResponse,
+    FeesResponse,
+    LimitsResponse,
+    PendingReverseSwap,
+    PendingSubmarineSwap,
+    SendLightningPaymentRequest,
+    SendLightningPaymentResponse,
+} from "../types";
+import type { GetSwapStatusResponse } from "../boltz-swap-provider";
+import type {
+    ExpoArkadeLightningConfig,
+    PersistedSwapBackgroundConfig,
+} from "./types";
+import { SWAP_POLL_TASK_TYPE } from "./swapsPollProcessor";
+
+function getRandomId(): string {
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+/**
+ * Expo/React Native wrapper for ArkadeLightning with background task support.
+ *
+ * In the foreground, delegates to a full {@link ArkadeLightning} instance
+ * with SwapManager (WebSocket) for real-time swap monitoring and auto
+ * claim/refund.
+ *
+ * In the background (Expo BackgroundTask), a separate
+ * {@link import("./swapsPollProcessor").swapsPollProcessor} handles HTTP-based polling and best-effort
+ * claim/refund within the ~30s execution window.
+ *
+ * The foreground interval does NOT run swap polling — it only
+ * acknowledges background outbox results and re-seeds the task queue
+ * for the next background wake.
+ *
+ * @example
+ * ```ts
+ * const arkLn = await ExpoArkadeLightning.setup({
+ *     wallet,
+ *     arkServerUrl: "https://ark.example.com",
+ *     swapProvider,
+ *     swapManager: true,
+ *     background: {
+ *         taskName: "ark-swap-poll",
+ *         taskQueue: swapTaskQueue,
+ *         foregroundIntervalMs: 20_000,
+ *         minimumBackgroundInterval: 15,
+ *     },
+ * });
+ *
+ * await arkLn.createLightningInvoice({ amount: 1000 });
+ * ```
+ */
+export class ExpoArkadeLightning implements IArkadeLightning {
+    readonly swapRepository: ArkadeLightning["swapRepository"];
+
+    private foregroundIntervalId?: ReturnType<typeof setInterval>;
+    private readonly taskName: string;
+
+    private constructor(
+        private readonly inner: ArkadeLightning,
+        private readonly config: ExpoArkadeLightningConfig
+    ) {
+        this.taskName = config.background.taskName;
+        this.swapRepository = inner.swapRepository;
+    }
+
+    /**
+     * Create an ExpoArkadeLightning with background task support.
+     *
+     * 1. Creates the inner {@link ArkadeLightning} with SwapManager enabled.
+     * 2. Persists {@link PersistedSwapBackgroundConfig} for background rehydration.
+     * 3. Seeds the task queue with a swap-poll task.
+     * 4. Registers the background task with the OS scheduler (if configured).
+     * 5. Starts foreground interval (if configured).
+     */
+    static async setup(
+        config: ExpoArkadeLightningConfig
+    ): Promise<ExpoArkadeLightning> {
+        // Create inner ArkadeLightning with swapManager enabled for foreground
+        const inner = new ArkadeLightning({
+            ...config,
+            swapManager: config.swapManager ?? true,
+        });
+
+        const { taskQueue } = config.background;
+
+        const derivedArkServerUrl = (
+            inner.arkProvider as unknown as { serverUrl?: string }
+        ).serverUrl;
+        const arkServerUrl = config.arkServerUrl ?? derivedArkServerUrl;
+        if (!arkServerUrl) {
+            throw new Error(
+                "Ark server URL is required for Expo background rehydration. " +
+                    "Pass `arkServerUrl` to ExpoArkadeLightning.setup()."
+            );
+        }
+
+        // Persist config for background handler rehydration
+        const bgConfig: PersistedSwapBackgroundConfig = {
+            boltzApiUrl: config.swapProvider.getApiUrl(),
+            arkServerUrl,
+            network: config.swapProvider.getNetwork(),
+        };
+        await taskQueue.persistConfig(bgConfig);
+
+        const instance = new ExpoArkadeLightning(inner, config);
+
+        // Seed the queue so the first background wake has work
+        await instance.seedSwapPollTask();
+
+        // Activate OS-level background scheduling
+        if (config.background.minimumBackgroundInterval) {
+            try {
+                const { registerExpoSwapBackgroundTask } = await import(
+                    "./background"
+                );
+                await registerExpoSwapBackgroundTask(
+                    config.background.taskName,
+                    {
+                        minimumInterval:
+                            config.background.minimumBackgroundInterval,
+                    }
+                );
+            } catch (err) {
+                const message =
+                    err instanceof Error ? err.message : String(err);
+                const code =
+                    typeof err === "object" && err !== null && "code" in err
+                        ? (err as { code?: unknown }).code
+                        : undefined;
+                const codeString = typeof code === "string" ? code : undefined;
+
+                const isModuleNotFound =
+                    codeString === "MODULE_NOT_FOUND" ||
+                    /cannot find module/i.test(message) ||
+                    /module not found/i.test(message);
+
+                if (!isModuleNotFound) {
+                    console.warn(
+                        `[boltz-swap] Failed to register background task "${config.background.taskName}":`,
+                        err
+                    );
+                }
+            }
+        }
+
+        // Start foreground interval
+        if (
+            config.background.foregroundIntervalMs &&
+            config.background.foregroundIntervalMs > 0
+        ) {
+            instance.startForegroundPolling(
+                config.background.foregroundIntervalMs
+            );
+        }
+
+        return instance;
+    }
+
+    // ── Foreground polling ───────────────────────────────────────────
+
+    private startForegroundPolling(intervalMs: number): void {
+        this.foregroundIntervalId = setInterval(() => {
+            this.runForegroundPoll().catch(console.error);
+        }, intervalMs);
+    }
+
+    private async runForegroundPoll(): Promise<void> {
+        const { taskQueue } = this.config.background;
+
+        // Acknowledge background outbox results
+        const results = await taskQueue.getResults();
+        if (results.length > 0) {
+            await taskQueue.acknowledgeResults(results.map((r) => r.id));
+        }
+
+        // Re-seed for the next background wake
+        await this.seedSwapPollTask();
+    }
+
+    private async seedSwapPollTask(): Promise<void> {
+        const { taskQueue } = this.config.background;
+        const existing = await taskQueue.getTasks(SWAP_POLL_TASK_TYPE);
+        if (existing.length > 0) return;
+
+        const task: TaskItem = {
+            id: getRandomId(),
+            type: SWAP_POLL_TASK_TYPE,
+            data: {},
+            createdAt: Date.now(),
+        };
+        await taskQueue.addTask(task);
+    }
+
+    // ── Lifecycle ────────────────────────────────────────────────────
+
+    async dispose(): Promise<void> {
+        if (this.foregroundIntervalId) {
+            clearInterval(this.foregroundIntervalId);
+            this.foregroundIntervalId = undefined;
+        }
+
+        await this.inner.dispose();
+
+        try {
+            const { unregisterExpoSwapBackgroundTask } = await import(
+                "./background"
+            );
+            await unregisterExpoSwapBackgroundTask(this.taskName);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            const code =
+                typeof err === "object" && err !== null && "code" in err
+                    ? (err as { code?: unknown }).code
+                    : undefined;
+            const codeString = typeof code === "string" ? code : undefined;
+
+            const isModuleNotFound =
+                codeString === "MODULE_NOT_FOUND" ||
+                /cannot find module/i.test(message) ||
+                /module not found/i.test(message);
+
+            if (!isModuleNotFound) {
+                console.warn(
+                    `[boltz-swap] Failed to unregister background task "${this.taskName}":`,
+                    err
+                );
+            }
+        }
+    }
+
+    async [Symbol.asyncDispose](): Promise<void> {
+        await this.dispose();
+    }
+
+    // ── IArkadeLightning delegation ──────────────────────────────────
+
+    startSwapManager(): Promise<void> {
+        return this.inner.startSwapManager();
+    }
+
+    stopSwapManager(): Promise<void> {
+        return this.inner.stopSwapManager();
+    }
+
+    getSwapManager(): SwapManagerClient | null {
+        return this.inner.getSwapManager();
+    }
+
+    createLightningInvoice(
+        args: CreateLightningInvoiceRequest
+    ): Promise<CreateLightningInvoiceResponse> {
+        return this.inner.createLightningInvoice(args);
+    }
+
+    sendLightningPayment(
+        args: SendLightningPaymentRequest
+    ): Promise<SendLightningPaymentResponse> {
+        return this.inner.sendLightningPayment(args);
+    }
+
+    createSubmarineSwap(
+        args: SendLightningPaymentRequest
+    ): Promise<PendingSubmarineSwap> {
+        return this.inner.createSubmarineSwap(args);
+    }
+
+    createReverseSwap(
+        args: CreateLightningInvoiceRequest
+    ): Promise<PendingReverseSwap> {
+        return this.inner.createReverseSwap(args);
+    }
+
+    claimVHTLC(pendingSwap: PendingReverseSwap): Promise<void> {
+        return this.inner.claimVHTLC(pendingSwap);
+    }
+
+    refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
+        return this.inner.refundVHTLC(pendingSwap);
+    }
+
+    waitAndClaim(pendingSwap: PendingReverseSwap): Promise<{ txid: string }> {
+        return this.inner.waitAndClaim(pendingSwap);
+    }
+
+    waitForSwapSettlement(
+        pendingSwap: PendingSubmarineSwap
+    ): Promise<{ preimage: string }> {
+        return this.inner.waitForSwapSettlement(pendingSwap);
+    }
+
+    restoreSwaps(boltzFees?: FeesResponse): Promise<{
+        reverseSwaps: PendingReverseSwap[];
+        submarineSwaps: PendingSubmarineSwap[];
+    }> {
+        return this.inner.restoreSwaps(boltzFees);
+    }
+
+    enrichReverseSwapPreimage(
+        swap: PendingReverseSwap,
+        preimage: string
+    ): PendingReverseSwap {
+        return this.inner.enrichReverseSwapPreimage(swap, preimage);
+    }
+
+    enrichSubmarineSwapInvoice(
+        swap: PendingSubmarineSwap,
+        invoice: string
+    ): PendingSubmarineSwap {
+        return this.inner.enrichSubmarineSwapInvoice(swap, invoice);
+    }
+
+    createVHTLCScript(params: {
+        network: string;
+        preimageHash: Uint8Array;
+        receiverPubkey: string;
+        senderPubkey: string;
+        serverPubkey: string;
+        timeoutBlockHeights: {
+            refund: number;
+            unilateralClaim: number;
+            unilateralRefund: number;
+            unilateralRefundWithoutReceiver: number;
+        };
+    }): { vhtlcScript: any; vhtlcAddress: string } {
+        return this.inner.createVHTLCScript(params);
+    }
+
+    getFees(): Promise<FeesResponse> {
+        return this.inner.getFees();
+    }
+
+    getLimits(): Promise<LimitsResponse> {
+        return this.inner.getLimits();
+    }
+
+    getSwapStatus(swapId: string): Promise<GetSwapStatusResponse> {
+        return this.inner.getSwapStatus(swapId);
+    }
+
+    getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[]> {
+        return this.inner.getPendingSubmarineSwaps();
+    }
+
+    getPendingReverseSwaps(): Promise<PendingReverseSwap[]> {
+        return this.inner.getPendingReverseSwaps();
+    }
+
+    getSwapHistory(): Promise<(PendingReverseSwap | PendingSubmarineSwap)[]> {
+        return this.inner.getSwapHistory();
+    }
+
+    refreshSwapsStatus(): Promise<void> {
+        return this.inner.refreshSwapsStatus();
+    }
+}
