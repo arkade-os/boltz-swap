@@ -80,7 +80,7 @@ const createTaskItem = (): TaskItem => ({
 
 // ── Mock ArkadeLightning to avoid import side effects ────────────────
 
-vi.mock("../../src/arkade-lightning", () => {
+vi.mock("../../src/arkade-swaps", () => {
     return {
         ArkadeLightning: vi.fn().mockImplementation(() => ({
             claimVHTLC: vi.fn().mockResolvedValue(undefined),
@@ -311,7 +311,7 @@ describe("swapsPollProcessor", () => {
     });
 
     it("should handle claim error gracefully", async () => {
-        const { ArkadeLightning } = await import("../../src/arkade-lightning");
+        const { ArkadeLightning } = await import("../../src/arkade-swaps");
         (ArkadeLightning as any).mockImplementation(() => ({
             claimVHTLC: vi.fn().mockRejectedValue(new Error("Claim failed")),
             refundVHTLC: vi.fn().mockResolvedValue(undefined),

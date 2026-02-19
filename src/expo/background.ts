@@ -182,7 +182,9 @@ export function defineExpoSwapBackgroundTask(
             // Acknowledge outbox results (no foreground to consume them)
             const results = await taskQueue.getResults();
             if (results.length > 0) {
-                await taskQueue.acknowledgeResults(results.map((r) => r.id));
+                await taskQueue.acknowledgeResults(
+                    results.map((r: { id: string }) => r.id)
+                );
             }
 
             // Re-seed the swap-poll task for the next OS wake

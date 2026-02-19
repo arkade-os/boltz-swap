@@ -1,17 +1,19 @@
-# Lightning Swaps
+# Arkade Swaps
 
-> Integrate Lightning Network with Arkade using Submarine Swaps
+> Lightning and chain swaps for Arkade using Boltz
 
-Arkade provides seamless integration with the Lightning Network through Boltz submarine swaps, allowing users to move funds between Arkade and Lightning channels.
+`@arkade-os/boltz-swap` provides seamless integration with the Lightning Network and Bitcoin on-chain through Boltz swaps, allowing users to move funds between Arkade, Lightning, and Bitcoin.
 
 ## Overview
 
-The `BoltzSwapProvider` library extends Arkade's functionality by enabling:
+The library enables four swap types:
 
-1. **Lightning to Arkade swaps** - Receive funds from Lightning payments into your Arkade wallet
-2. **Arkade to Lightning swaps** - Send funds from your Arkade wallet to Lightning invoices
+1. **Lightning to Arkade** - Receive funds from Lightning payments into your Arkade wallet
+2. **Arkade to Lightning** - Send funds from your Arkade wallet to Lightning invoices
+3. **ARK to BTC** - Move funds from Arkade to a Bitcoin on-chain address
+4. **BTC to ARK** - Move funds from Bitcoin on-chain into your Arkade wallet
 
-This integration is built on top of the Boltz submarine swap protocol, providing a reliable and secure way to bridge the gap between Arkade and the Lightning Network.
+Built on top of the Boltz swap protocol with automatic background monitoring via SwapManager.
 
 ## Installation
 
@@ -21,11 +23,11 @@ npm install @arkade-os/sdk @arkade-os/boltz-swap
 
 ## Basic Usage
 
-### Initializing the Lightning Swap Provider
+### Initializing
 
 ```typescript
 import { Wallet, SingleKey } from '@arkade-os/sdk';
-import { ArkadeLightning, BoltzSwapProvider } from '@arkade-os/boltz-swap';
+import { ArkadeSwaps, BoltzSwapProvider } from '@arkade-os/boltz-swap';
 
 // Create an identity
 const identity = SingleKey.fromHex('your_private_key_in_hex');
@@ -36,50 +38,23 @@ const wallet = await Wallet.create({
   arkServerUrl: 'https://mutinynet.arkade.sh',
 });
 
-// Initialize the Lightning swap provider
+// Initialize the swap provider
 const swapProvider = new BoltzSwapProvider({
   apiUrl: 'https://api.boltz.mutinynet.arkade.sh',
   network: 'mutinynet',
   referralId: 'arkade', // optional
 });
 
-// Create the ArkadeLightning instance
-const arkadeLightning = new ArkadeLightning({
+// Create the ArkadeSwaps instance
+const swaps = new ArkadeSwaps({
   wallet,
   swapProvider,
-  // Optional: enable SwapManager with defaults
+  // Optional: enable SwapManager for background monitoring
   // swapManager: true,
 });
 ```
 
-### ServiceWorkerWallet with IndexedDB
-
-```typescript
-import { ServiceWorkerWallet, SingleKey, RestArkProvider, RestIndexerProvider } from '@arkade-os/sdk';
-import { IndexedDBStorageAdapter } from '@arkade-os/sdk/adapters/indexedDB';
-
-// Create your identity
-const identity = SingleKey.fromHex('your_private_key_hex');
-// Or generate a new one:
-// const identity = SingleKey.fromRandomBytes();
-
-const wallet = await ServiceWorkerWallet.setup({
-  serviceWorkerPath: '/service-worker.js',
-  arkServerUrl: 'https://mutinynet.arkade.sh',
-  identity,
-  // Optional: can use custom repositories, uses IndexedDB by default
-});
-
-// Must provide external providers for ServiceWorkerWallet (it doesn't have them)
-const arkadeLightning = new ArkadeLightning({
-  wallet: serviceWorkerWallet,
-  arkProvider: new RestArkProvider('https://mutinynet.arkade.sh'),
-  indexerProvider: new RestIndexerProvider('https://mutinynet.arkade.sh'),
-  swapProvider,
-});
-```
-
-**SwapRepository**: Swap storage is pluggable via `SwapRepository`. In ServiceWorker environments, the default is `IndexedDB`. For other options, see the [Arkade SDK Repositories documentation](https://github.com/arkade-os/ts-sdk).
+**SwapRepository**: Swap storage is pluggable via `SwapRepository`. By default, `ArkadeSwaps` uses an IndexedDB-backed repository in browser contexts. You can inject your own repository (for tests, Node.js, or custom storage) via the `swapRepository` option.
 
 > [!WARNING]
 > If you previously used the v1 `StorageAdapter`-based repositories, migrate
@@ -108,14 +83,14 @@ By default, you must manually monitor each swap and act on their state. **SwapMa
 
 ```typescript
 // Option 1: Enable with defaults
-const arkadeLightning = new ArkadeLightning({
+const swaps = new ArkadeSwaps({
   wallet,
   swapProvider,
   swapManager: true, // Simple boolean to enable with defaults
 });
 
 // Option 2: Enable with custom config
-const arkadeLightning = new ArkadeLightning({
+const swaps = new ArkadeSwaps({
   wallet,
   swapProvider,
   swapManager: {
@@ -132,11 +107,11 @@ const arkadeLightning = new ArkadeLightning({
   },
 });
 
-// Since autoStart is false, start monitoring manually:
-await arkadeLightning.startSwapManager();
+// If autoStart is false, manually start monitoring
+await swaps.startSwapManager();
 
 // Create swaps - they're automatically monitored!
-const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
+const invoice = await swaps.createLightningInvoice({ amount: 50000 });
 // User can navigate to other pages - swap completes in background
 ```
 
@@ -147,7 +122,7 @@ const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
 - **Fallback polling** with exponential backoff if WebSocket fails
 - **Auto-claim/refund** executes when status allows
 - **Resumes on app reopen** - loads pending swaps, polls latest status, executes refunds if expired
-- **⚠️ Default `ArkadeLightning` requires the app running** - monitoring stops when the app/tab closes
+- **Default `ArkadeSwaps` requires the app running** - monitoring stops when the app/tab closes
   - For browser background monitoring, use `ServiceWorkerArkadeLightning`
   - If swaps expire while closed, refunds execute automatically on next app launch (unless claimed/refunded by your background runtime)
 
@@ -173,7 +148,7 @@ const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
       onSwapUpdate: (swap, oldStatus) => {},
       onSwapCompleted: (swap) => {},
       onSwapFailed: (swap, error) => {},
-      onActionExecuted: (swap, action) => {},  // 'claim' or 'refund'
+      onActionExecuted: (swap, action) => {},  // 'claim', 'refund', 'claimArk', 'claimBtc', 'refundArk'
       onWebSocketConnected: () => {},
       onWebSocketDisconnected: (error?) => {},
     }
@@ -182,78 +157,67 @@ const invoice = await arkadeLightning.createLightningInvoice({ amount: 50000 });
 
 ### Event Subscription
 
-SwapManager supports flexible event subscription - you can add/remove listeners dynamically instead of just providing them in config:
+SwapManager supports flexible event subscription - you can add/remove listeners dynamically:
 
 ```typescript
-const arkadeLightning = new ArkadeLightning({
+const swaps = new ArkadeSwaps({
   wallet,
   swapProvider,
   swapManager: true,
 });
 
-const manager = arkadeLightning.getSwapManager();
+const manager = swaps.getSwapManager();
 
 // Subscribe to events using on* methods (returns unsubscribe function)
 const unsubscribe = manager.onSwapUpdate((swap, oldStatus) => {
   console.log(`Swap ${swap.id}: ${oldStatus} → ${swap.status}`);
-  // Update UI based on swap status
 });
 
 // Subscribe to completed events
 manager.onSwapCompleted((swap) => {
   console.log(`Swap ${swap.id} completed!`);
-  showNotification(`Payment completed!`);
 });
 
 // Subscribe to failures
 manager.onSwapFailed((swap, error) => {
   console.error(`Swap ${swap.id} failed:`, error);
-  showErrorDialog(error.message);
 });
 
-// Subscribe to actions (claim/refund)
+// Subscribe to actions (claim/refund/claimArk/claimBtc/refundArk)
 manager.onActionExecuted((swap, action) => {
   console.log(`Executed ${action} for swap ${swap.id}`);
 });
 
 // WebSocket events
-manager.onWebSocketConnected(() => {
-  console.log('Connected to swap updates');
-});
-
-manager.onWebSocketDisconnected((error) => {
-  console.log('Disconnected from swap updates', error);
-});
+manager.onWebSocketConnected(() => console.log('Connected'));
+manager.onWebSocketDisconnected((error) => console.log('Disconnected', error));
 
 // Unsubscribe when no longer needed (e.g., component unmount)
-// unsubscribe();
-```
+unsubscribe();
 
-**Benefits of dynamic event subscription:**
-- Add/remove listeners at any time
-- Multiple listeners per event type
-- Easy cleanup when components unmount
-- No need to restart SwapManager to change handlers
+// Or use off* methods to remove a specific listener
+manager.offSwapUpdate(myListener);
+```
 
 ### Cleanup (Disposable Pattern)
 
-ArkadeLightning implements the Disposable pattern for automatic cleanup:
+ArkadeSwaps implements the Disposable pattern for automatic cleanup:
 
 ```typescript
 // Option 1: Manual cleanup
-const arkadeLightning = new ArkadeLightning({ wallet, swapProvider });
+const swaps = new ArkadeSwaps({ wallet, swapProvider });
 // ... use it
-await arkadeLightning.dispose(); // Stops SwapManager and cleans up
+await swaps.dispose(); // Stops SwapManager and cleans up
 
 // Option 2: Automatic cleanup with `await using` (TypeScript 5.2+)
 {
-  await using arkadeLightning = new ArkadeLightning({
+  await using swaps = new ArkadeSwaps({
     wallet,
     swapProvider,
     swapManager: { autoStart: true },
   });
 
-  // Use arkadeLightning...
+  // Use swaps...
 
 } // SwapManager automatically stopped when scope exits
 ```
@@ -262,11 +226,11 @@ await arkadeLightning.dispose(); // Stops SwapManager and cleans up
 
 ```typescript
 // Stop background monitoring
-await arkadeLightning.stopSwapManager();
+await swaps.stopSwapManager();
 
 // Check manager stats
-const manager = arkadeLightning.getSwapManager();
-const stats = manager?.getStats();
+const manager = swaps.getSwapManager();
+const stats = await manager?.getStats();
 console.log(`Monitoring ${stats.monitoredSwaps} swaps`);
 console.log(`WebSocket connected: ${stats.websocketConnected}`);
 ```
@@ -276,15 +240,14 @@ console.log(`WebSocket connected: ${stats.websocketConnected}`);
 When SwapManager is enabled, you can subscribe to updates for specific swaps to show progress in your UI:
 
 ```typescript
-const result = await arkadeLightning.createLightningInvoice({ amount: 50000 });
+const result = await swaps.createLightningInvoice({ amount: 50000 });
 
 // Subscribe to this specific swap's updates
-const manager = arkadeLightning.getSwapManager();
+const manager = swaps.getSwapManager();
 const unsubscribe = manager.subscribeToSwapUpdates(
   result.pendingSwap.id,
   (swap, oldStatus) => {
     console.log(`Swap ${swap.id}: ${oldStatus} → ${swap.status}`);
-    // Update UI based on status
     if (swap.status === 'transaction.mempool') {
       showNotification('Payment detected in mempool!');
     } else if (swap.status === 'invoice.settled') {
@@ -302,20 +265,15 @@ const unsubscribe = manager.subscribeToSwapUpdates(
 Even with SwapManager enabled, you can still wait for specific swaps to complete:
 
 ```typescript
-const result = await arkadeLightning.createLightningInvoice({ amount: 50000 });
+const result = await swaps.createLightningInvoice({ amount: 50000 });
 
 // This blocks until the swap completes, but SwapManager handles the monitoring
 try {
-  const { txid } = await arkadeLightning.waitAndClaim(result.pendingSwap);
+  const { txid } = await swaps.waitAndClaim(result.pendingSwap);
   console.log('Payment claimed successfully:', txid);
 } catch (error) {
   console.error('Payment failed:', error);
 }
-
-// Benefits of delegating to SwapManager:
-// No race conditions - manager coordinates with manual calls
-// User can navigate away - swap completes in background
-// Automatic refund on failure - no manual error handling needed
 ```
 
 ### Without SwapManager (Manual Mode)
@@ -324,10 +282,10 @@ If SwapManager is not enabled, you must manually monitor swaps:
 
 ```typescript
 // Create invoice
-const result = await arkadeLightning.createLightningInvoice({ amount: 50000 });
+const result = await swaps.createLightningInvoice({ amount: 50000 });
 
 // MUST manually monitor - blocks until complete
-await arkadeLightning.waitAndClaim(result.pendingSwap);
+await swaps.waitAndClaim(result.pendingSwap);
 // User must stay on this page - navigating away stops monitoring
 ```
 
@@ -435,127 +393,12 @@ const arkLn = await ExpoArkadeLightning.setup({
 await arkLn.createLightningInvoice({ amount: 1000 });
 ```
 
-## Checking Swap Limits
-
-Before creating Lightning invoices or sending payments, you can check the minimum and maximum swap amounts supported by the Boltz service. This is useful to validate that your invoice amount is within the acceptable range.
-
-```typescript
-// Get current swap limits (in satoshis)
-const limits = await arkadeLightning.getLimits();
-
-if (limits) {
-  console.log('Minimum swap amount:', limits.min, 'sats');
-  console.log('Maximum swap amount:', limits.max, 'sats');
-
-  // Example: Validate invoice amount before creating
-  const invoiceAmount = 50000; // 50,000 sats
-
-  if (invoiceAmount < limits.min) {
-    console.error(`Amount ${invoiceAmount} is below minimum ${limits.min} sats`);
-  } else if (invoiceAmount > limits.max) {
-    console.error(`Amount ${invoiceAmount} is above maximum ${limits.max} sats`);
-  } else {
-    console.log('Amount is within valid range');
-    // Safe to proceed with creating invoice or payment
-  }
-} else {
-  console.log('Unable to fetch limits - no swap provider configured');
-}
-```
-
-### Validating Lightning Invoice Amounts
-
-```typescript
-import { decodeInvoice } from '@arkade-os/boltz-swap';
-
-// Decode an incoming Lightning invoice to check its amount
-const invoice = 'lnbc500u1pj...'; // Lightning invoice string
-const decodedInvoice = decodeInvoice(invoice);
-
-console.log('Invoice amount:', decodedInvoice.amountSats, 'sats');
-
-// Check if the invoice amount is within swap limits
-const limits = await arkadeLightning.getLimits();
-
-if (limits && decodedInvoice.amountSats >= limits.min && decodedInvoice.amountSats <= limits.max) {
-  // Amount is valid for swaps
-  const paymentResult = await arkadeLightning.sendLightningPayment({
-    invoice: invoice,
-  });
-  console.log('Payment successful!');
-} else {
-  console.error('Invoice amount is outside supported swap limits');
-}
-```
-
-## Checking Swap Fees
-
-You can check the fee to pay for different swap amounts supported by the Boltz service.
-This is useful to validate the user is willing to pay the fees.
-
-```typescript
-// Get current swap fees
-const fees: FeesResponse | null = await arkadeLightning.getFees();
-if (!fees) throw new Error('something went wrong');
-
-const calcSubmarineSwapFee = (satoshis: number): number => {
-  if (!satoshis) return 0;
-  const { percentage, minerFees } = fees.submarine;
-  return Math.ceil((satoshis * percentage) / 100 + minerFees);
-};
-
-const calcReverseSwapFee = (satoshis: number): number => {
-  if (!satoshis) return 0;
-  const { percentage, minerFees } = fees.reverse;
-  return Math.ceil((satoshis * percentage) / 100 + minerFees.claim + minerFees.lockup);
-};
-```
-
-## Checking Swap Status
-
-**With SwapManager:** Status updates are automatic via events - no manual checking needed.
-
-**Without SwapManager (manual mode):**
-```typescript
-const response = await arkadeLightning.getSwapStatus('swap_id');
-console.log('swap status = ', response.status);
-```
-
-## Storage
-
-This library stores swaps via a **SwapRepository**. By default, `ArkadeLightning` uses an IndexedDB-backed repository in browser contexts, so swap data persists across reloads. You can inject your own repository (for tests, Node.js, or custom storage) via the `swapRepository` option.
-
-```typescript
-const arkadeLightning = new ArkadeLightning({
-  wallet,
-  swapProvider,
-  // Optional: override storage
-  // swapRepository: myCustomSwapRepository,
-});
-```
-
-All swap data is persisted automatically and can be retrieved using the following methods:
-
-```typescript
-// Get all pending submarine swaps (those waiting for Lightning payment)
-const pendingPaymentsToLightning = await arkadeLightning.getPendingSubmarineSwaps();
-
-// Get all pending reverse swaps (those waiting for claim)
-const pendingPaymentsFromLightning = await arkadeLightning.getPendingReverseSwaps();
-
-// Get complete swap history (both completed and pending)
-const swapHistory = await arkadeLightning.getSwapHistory();
-```
-
-**Note**: If IndexedDB is not available (e.g., in Node.js), provide a custom `swapRepository` implementation.
-
 ## Receiving Lightning Payments
 
 To receive a Lightning payment into your Arkade wallet:
 
 ```typescript
-// Create a Lightning invoice that will deposit funds to your Arkade wallet
-const result = await arkadeLightning.createLightningInvoice({
+const result = await swaps.createLightningInvoice({
   amount: 50000, // 50,000 sats
   description: 'Payment to my Arkade wallet',
 });
@@ -566,9 +409,6 @@ console.log('Lightning Invoice:', result.invoice);
 console.log('Payment Hash:', result.paymentHash);
 console.log('Pending swap', result.pendingSwap);
 console.log('Preimage', result.preimage);
-
-// The invoice can now be shared with the payer
-// When paid, funds will appear in your Arkade wallet
 ```
 
 ### Monitoring Incoming Lightning Payments
@@ -576,18 +416,15 @@ console.log('Preimage', result.preimage);
 **With SwapManager (recommended):**
 ```typescript
 // SwapManager handles monitoring and claiming automatically
-// Just listen to events for UI updates
-const result = await arkadeLightning.createLightningInvoice({ amount: 50000 });
-// Payment will be claimed automatically when received 
+const result = await swaps.createLightningInvoice({ amount: 50000 });
+// Payment will be claimed automatically when received
 ```
 
 **Without SwapManager (manual mode):**
 ```typescript
 // You must manually monitor - blocks until payment is received
-const receivalResult = await arkadeLightning.waitAndClaim(result.pendingSwap);
-console.log('Receival successful!');
+const receivalResult = await swaps.waitAndClaim(result.pendingSwap);
 console.log('Transaction ID:', receivalResult.txid);
-// ⚠️ User must stay on this page - navigating away stops monitoring
 ```
 
 ## Sending Lightning Payments
@@ -601,7 +438,7 @@ const invoiceDetails = decodeInvoice('lnbc500u1pj...');
 console.log('Invoice amount:', invoiceDetails.amountSats, 'sats');
 
 // Send payment - returns immediately after creating swap
-const paymentResult = await arkadeLightning.sendLightningPayment({
+const paymentResult = await swaps.sendLightningPayment({
   invoice: 'lnbc500u1pj...',
 });
 
@@ -611,17 +448,167 @@ console.log('Payment initiated:', paymentResult.txid);
 
 **Without SwapManager (manual mode):**
 ```typescript
-// Blocks until payment completes or fails
-const paymentResult = await arkadeLightning.sendLightningPayment({
+const paymentResult = await swaps.sendLightningPayment({
   invoice: 'lnbc500u1pj...',
 });
 
-console.log('Payment successful!');
 console.log('Amount:', paymentResult.amount);
 console.log('Preimage:', paymentResult.preimage);
 console.log('Transaction ID:', paymentResult.txid);
-// ⚠️ If payment fails, you must manually handle refund (see Error Handling)
 ```
+
+## Chain Swaps
+
+Chain swaps move funds between Arkade and Bitcoin on-chain via Boltz.
+
+### ARK to BTC
+
+Send funds from your Arkade wallet to a Bitcoin address:
+
+```typescript
+// Create the swap
+const result = await swaps.arkToBtc({
+  btcAddress: 'bc1q...',
+  // Optional: specify amounts if needed
+  // senderLockAmount: 100000,
+  // receiverLockAmount: 99000,
+  // feeSatsPerByte: 2,
+});
+
+console.log('Pay to ARK address:', result.arkAddress);
+console.log('Amount to pay:', result.amountToPay, 'sats');
+
+// Wait for BTC to be claimed
+const { txid } = await swaps.waitAndClaimBtc(result.pendingSwap);
+console.log('BTC claimed:', txid);
+```
+
+If the swap fails, refund your ARK funds:
+
+```typescript
+await swaps.refundArk(result.pendingSwap);
+```
+
+### BTC to ARK
+
+Receive funds from Bitcoin into your Arkade wallet:
+
+```typescript
+// Create the swap
+const result = await swaps.btcToArk({
+  // Optional: specify amounts
+  // senderLockAmount: 100000,
+  // receiverLockAmount: 99000,
+  // feeSatsPerByte: 2,
+});
+
+console.log('Pay to BTC address:', result.btcAddress);
+console.log('Amount to pay:', result.amountToPay, 'sats');
+
+// Wait for ARK to be claimed
+const { txid } = await swaps.waitAndClaimArk(result.pendingSwap);
+console.log('ARK claimed:', txid);
+```
+
+### Chain Swap Fees and Limits
+
+```typescript
+// Get chain swap fees
+const chainFees = await swaps.getFees('ARK', 'BTC');
+console.log('Percentage:', chainFees.percentage);
+console.log('Server miner fee:', chainFees.minerFees.server);
+console.log('User claim fee:', chainFees.minerFees.user.claim);
+console.log('User lockup fee:', chainFees.minerFees.user.lockup);
+
+// Get chain swap limits
+const chainLimits = await swaps.getLimits('ARK', 'BTC');
+console.log('Min:', chainLimits.min, 'sats');
+console.log('Max:', chainLimits.max, 'sats');
+```
+
+### Renegotiating Quotes
+
+If a chain swap quote expires, renegotiate it:
+
+```typescript
+const newAmount = await swaps.quoteSwap(pendingSwap.id);
+console.log('Updated amount:', newAmount);
+```
+
+## Checking Swap Limits
+
+Before creating swaps, check the supported amount range:
+
+```typescript
+// Lightning swap limits
+const limits = await swaps.getLimits();
+console.log('Min:', limits.min, 'sats');
+console.log('Max:', limits.max, 'sats');
+
+// Chain swap limits
+const chainLimits = await swaps.getLimits('ARK', 'BTC');
+```
+
+### Validating Lightning Invoice Amounts
+
+```typescript
+import { decodeInvoice } from '@arkade-os/boltz-swap';
+
+const invoice = 'lnbc500u1pj...';
+const decoded = decodeInvoice(invoice);
+console.log('Invoice amount:', decoded.amountSats, 'sats');
+
+const limits = await swaps.getLimits();
+if (decoded.amountSats >= limits.min && decoded.amountSats <= limits.max) {
+  await swaps.sendLightningPayment({ invoice });
+}
+```
+
+## Checking Swap Fees
+
+```typescript
+// Lightning fees
+const fees = await swaps.getFees();
+
+const calcSubmarineSwapFee = (satoshis: number): number => {
+  const { percentage, minerFees } = fees.submarine;
+  return Math.ceil((satoshis * percentage) / 100 + minerFees);
+};
+
+const calcReverseSwapFee = (satoshis: number): number => {
+  const { percentage, minerFees } = fees.reverse;
+  return Math.ceil((satoshis * percentage) / 100 + minerFees.claim + minerFees.lockup);
+};
+
+// Chain fees
+const chainFees = await swaps.getFees('ARK', 'BTC');
+```
+
+## Checking Swap Status
+
+**With SwapManager:** Status updates are automatic via events - no manual checking needed.
+
+**Without SwapManager (manual mode):**
+```typescript
+const response = await swaps.getSwapStatus('swap_id');
+console.log('swap status = ', response.status);
+```
+
+## Storage
+
+All swap data is persisted automatically and can be retrieved:
+
+```typescript
+// Get pending swaps by type
+const pendingSubmarineSwaps = await swaps.getPendingSubmarineSwaps();
+const pendingReverseSwaps = await swaps.getPendingReverseSwaps();
+const pendingChainSwaps = await swaps.getPendingChainSwaps();
+
+// Get complete swap history (all types, sorted by creation date)
+const swapHistory = await swaps.getSwapHistory();
+```
+
+**Note**: If IndexedDB is not available (e.g., in Node.js), provide a custom `swapRepository` implementation.
 
 ## Error Handling
 
@@ -642,34 +629,58 @@ import {
 } from '@arkade-os/boltz-swap';
 
 try {
-  await arkadeLightning.sendLightningPayment({
+  await swaps.sendLightningPayment({
     invoice: 'lnbc500u1pj...',
   });
 } catch (error) {
   if (error instanceof InvoiceExpiredError) {
-    console.error('The invoice has expired. Please request a new one.');
+    console.error('The invoice has expired.');
   } else if (error instanceof InvoiceFailedToPayError) {
     console.error('The provider failed to pay the invoice.');
   } else if (error instanceof InsufficientFundsError) {
     console.error('Not enough funds available:', error.message);
   } else if (error instanceof NetworkError) {
-    console.error('Network issue. Please try again later:', error.message);
+    console.error('Network issue:', error.message);
   } else if (error instanceof SchemaError) {
-    console.error('Invalid response from API. Please try again later.');
+    console.error('Invalid response from API.');
   } else if (error instanceof SwapExpiredError) {
     console.error('The swap has expired.');
   } else if (error instanceof TransactionFailedError) {
-    console.error('Transaction failed. Please try again later');
+    console.error('Transaction failed.');
   } else {
     console.error('Unknown error:', error);
   }
 
   // Manual refund (only needed without SwapManager)
   if (error.isRefundable && error.pendingSwap) {
-    const refundResult = await arkadeLightning.refundVHTLC(error.pendingSwap);
-    console.log('Refund claimed:', refundResult.txid);
+    await swaps.refundVHTLC(error.pendingSwap);
   }
 }
+```
+
+## Type Guards
+
+```typescript
+import {
+  isPendingReverseSwap,
+  isPendingSubmarineSwap,
+  isPendingChainSwap,
+  isSubmarineSwapRefundable,
+  isChainSwapClaimable,
+  isChainSwapRefundable,
+  isSubmarineFinalStatus,
+  isReverseFinalStatus,
+  isChainFinalStatus,
+} from '@arkade-os/boltz-swap';
+
+// Discriminate swap types
+if (isPendingReverseSwap(swap)) { /* Lightning → Arkade */ }
+if (isPendingSubmarineSwap(swap)) { /* Arkade → Lightning */ }
+if (isPendingChainSwap(swap)) { /* ARK ↔ BTC chain */ }
+
+// Check swap state
+if (isChainSwapClaimable(swap)) { /* ready to claim */ }
+if (isChainSwapRefundable(swap)) { /* can be refunded */ }
 ```
 
 ### Releasing

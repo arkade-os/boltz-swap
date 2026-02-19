@@ -12,12 +12,13 @@ import {
 } from "../boltz-swap-provider";
 import { SwapRepository } from "../repositories/swap-repository";
 import {
-    ArkadeLightningConfig,
+    ArkadeSwapsConfig,
     type CreateLightningInvoiceRequest,
     type CreateLightningInvoiceResponse,
     type FeesResponse,
     type LimitsResponse,
     Network,
+    PendingChainSwap,
     PendingReverseSwap,
     PendingSubmarineSwap,
     type SendLightningPaymentRequest,
@@ -29,7 +30,7 @@ import {
     IndexerProvider,
     RestIndexerProvider,
 } from "@arkade-os/sdk";
-import { ArkadeLightning, IArkadeLightning } from "../arkade-lightning";
+import { ArkadeLightning, IArkadeLightning } from "../arkade-swaps";
 import type { SwapManagerClient } from "../swap-manager";
 
 export const DEFAULT_MESSAGE_TAG = "ARKADE_LIGHTNING_UPDATER";
@@ -37,7 +38,7 @@ export const DEFAULT_MESSAGE_TAG = "ARKADE_LIGHTNING_UPDATER";
 export type RequestInitArkLn = RequestEnvelope & {
     type: "INIT_ARKADE_LIGHTNING";
     payload: Omit<
-        ArkadeLightningConfig,
+        ArkadeSwapsConfig,
         "wallet" | "swapRepository" | "swapProvider" | "indexerProvider"
     > & {
         network: Network;
@@ -198,7 +199,7 @@ export type RequestGetSwapHistory = RequestEnvelope & {
 };
 export type ResponseGetSwapHistory = ResponseEnvelope & {
     type: "SWAP_HISTORY";
-    payload: (PendingReverseSwap | PendingSubmarineSwap)[];
+    payload: (PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap)[];
 };
 
 export type RequestRefreshSwapsStatus = RequestEnvelope & {
@@ -226,7 +227,7 @@ export type ResponseSwapManagerStop = ResponseEnvelope & {
 
 export type RequestSwapManagerAddSwap = RequestEnvelope & {
     type: "SM-ADD_SWAP";
-    payload: PendingReverseSwap | PendingSubmarineSwap;
+    payload: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap;
 };
 export type ResponseSwapManagerAddSwap = ResponseEnvelope & {
     type: "SM-SWAP_ADDED";
@@ -245,7 +246,7 @@ export type RequestSwapManagerGetPending = RequestEnvelope & {
 };
 export type ResponseSwapManagerGetPending = ResponseEnvelope & {
     type: "SM-PENDING_SWAPS";
-    payload: (PendingReverseSwap | PendingSubmarineSwap)[];
+    payload: (PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap)[];
 };
 
 export type RequestSwapManagerHasSwap = RequestEnvelope & {
@@ -350,7 +351,7 @@ export type ArkadeLightningUpdaterResponse =
     | ResponseSwapManagerGetStats
     | ResponseSwapManagerWaitForCompletion;
 
-type PendingSwap = PendingReverseSwap | PendingSubmarineSwap;
+type PendingSwap = PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap;
 
 export type SwapManagerEventMessage =
     | {
@@ -373,7 +374,12 @@ export type SwapManagerEventMessage =
           type: "SM-EVENT-ACTION_EXECUTED";
           payload: {
               swap: PendingSwap;
-              action: "claim" | "refund";
+              action:
+                  | "claim"
+                  | "refund"
+                  | "claimArk"
+                  | "claimBtc"
+                  | "refundArk";
           };
       }
     | {
@@ -758,9 +764,6 @@ export class ArkadeLightningMessageHandler
             indexerProvider: this.indexerProvider,
             swapRepository: this.swapRepository,
             swapManager: payload.swapManager,
-            feeConfig: payload.feeConfig,
-            timeoutConfig: payload.timeoutConfig,
-            retryConfig: payload.retryConfig,
         });
         this.handler = handler;
 

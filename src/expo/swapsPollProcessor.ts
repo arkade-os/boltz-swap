@@ -9,7 +9,7 @@ import {
     isSubmarineFinalStatus,
     isSubmarineSwapRefundable,
 } from "../boltz-swap-provider";
-import { ArkadeLightning } from "../arkade-lightning";
+import { ArkadeLightning } from "../arkade-swaps";
 import { logger } from "../logger";
 
 /**
