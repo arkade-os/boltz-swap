@@ -21,7 +21,27 @@ import {
 import { NetworkError } from "./errors";
 import { logger } from "./logger";
 
-type Actions = "claim" | "refund" | "claimArk" | "claimBtc" | "refundArk";
+/**
+ * Swap action types emitted by SwapManager.
+ *
+ * Lightning actions:
+ * - `claim`  — claim a reverse swap VHTLC (Lightning → Arkade)
+ * - `refund` — refund a submarine swap VHTLC (Arkade → Lightning, failed)
+ *
+ * Chain swap actions:
+ * - `claimArk`  — claim ARK via VHTLC (BTC → ARK swap)
+ * - `claimBtc`  — claim BTC via HTLC (ARK → BTC swap)
+ * - `refundArk` — refund ARK via VHTLC (ARK → BTC swap, failed)
+ *
+ * Note: there is no `refundBtc` because BTC lockup refunds are handled
+ * on-chain by Boltz after the timelock expires.
+ */
+export type Actions =
+    | "claim"
+    | "refund"
+    | "claimArk"
+    | "claimBtc"
+    | "refundArk";
 
 export interface SwapManagerConfig {
     /** Auto claim/refund swaps (default: true) */
@@ -426,9 +446,13 @@ export class SwapManager implements SwapManagerClient {
     }
 
     /**
-     * Wait for a specific swap to complete
-     * This blocks until the swap reaches a final status or fails
-     * Useful when you want blocking behavior even with SwapManager enabled
+     * Wait for a specific swap to complete.
+     * Blocks until the swap reaches a final status or fails.
+     * Useful when you want blocking behavior even with SwapManager enabled.
+     *
+     * @throws If the swap is already in a final status (submarine/chain swaps throw immediately;
+     *         reverse swaps return the existing txid).
+     * @throws If the swap is not found in the manager.
      */
     async waitForSwapCompletion(swapId: string): Promise<{ txid: string }> {
         // Quick checks without async executor

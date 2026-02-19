@@ -1,6 +1,6 @@
 import type { TaskItem } from "@arkade-os/sdk/worker/expo";
-import type { IArkadeLightning } from "../arkade-lightning";
-import { ArkadeLightning } from "../arkade-lightning";
+import type { IArkadeLightning } from "../arkade-swaps";
+import { ArkadeLightning } from "../arkade-swaps";
 import type { SwapManagerClient } from "../swap-manager";
 import type {
     CreateLightningInvoiceRequest,

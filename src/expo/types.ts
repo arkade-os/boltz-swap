@@ -7,7 +7,7 @@ import type {
 import type { AsyncStorageTaskQueue } from "@arkade-os/sdk/worker/expo";
 import type { BoltzSwapProvider } from "../boltz-swap-provider";
 import type { SwapRepository } from "../repositories/swap-repository";
-import type { ArkadeLightningConfig } from "../types";
+import type { ArkadeSwapsConfig } from "../types";
 import type { Network } from "../types";
 
 /**
@@ -68,7 +68,7 @@ export interface DefineSwapBackgroundTaskOptions {
 /**
  * Configuration for {@link ExpoArkadeLightning.setup}.
  */
-export interface ExpoArkadeLightningConfig extends ArkadeLightningConfig {
+export interface ExpoArkadeLightningConfig extends ArkadeSwapsConfig {
     /**
      * Ark server base URL (e.g. "https://ark.example.com").
      *

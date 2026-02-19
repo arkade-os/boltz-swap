@@ -291,23 +291,16 @@ export class ArkadeSwaps {
     async createLightningInvoice(
         args: CreateLightningInvoiceRequest
     ): Promise<CreateLightningInvoiceResponse> {
-        return new Promise((resolve, reject) => {
-            this.createReverseSwap(args)
-                .then((pendingSwap) => {
-                    const decodedInvoice = decodeInvoice(
-                        pendingSwap.response.invoice
-                    );
-                    resolve({
-                        amount: pendingSwap.response.onchainAmount,
-                        expiry: decodedInvoice.expiry,
-                        invoice: pendingSwap.response.invoice,
-                        paymentHash: decodedInvoice.paymentHash,
-                        pendingSwap,
-                        preimage: pendingSwap.preimage,
-                    } as CreateLightningInvoiceResponse);
-                })
-                .catch(reject);
-        });
+        const pendingSwap = await this.createReverseSwap(args);
+        const decodedInvoice = decodeInvoice(pendingSwap.response.invoice);
+        return {
+            amount: pendingSwap.response.onchainAmount,
+            expiry: decodedInvoice.expiry,
+            invoice: pendingSwap.response.invoice,
+            paymentHash: decodedInvoice.paymentHash,
+            pendingSwap,
+            preimage: pendingSwap.preimage,
+        } as CreateLightningInvoiceResponse;
     }
 
     /**
@@ -446,7 +439,7 @@ export class ArkadeSwaps {
             preimage
         );
 
-        var finalStatus: BoltzSwapStatus | undefined;
+        let finalStatus: BoltzSwapStatus | undefined;
 
         if (isRecoverable(vtxo)) {
             await this.joinBatch(vhtlcIdentity, input, output, arkInfo);
@@ -1140,7 +1133,11 @@ export class ArkadeSwaps {
 
         const address = await this.wallet.getAddress();
 
-        const ourXOnlyPublicKey = await this.wallet.identity.xOnlyPublicKey();
+        const ourXOnlyPublicKey = normalizeToXOnlyKey(
+            await this.wallet.identity.xOnlyPublicKey(),
+            "user",
+            pendingSwap.id
+        );
 
         const serverXOnlyPublicKey = normalizeToXOnlyKey(
             hex.decode(arkInfo.signerPubkey),
@@ -1326,7 +1323,12 @@ export class ArkadeSwaps {
                         await updateSwapStatus();
                         await this.signCooperativeClaimForServer(
                             pendingSwap
-                        ).catch();
+                        ).catch((err) => {
+                            logger.error(
+                                `Failed to sign cooperative claim for ${pendingSwap.id}:`,
+                                err
+                            );
+                        });
                         break;
                     case "transaction.lockupFailed":
                         await updateSwapStatus();
