@@ -9,6 +9,7 @@ import type {
     LimitsResponse,
     PendingReverseSwap,
     PendingSubmarineSwap,
+    PendingSwap,
     SendLightningPaymentRequest,
     SendLightningPaymentResponse,
 } from "../types";
@@ -177,7 +178,9 @@ export class ExpoArkadeLightning implements IArkadeLightning {
         // Acknowledge background outbox results
         const results = await taskQueue.getResults();
         if (results.length > 0) {
-            await taskQueue.acknowledgeResults(results.map((r) => r.id));
+            await taskQueue.acknowledgeResults(
+                results.map((r: { id: string }) => r.id)
+            );
         }
 
         // Re-seed for the next background wake
@@ -352,7 +355,7 @@ export class ExpoArkadeLightning implements IArkadeLightning {
         return this.inner.getPendingReverseSwaps();
     }
 
-    getSwapHistory(): Promise<(PendingReverseSwap | PendingSubmarineSwap)[]> {
+    getSwapHistory(): Promise<PendingSwap[]> {
         return this.inner.getSwapHistory();
     }
 
