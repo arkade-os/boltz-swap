@@ -121,7 +121,10 @@ export const isChainFailedStatus = (status: BoltzSwapStatus): boolean => {
 };
 
 export const isChainClaimableStatus = (status: BoltzSwapStatus): boolean => {
-    return ["transaction.mempool", "transaction.confirmed"].includes(status);
+    return [
+        "transaction.server.mempool",
+        "transaction.server.confirmed",
+    ].includes(status);
 };
 
 export const isChainFinalStatus = (status: BoltzSwapStatus): boolean => {
