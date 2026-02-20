@@ -50,7 +50,6 @@ import {
     Musig,
     Networks,
     constructClaimTransaction,
-    targetFee,
     detectSwap,
     OutputType,
 } from "boltz-core";
@@ -362,27 +361,23 @@ export class ArkadeChainSwap {
                 : 0
         );
 
-        const claimTx = targetFee(1, (fee) =>
-            constructClaimTransaction(
-                [
-                    {
-                        preimage: hex.decode(pendingSwap.preimage),
-                        type: OutputType.Taproot,
-                        script: swapOutput.script!,
-                        amount: swapOutput.amount!,
-                        vout: swapOutput.vout!,
-                        privateKey: hex.decode(pendingSwap.ephemeralKey),
-                        transactionId: lockupTx.id,
-                        swapTree: swapTree,
-                        internalKey: musig.internalKey,
-                        cooperative: true, // set to false to enforce script path
-                    },
-                ],
-                OutScript.encode(
-                    Address(network).decode(pendingSwap.toAddress!)
-                ),
-                feeToDeliverExactAmount > fee ? feeToDeliverExactAmount : fee
-            )
+        const claimTx = constructClaimTransaction(
+            [
+                {
+                    preimage: hex.decode(pendingSwap.preimage),
+                    type: OutputType.Taproot,
+                    script: swapOutput.script!,
+                    amount: swapOutput.amount!,
+                    vout: swapOutput.vout!,
+                    privateKey: hex.decode(pendingSwap.ephemeralKey),
+                    transactionId: lockupTx.id,
+                    swapTree: swapTree,
+                    internalKey: musig.internalKey,
+                    cooperative: true, // set to false to enforce script path
+                },
+            ],
+            OutScript.encode(Address(network).decode(pendingSwap.toAddress!)),
+            feeToDeliverExactAmount
         );
 
         const musigMessage = musig
