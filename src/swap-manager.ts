@@ -822,7 +822,7 @@ export class SwapManager {
                     logger.log(
                         `Auto-signing server's cooperative claim for ARK chain swap ${swap.id}`
                     );
-                    await this.signServerClaimCallback!(swap);
+                    await this.executeSignServerClaimAction(swap);
                     // Emit action executed event to all listeners
                     this.actionExecutedListeners.forEach((listener) =>
                         listener(swap, "signServerClaim")
@@ -906,6 +906,20 @@ export class SwapManager {
         }
 
         await this.refundArkCallback(swap);
+    }
+
+    /**
+     * Execute sign server claim action for chain swap
+     */
+    private async executeSignServerClaimAction(
+        swap: PendingChainSwap
+    ): Promise<void> {
+        if (!this.signServerClaimCallback) {
+            logger.error("signServerClaim callback not set");
+            return;
+        }
+
+        await this.signServerClaimCallback(swap);
     }
 
     /**
