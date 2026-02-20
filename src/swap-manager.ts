@@ -11,6 +11,7 @@ import {
     isChainClaimableStatus,
     isChainRefundableStatus,
     isChainFinalStatus,
+    isChainSignableStatus,
 } from "./boltz-swap-provider";
 import {
     PendingChainSwap,
@@ -21,7 +22,13 @@ import {
 import { NetworkError } from "./errors";
 import { logger } from "./logger";
 
-type Actions = "claim" | "refund" | "claimArk" | "claimBtc" | "refundArk";
+type Actions =
+    | "claim"
+    | "refund"
+    | "claimArk"
+    | "claimBtc"
+    | "refundArk"
+    | "signServerClaim";
 
 export interface SwapManagerConfig {
     /** Auto claim/refund swaps (default: true) */
@@ -113,6 +120,9 @@ export class SwapManager {
     private refundArkCallback:
         | ((swap: PendingChainSwap) => Promise<void>)
         | null = null;
+    private signServerClaimCallback:
+        | ((swap: PendingChainSwap) => Promise<void>)
+        | null = null;
 
     // Callback injected by ArkadeChainSwap and ArkadeLightning
     private saveSwapCallback: ((swap: PendingSwap) => Promise<void>) | null =
@@ -183,11 +193,13 @@ export class SwapManager {
         claimBtc: (swap: PendingChainSwap) => Promise<void>;
         refundArk: (swap: PendingChainSwap) => Promise<void>;
         saveSwap: (swap: PendingSwap) => Promise<void>;
+        signServerClaim: (swap: PendingChainSwap) => Promise<void>;
     }): void {
         this.claimArkCallback = callbacks.claimArk;
         this.claimBtcCallback = callbacks.claimBtc;
         this.refundArkCallback = callbacks.refundArk;
         this.saveSwapCallback = callbacks.saveSwap;
+        this.signServerClaimCallback = callbacks.signServerClaim;
     }
 
     /**
@@ -803,6 +815,18 @@ export class SwapManager {
                     if (swap.request.from === "BTC") {
                         // TODO: Implement BTC refund if needed
                     }
+                } else if (
+                    swap.request.to === "ARK" &&
+                    isChainSignableStatus(swap.status)
+                ) {
+                    logger.log(
+                        `Auto-signing server's cooperative claim for ARK chain swap ${swap.id}`
+                    );
+                    await this.signServerClaimCallback!(swap);
+                    // Emit action executed event to all listeners
+                    this.actionExecutedListeners.forEach((listener) =>
+                        listener(swap, "signServerClaim")
+                    );
                 }
             }
         } catch (error) {

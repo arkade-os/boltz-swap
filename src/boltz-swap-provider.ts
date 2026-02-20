@@ -151,6 +151,10 @@ export const isChainRefundableStatus = (status: BoltzSwapStatus): boolean => {
     return ["swap.expired"].includes(status);
 };
 
+export const isChainSignableStatus = (status: BoltzSwapStatus): boolean => {
+    return ["transaction.claim.pending"].includes(status);
+};
+
 export const isChainSuccessStatus = (status: BoltzSwapStatus): boolean => {
     return status === "transaction.claimed";
 };

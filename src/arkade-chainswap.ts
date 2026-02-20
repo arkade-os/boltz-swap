@@ -148,6 +148,9 @@ export class ArkadeChainSwap {
                         saveChainSwap: this.savePendingChainSwap.bind(this),
                     });
                 },
+                signServerClaim: async (swap: PendingChainSwap) => {
+                    await this.signCooperativeClaimForServer(swap);
+                },
             });
 
             // Autostart if configured (defaults to true)
