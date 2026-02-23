@@ -392,7 +392,10 @@ export class SwapManager {
         // In polling fallback mode, reset backoff and poll immediately
         // so the new swap gets a status check without waiting
         if (this.usePollingFallback && this.isRunning) {
-            this.currentPollRetryDelay = this.config.pollRetryDelayMs!;
+            this.currentPollRetryDelay = Math.min(
+                this.config.pollInterval!,
+                this.config.pollRetryDelayMs!
+            );
             this.pollAllSwaps();
             this.startPollingFallback();
         }
