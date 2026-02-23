@@ -357,6 +357,9 @@ export class SwapManager {
      * Restarts any running timer so the new interval takes effect immediately.
      */
     setPollInterval(ms: number): void {
+        if (ms <= 0) {
+            throw new RangeError(`setPollInterval: ms must be a positive number, got ${ms}`);
+        }
         this.config.pollInterval = ms;
 
         // Also reset the fallback retry delay so it doesn't stay inflated
