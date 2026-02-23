@@ -52,6 +52,7 @@ import {
     constructClaimTransaction,
     detectSwap,
     OutputType,
+    targetFee,
 } from "boltz-core";
 import { randomBytes } from "@noble/hashes/utils.js";
 import { Address, OutScript, SigHash, Transaction } from "@scure/btc-signer";
@@ -251,11 +252,11 @@ export class ArkadeChainSwap {
                     }
                     case "transaction.claimed":
                         await updateSwapStatus();
-                        const status = await this.getSwapStatus(pendingSwap.id);
+                        const finalStatus = await this.getSwapStatus(
+                            pendingSwap.id
+                        );
                         resolve({
-                            txid:
-                                status.transaction?.id ??
-                                pendingSwap.response.id,
+                            txid: finalStatus.transaction?.id ?? "",
                         });
                         break;
                     case "transaction.lockupFailed":
@@ -354,23 +355,27 @@ export class ArkadeChainSwap {
                 : 0
         );
 
-        const claimTx = constructClaimTransaction(
-            [
-                {
-                    preimage: hex.decode(pendingSwap.preimage),
-                    type: OutputType.Taproot,
-                    script: swapOutput.script!,
-                    amount: swapOutput.amount!,
-                    vout: swapOutput.vout!,
-                    privateKey: hex.decode(pendingSwap.ephemeralKey),
-                    transactionId: lockupTx.id,
-                    swapTree: swapTree,
-                    internalKey: musig.internalKey,
-                    cooperative: true, // set to false to enforce script path
-                },
-            ],
-            OutScript.encode(Address(network).decode(pendingSwap.toAddress!)),
-            feeToDeliverExactAmount
+        const claimTx = targetFee(1, (fee) =>
+            constructClaimTransaction(
+                [
+                    {
+                        preimage: hex.decode(pendingSwap.preimage),
+                        type: OutputType.Taproot,
+                        script: swapOutput.script!,
+                        amount: swapOutput.amount!,
+                        vout: swapOutput.vout!,
+                        privateKey: hex.decode(pendingSwap.ephemeralKey),
+                        transactionId: lockupTx.id,
+                        swapTree: swapTree,
+                        internalKey: musig.internalKey,
+                        cooperative: true, // set to false to enforce script path
+                    },
+                ],
+                OutScript.encode(
+                    Address(network).decode(pendingSwap.toAddress!)
+                ),
+                feeToDeliverExactAmount > fee ? feeToDeliverExactAmount : fee
+            )
         );
 
         const musigMessage = musig
@@ -621,11 +626,11 @@ export class ArkadeChainSwap {
                         break;
                     case "transaction.claimed":
                         await updateSwapStatus();
-                        const status = await this.getSwapStatus(pendingSwap.id);
+                        const finalStatus = await this.getSwapStatus(
+                            pendingSwap.id
+                        );
                         resolve({
-                            txid:
-                                status.transaction?.id ??
-                                pendingSwap.response.id,
+                            txid: finalStatus.transaction?.id ?? "",
                         });
                         break;
                     case "transaction.claim.pending":
