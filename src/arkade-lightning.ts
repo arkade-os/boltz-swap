@@ -276,6 +276,21 @@ export class ArkadeLightning {
         });
 
         try {
+            // If SwapManager is enabled, delegate to its polling-based monitoring
+            // instead of waitForSwapSettlement which uses a direct WebSocket
+            // (unavailable in some runtimes like Bare worklets)
+            if (this.swapManager && this.swapManager.hasSwap(pendingSwap.id)) {
+                await this.swapManager.waitForSwapCompletion(pendingSwap.id);
+                const { preimage } = await this.swapProvider.getSwapPreimage(
+                    pendingSwap.id
+                );
+                return {
+                    amount: pendingSwap.response.expectedAmount,
+                    preimage,
+                    txid,
+                };
+            }
+
             const { preimage } = await this.waitForSwapSettlement(pendingSwap);
             return {
                 amount: pendingSwap.response.expectedAmount,

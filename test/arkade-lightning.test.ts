@@ -715,6 +715,55 @@ describe("ArkadeLightning", () => {
                 expect(result.preimage).toBe(mock.preimage);
                 expect(result.txid).toBe(mock.txid);
             });
+
+            it("should delegate to SwapManager when enabled", async () => {
+                // arrange — create lightning with SwapManager enabled
+                const lightningWithManager = new ArkadeLightning({
+                    wallet,
+                    arkProvider,
+                    swapProvider,
+                    indexerProvider,
+                    swapManager: { autoStart: false },
+                });
+                const manager = lightningWithManager.getSwapManager()!;
+
+                const pendingSwap = { ...mockSubmarineSwap };
+                vi.spyOn(wallet, "sendBitcoin").mockResolvedValueOnce(
+                    mock.txid
+                );
+                vi.spyOn(
+                    lightningWithManager,
+                    "createSubmarineSwap"
+                ).mockResolvedValueOnce(pendingSwap);
+
+                // Mock SwapManager — the swap must be known to the manager
+                vi.spyOn(manager, "hasSwap").mockReturnValue(true);
+                vi.spyOn(
+                    manager,
+                    "waitForSwapCompletion"
+                ).mockResolvedValueOnce({ txid: pendingSwap.id });
+                vi.spyOn(swapProvider, "getSwapPreimage").mockResolvedValueOnce(
+                    {
+                        preimage: mock.preimage,
+                    }
+                );
+
+                // act
+                const result = await lightningWithManager.sendLightningPayment({
+                    invoice: mock.invoice.address,
+                });
+
+                // assert — should use SwapManager, not waitForSwapSettlement
+                expect(manager.waitForSwapCompletion).toHaveBeenCalledWith(
+                    pendingSwap.id
+                );
+                expect(swapProvider.getSwapPreimage).toHaveBeenCalledWith(
+                    pendingSwap.id
+                );
+                expect(result.amount).toBe(mock.invoice.amount);
+                expect(result.preimage).toBe(mock.preimage);
+                expect(result.txid).toBe(mock.txid);
+            });
         });
 
         describe("Decoding lightning invoices", () => {

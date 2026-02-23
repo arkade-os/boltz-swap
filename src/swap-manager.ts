@@ -358,7 +358,9 @@ export class SwapManager {
      */
     setPollInterval(ms: number): void {
         if (ms <= 0) {
-            throw new RangeError(`setPollInterval: ms must be a positive number, got ${ms}`);
+            throw new RangeError(
+                `setPollInterval: ms must be a positive number, got ${ms}`
+            );
         }
         this.config.pollInterval = ms;
 
