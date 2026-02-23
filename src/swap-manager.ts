@@ -352,6 +352,30 @@ export class SwapManager {
     }
 
     /**
+     * Dynamically change the polling interval.
+     * Useful for polling faster while a swap is active and slower when idle.
+     * Restarts any running timer so the new interval takes effect immediately.
+     */
+    setPollInterval(ms: number): void {
+        this.config.pollInterval = ms;
+
+        // Also reset the fallback retry delay so it doesn't stay inflated
+        this.currentPollRetryDelay = Math.min(
+            ms,
+            this.config.pollRetryDelayMs!
+        );
+
+        // Restart the active timer with the new interval
+        if (this.isRunning) {
+            if (this.usePollingFallback) {
+                this.startPollingFallback();
+            } else if (this.pollTimer) {
+                this.startPolling();
+            }
+        }
+    }
+
+    /**
      * Add a new swap to monitoring
      */
     addSwap(swap: PendingSwap): void {
@@ -360,6 +384,14 @@ export class SwapManager {
         // Subscribe to this swap if WebSocket is connected
         if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
             this.subscribeToSwap(swap.id);
+        }
+
+        // In polling fallback mode, reset backoff and poll immediately
+        // so the new swap gets a status check without waiting
+        if (this.usePollingFallback && this.isRunning) {
+            this.currentPollRetryDelay = this.config.pollRetryDelayMs!;
+            this.pollAllSwaps();
+            this.startPollingFallback();
         }
     }
 

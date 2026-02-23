@@ -143,6 +143,7 @@ describe("SwapManager", () => {
             expect(manager!.getStats).toBeInstanceOf(Function);
             expect(manager!.subscribeToSwapUpdates).toBeInstanceOf(Function);
             expect(manager!.waitForSwapCompletion).toBeInstanceOf(Function);
+            expect(manager!.setPollInterval).toBeInstanceOf(Function);
             expect(manager!.onSwapUpdate).toBeInstanceOf(Function);
             expect(manager!.onSwapCompleted).toBeInstanceOf(Function);
             expect(manager!.onSwapFailed).toBeInstanceOf(Function);
