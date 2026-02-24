@@ -44,18 +44,18 @@ import { ripemd160 } from "@noble/hashes/legacy.js";
 import { TransactionInput, TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
-import {
-    SwapTreeSerializer,
-    TaprootUtils,
-    Musig,
-    Networks,
-    constructClaimTransaction,
-    detectSwap,
-    OutputType,
-    targetFee,
-} from "boltz-core";
 import { randomBytes } from "@noble/hashes/utils.js";
 import { Address, OutScript, SigHash, Transaction } from "@scure/btc-signer";
+import { NETWORK } from "@scure/btc-signer/utils.js";
+import { create as createMusig } from "./utils/musig";
+import {
+    deserializeSwapTree,
+    tweakMusig,
+    detectSwapOutput,
+    constructClaimTransaction,
+    targetFee,
+    REGTEST_NETWORK,
+} from "./utils/boltz-swap-tx";
 import { normalizeToXOnlyKey } from "./utils/signatures";
 import { joinBatch, refundVHTLCwithOffchainTx } from "./utils/vhtlc";
 import { SwapManager } from "./swap-manager";
@@ -333,22 +333,20 @@ export class ArkadeChainSwap {
         const arkInfo = await this.arkProvider.getInfo();
 
         const network =
-            arkInfo.network === "bitcoin" ? Networks.bitcoin : Networks.regtest;
+            arkInfo.network === "bitcoin" ? NETWORK : REGTEST_NETWORK;
 
-        const swapTree = SwapTreeSerializer.deserializeSwapTree(
+        const swapTree = deserializeSwapTree(
             pendingSwap.response.claimDetails.swapTree
         );
 
-        const musig = TaprootUtils.tweakMusig(
-            Musig.create(hex.decode(pendingSwap.ephemeralKey), [
+        const musig = tweakMusig(
+            createMusig(hex.decode(pendingSwap.ephemeralKey), [
                 hex.decode(pendingSwap.response.claimDetails.serverPublicKey),
                 secp256k1.getPublicKey(hex.decode(pendingSwap.ephemeralKey)),
             ]),
             swapTree.tree
         );
-        const swapOutput = detectSwap(musig.aggPubkey, lockupTx)!;
-        if (!swapOutput)
-            throw new Error("Swap output not found in transaction");
+        const swapOutput = detectSwapOutput(musig.aggPubkey, lockupTx);
 
         const feeToDeliverExactAmount = BigInt(
             pendingSwap.request.serverLockAmount
@@ -358,20 +356,12 @@ export class ArkadeChainSwap {
 
         const claimTx = targetFee(1, (fee) =>
             constructClaimTransaction(
-                [
-                    {
-                        preimage: hex.decode(pendingSwap.preimage),
-                        type: OutputType.Taproot,
-                        script: swapOutput.script!,
-                        amount: swapOutput.amount!,
-                        vout: swapOutput.vout!,
-                        privateKey: hex.decode(pendingSwap.ephemeralKey),
-                        transactionId: lockupTx.id,
-                        swapTree: swapTree,
-                        internalKey: musig.internalKey,
-                        cooperative: true, // set to false to enforce script path
-                    },
-                ],
+                {
+                    script: swapOutput.script!,
+                    amount: swapOutput.amount!,
+                    vout: swapOutput.vout!,
+                    transactionId: lockupTx.id,
+                },
                 OutScript.encode(
                     Address(network).decode(pendingSwap.toAddress!)
                 ),
@@ -875,14 +865,13 @@ export class ArkadeChainSwap {
             );
         }
 
-        const musig = TaprootUtils.tweakMusig(
-            Musig.create(hex.decode(pendingSwap.ephemeralKey), [
+        const musig = tweakMusig(
+            createMusig(hex.decode(pendingSwap.ephemeralKey), [
                 hex.decode(serverPubKey),
                 secp256k1.getPublicKey(hex.decode(pendingSwap.ephemeralKey)),
             ]),
-            SwapTreeSerializer.deserializeSwapTree(
-                pendingSwap.response.lockupDetails.swapTree
-            ).tree
+            deserializeSwapTree(pendingSwap.response.lockupDetails.swapTree)
+                .tree
         );
 
         const musigNonces = musig
