@@ -28,13 +28,15 @@ export interface SwapManagerConfig {
     enableAutoActions?: boolean;
     /** Polling interval in ms (default: 30000) */
     pollInterval?: number;
+    /** Maximum polling interval in ms (default: 60000) */
+    maxPollIntervalMs?: number;
     /** Initial reconnect delay (default: 1000) */
     reconnectDelayMs?: number;
     /** Max reconnect delay (default: 60000) */
     maxReconnectDelayMs?: number;
     /** Initial poll retry delay (default: 5000) */
     pollRetryDelayMs?: number;
-    /** Max poll retry delay (default: 300000) */
+    /** @deprecated use maxPollIntervalMs instead */
     maxPollRetryDelayMs?: number;
     /** Event callbacks for swap lifecycle events (optional, can use on/off methods instead) */
     events?: SwapManagerEvents;
@@ -88,6 +90,7 @@ export class SwapManager {
     private currentPollRetryDelay: number;
     private usePollingFallback = false;
     private isReconnecting = false;
+    private webSocketUnavailable = false;
 
     // Race condition prevention
     private swapsInProgress = new Set<string>();
@@ -123,14 +126,30 @@ export class SwapManager {
         config: SwapManagerConfig = {}
     ) {
         this.swapProvider = swapProvider;
+
+        const maxPollIntervalMs =
+            config.maxPollIntervalMs ?? config.maxPollRetryDelayMs ?? 60000;
+        const normalizedMaxPollIntervalMs =
+            maxPollIntervalMs > 0 ? maxPollIntervalMs : 60000;
+        const normalizedPollInterval = Math.min(
+            Math.max(config.pollInterval ?? 30000, 1),
+            normalizedMaxPollIntervalMs
+        );
+        const normalizedPollRetryDelayMs = Math.min(
+            Math.max(config.pollRetryDelayMs ?? 5000, 1),
+            normalizedMaxPollIntervalMs
+        );
+
         // Note: autostart is not stored - it's only used by ArkadeLightning
         this.config = {
             enableAutoActions: config.enableAutoActions ?? true,
-            pollInterval: config.pollInterval ?? 30000,
+            pollInterval: normalizedPollInterval,
+            maxPollIntervalMs: normalizedMaxPollIntervalMs,
             reconnectDelayMs: config.reconnectDelayMs ?? 1000,
             maxReconnectDelayMs: config.maxReconnectDelayMs ?? 60000,
-            pollRetryDelayMs: config.pollRetryDelayMs ?? 5000,
-            maxPollRetryDelayMs: config.maxPollRetryDelayMs ?? 300000,
+            pollRetryDelayMs: normalizedPollRetryDelayMs,
+            // Keep this key for backwards compatibility with existing configs.
+            maxPollRetryDelayMs: normalizedMaxPollIntervalMs,
             events: config.events ?? {},
         };
 
@@ -292,7 +311,7 @@ export class SwapManager {
      * Start the swap manager
      * This will:
      * 1. Load pending swaps
-     * 2. Connect WebSocket (with fallback to polling)
+     * 2. Attempt WebSocket connection (with runtime feature detection and fallback to polling)
      * 3. Poll all swaps after connection
      * 4. Resume any actionable swaps
      */
@@ -317,8 +336,8 @@ export class SwapManager {
             }
         }
 
-        // Try to connect WebSocket, fall back to polling if it fails
-        await this.connectWebSocket();
+        // Try to connect WebSocket; method handles runtime detection + fallback.
+        await this.tryConnectWebSocket();
 
         // Resume any actionable swaps immediately
         await this.resumeActionableSwaps();
@@ -362,11 +381,18 @@ export class SwapManager {
                 `setPollInterval: ms must be a positive number, got ${ms}`
             );
         }
-        this.config.pollInterval = ms;
+
+        const cappedInterval = Math.min(ms, this.config.maxPollIntervalMs!);
+        if (cappedInterval !== ms) {
+            logger.warn(
+                `setPollInterval: requested ${ms}ms exceeds maxPollIntervalMs ${this.config.maxPollIntervalMs}ms, clamping to ${cappedInterval}ms`
+            );
+        }
+        this.config.pollInterval = cappedInterval;
 
         // Also reset the fallback retry delay so it doesn't stay inflated
         this.currentPollRetryDelay = Math.min(
-            ms,
+            cappedInterval,
             this.config.pollRetryDelayMs!
         );
 
@@ -546,11 +572,18 @@ export class SwapManager {
     }
 
     /**
-     * Connect to WebSocket for real-time swap updates
-     * Falls back to polling if connection fails
+     * Try connecting to WebSocket for real-time swap updates.
+     * If WebSocket is unavailable in the current runtime, switch directly to polling fallback.
      */
-    private async connectWebSocket(): Promise<void> {
-        if (this.isReconnecting) return;
+    private async tryConnectWebSocket(): Promise<void> {
+        if (this.isReconnecting || this.webSocketUnavailable) return;
+        if (!this.hasWebSocketSupport()) {
+            this.webSocketUnavailable = true;
+            this.enterPollingFallback(
+                new NetworkError("WebSocket is not available in this runtime")
+            );
+            return;
+        }
         this.isReconnecting = true;
 
         try {
@@ -600,7 +633,7 @@ export class SwapManager {
                 this.websocket = null;
 
                 // Only attempt reconnect if manager is still running
-                if (this.isRunning) {
+                if (this.isRunning && !this.webSocketUnavailable) {
                     this.scheduleReconnect();
                 }
 
@@ -622,22 +655,19 @@ export class SwapManager {
      * Falls back to polling-only mode with exponential backoff
      */
     private handleWebSocketFailure(): void {
-        this.isReconnecting = false;
-        this.websocket = null;
-        this.usePollingFallback = true;
-
-        // Start polling with exponential backoff
-        this.startPollingFallback();
-
-        // Emit WebSocket disconnected event to all listeners
-        const error = new NetworkError("WebSocket connection failed");
-        this.wsDisconnectedListeners.forEach((listener) => listener(error));
+        this.enterPollingFallback(
+            new NetworkError("WebSocket connection failed")
+        );
     }
 
     /**
      * Schedule WebSocket reconnection with exponential backoff
      */
     private scheduleReconnect(): void {
+        if (this.webSocketUnavailable || !this.hasWebSocketSupport()) {
+            this.webSocketUnavailable = true;
+            return;
+        }
         if (this.reconnectTimer) return;
 
         logger.log(
@@ -647,7 +677,7 @@ export class SwapManager {
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
             this.isReconnecting = false;
-            this.connectWebSocket();
+            this.tryConnectWebSocket();
         }, this.currentReconnectDelay);
 
         // Exponential backoff for reconnection
@@ -1016,7 +1046,7 @@ export class SwapManager {
             // Increase poll retry delay with exponential backoff
             this.currentPollRetryDelay = Math.min(
                 this.currentPollRetryDelay * 2,
-                this.config.maxPollRetryDelayMs!
+                this.config.maxPollIntervalMs!
             );
 
             // Reschedule if manager is still running and still in fallback mode
@@ -1024,6 +1054,24 @@ export class SwapManager {
                 this.startPollingFallback();
             }
         }, this.currentPollRetryDelay);
+    }
+
+    private hasWebSocketSupport(): boolean {
+        return typeof globalThis.WebSocket === "function";
+    }
+
+    private enterPollingFallback(error: Error): void {
+        this.isReconnecting = false;
+        this.websocket = null;
+        this.usePollingFallback = true;
+
+        this.currentPollRetryDelay = Math.min(
+            this.config.pollRetryDelayMs!,
+            this.config.maxPollIntervalMs!
+        );
+
+        this.startPollingFallback();
+        this.wsDisconnectedListeners.forEach((listener) => listener(error));
     }
 
     /**

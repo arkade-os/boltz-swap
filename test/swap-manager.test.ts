@@ -304,6 +304,31 @@ describe("SwapManager", () => {
 
             vi.useRealTimers();
         });
+
+        it("should switch to polling fallback when WebSocket API is unavailable", async () => {
+            const onWebSocketDisconnected = vi.fn();
+            const getWsUrlSpy = vi.spyOn(swapProvider, "getWsUrl");
+            (global as any).WebSocket = undefined;
+
+            swapManager = new SwapManager(swapProvider, {
+                events: { onWebSocketDisconnected },
+            });
+            swapManager.setCallbacks({
+                claim: vi.fn(),
+                refund: vi.fn(),
+                saveSwap: vi.fn(),
+            });
+
+            await swapManager.start([mockReverseSwap]);
+
+            const stats = swapManager.getStats();
+            expect(stats.usePollingFallback).toBe(true);
+            expect(stats.websocketConnected).toBe(false);
+            expect(getWsUrlSpy).not.toHaveBeenCalled();
+            expect(onWebSocketDisconnected).toHaveBeenCalledWith(
+                expect.any(Error)
+            );
+        });
     });
 
     describe("Swap Monitoring", () => {
@@ -703,6 +728,36 @@ describe("SwapManager", () => {
 
             vi.useRealTimers();
         });
+
+        it("should cap fallback poll interval at default maximum (60000ms)", async () => {
+            vi.useFakeTimers();
+
+            swapManager = new SwapManager(swapProvider, {
+                pollRetryDelayMs: 5000,
+            });
+            swapManager.setCallbacks({
+                claim: vi.fn(),
+                refund: vi.fn(),
+                saveSwap: vi.fn(),
+            });
+
+            await swapManager.start([mockReverseSwap]);
+            mockWebSocket.onerror(new Error("Connection failed"));
+
+            await vi.advanceTimersByTimeAsync(5000);
+            await vi.advanceTimersByTimeAsync(10000);
+            await vi.advanceTimersByTimeAsync(20000);
+            await vi.advanceTimersByTimeAsync(40000);
+
+            const stats1 = swapManager.getStats();
+            expect(stats1.currentPollRetryDelay).toBe(60000);
+
+            await vi.advanceTimersByTimeAsync(60000);
+            const stats2 = swapManager.getStats();
+            expect(stats2.currentPollRetryDelay).toBe(60000);
+
+            vi.useRealTimers();
+        });
     });
 
     describe("Dynamic Poll Interval", () => {
@@ -800,6 +855,36 @@ describe("SwapManager", () => {
 
             // Should not throw
             swapManager.setPollInterval(5000);
+        });
+
+        it("should cap setPollInterval to maxPollIntervalMs", async () => {
+            vi.useFakeTimers();
+
+            swapManager = new SwapManager(swapProvider, {
+                pollInterval: 30000,
+                maxPollIntervalMs: 15000,
+            });
+            swapManager.setCallbacks({
+                claim: vi.fn(),
+                refund: vi.fn(),
+                saveSwap: vi.fn(),
+            });
+
+            await swapManager.start([mockReverseSwap]);
+            mockWebSocket.onopen();
+
+            (global.fetch as any).mockClear();
+
+            swapManager.setPollInterval(45000);
+
+            await vi.advanceTimersByTimeAsync(14999);
+            expect(global.fetch).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(1);
+            expect(global.fetch).toHaveBeenCalled();
+
+            await swapManager.stop();
+            vi.useRealTimers();
         });
     });
 
