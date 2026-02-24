@@ -10,6 +10,7 @@ import {
     isPendingChainSwap,
     isChainClaimableStatus,
     isChainRefundableStatus,
+    isChainSignableStatus,
     isChainFinalStatus,
 } from "./boltz-swap-provider";
 import {
@@ -35,13 +36,17 @@ import { logger } from "./logger";
  *
  * Note: there is no `refundBtc` because BTC lockup refunds are handled
  * on-chain by Boltz after the timelock expires.
+ *
+ * Cooperative signing:
+ * - `signServerClaim` — sign a cooperative claim for the server (BTC → ARK, courtesy)
  */
 export type Actions =
     | "claim"
     | "refund"
     | "claimArk"
     | "claimBtc"
-    | "refundArk";
+    | "refundArk"
+    | "signServerClaim";
 
 export interface SwapManagerConfig {
     /** Auto claim/refund swaps (default: true) */
@@ -56,6 +61,8 @@ export interface SwapManagerConfig {
     pollRetryDelayMs?: number;
     /** Max poll retry delay (default: 300000) */
     maxPollRetryDelayMs?: number;
+    /** Absolute ceiling for any poll interval (default: 300000) */
+    maxPollIntervalMs?: number;
     /** Event callbacks for swap lifecycle events (optional, can use on/off methods instead) */
     events?: SwapManagerEvents;
 }
@@ -130,6 +137,7 @@ export interface SwapManagerCallbacks {
     claimArk: (swap: PendingChainSwap) => Promise<void>;
     claimBtc: (swap: PendingChainSwap) => Promise<void>;
     refundArk: (swap: PendingChainSwap) => Promise<void>;
+    signServerClaim?: (swap: PendingChainSwap) => Promise<void>;
     saveSwap: (swap: PendingSwap) => Promise<void>;
 }
 
@@ -156,6 +164,7 @@ export class SwapManager implements SwapManagerClient {
     private currentPollRetryDelay: number;
     private usePollingFallback = false;
     private isReconnecting = false;
+    private webSocketUnavailable = false;
 
     // Race condition prevention
     private swapsInProgress = new Set<string>();
@@ -179,6 +188,9 @@ export class SwapManager implements SwapManagerClient {
     private refundArkCallback:
         | ((swap: PendingChainSwap) => Promise<void>)
         | null = null;
+    private signServerClaimCallback:
+        | ((swap: PendingChainSwap) => Promise<void>)
+        | null = null;
     private saveSwapCallback: ((swap: PendingSwap) => Promise<void>) | null =
         null;
 
@@ -195,6 +207,7 @@ export class SwapManager implements SwapManagerClient {
             maxReconnectDelayMs: config.maxReconnectDelayMs ?? 60000,
             pollRetryDelayMs: config.pollRetryDelayMs ?? 5000,
             maxPollRetryDelayMs: config.maxPollRetryDelayMs ?? 300000,
+            maxPollIntervalMs: config.maxPollIntervalMs ?? 300000,
             events: config.events ?? {},
         };
 
@@ -234,6 +247,7 @@ export class SwapManager implements SwapManagerClient {
         this.claimArkCallback = callbacks.claimArk;
         this.claimBtcCallback = callbacks.claimBtc;
         this.refundArkCallback = callbacks.refundArk;
+        this.signServerClaimCallback = callbacks.signServerClaim ?? null;
         this.saveSwapCallback = callbacks.saveSwap;
     }
 
@@ -358,8 +372,8 @@ export class SwapManager implements SwapManagerClient {
             }
         }
 
-        // Try to connect WebSocket, fall back to polling if it fails
-        await this.connectWebSocket();
+        // Try to connect WebSocket; method handles runtime detection + fallback.
+        await this.tryConnectWebSocket();
 
         // Resume any actionable swaps immediately
         await this.resumeActionableSwaps();
@@ -393,7 +407,44 @@ export class SwapManager implements SwapManagerClient {
     }
 
     /**
-     * Add a new swap to monitoring
+     * Set the polling interval (ms).
+     * Restarts any running timer so the new interval takes effect immediately.
+     */
+    setPollInterval(ms: number): void {
+        if (ms <= 0) {
+            throw new RangeError(
+                `setPollInterval: ms must be a positive number, got ${ms}`
+            );
+        }
+
+        const cappedInterval = Math.min(ms, this.config.maxPollIntervalMs!);
+        if (cappedInterval !== ms) {
+            logger.warn(
+                `setPollInterval: requested ${ms}ms exceeds maxPollIntervalMs ${this.config.maxPollIntervalMs}ms, clamping to ${cappedInterval}ms`
+            );
+        }
+        this.config.pollInterval = cappedInterval;
+
+        // Also reset the fallback retry delay so it doesn't stay inflated
+        this.currentPollRetryDelay = Math.min(
+            cappedInterval,
+            this.config.pollRetryDelayMs!
+        );
+
+        // Restart the active timer with the new interval
+        if (this.isRunning) {
+            if (this.usePollingFallback) {
+                this.startPollingFallback();
+            } else if (this.pollTimer) {
+                this.startPolling();
+            }
+        }
+    }
+
+    /**
+     * Add a new swap to monitoring.
+     * If fallback polling is active, this triggers an immediate poll and resets
+     * fallback delay so newly-added swaps are checked without waiting.
      */
     async addSwap(swap: PendingSwap): Promise<void> {
         this.monitoredSwaps.set(swap.id, swap);
@@ -401,6 +452,17 @@ export class SwapManager implements SwapManagerClient {
         // Subscribe to this swap if WebSocket is connected
         if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
             this.subscribeToSwap(swap.id);
+        }
+
+        // In polling fallback mode, reset backoff and poll immediately
+        // so the new swap gets a status check without waiting
+        if (this.usePollingFallback && this.isRunning) {
+            this.currentPollRetryDelay = Math.min(
+                this.config.pollInterval!,
+                this.config.pollRetryDelayMs!
+            );
+            this.pollAllSwaps();
+            this.startPollingFallback();
         }
     }
 
@@ -551,11 +613,19 @@ export class SwapManager implements SwapManagerClient {
     }
 
     /**
-     * Connect to WebSocket for real-time swap updates
-     * Falls back to polling if connection fails
+     * Try connecting to WebSocket for real-time swap updates.
+     * If WebSocket is unavailable in the current runtime, switch directly to polling fallback.
+     * If connection setup fails, also switches to polling fallback.
      */
-    private async connectWebSocket(): Promise<void> {
-        if (this.isReconnecting) return;
+    private async tryConnectWebSocket(): Promise<void> {
+        if (this.isReconnecting || this.webSocketUnavailable) return;
+        if (!this.hasWebSocketSupport()) {
+            this.webSocketUnavailable = true;
+            this.enterPollingFallback(
+                new NetworkError("WebSocket is not available in this runtime")
+            );
+            return;
+        }
         this.isReconnecting = true;
 
         try {
@@ -566,13 +636,17 @@ export class SwapManager implements SwapManagerClient {
             const connectionTimeout = setTimeout(() => {
                 logger.error("WebSocket connection timeout");
                 this.websocket?.close();
-                this.handleWebSocketFailure();
+                this.enterPollingFallback(
+                    new NetworkError("WebSocket connection failed")
+                );
             }, 10000);
 
             this.websocket.onerror = (error) => {
                 clearTimeout(connectionTimeout);
                 logger.error("WebSocket error:", error);
-                this.handleWebSocketFailure();
+                this.enterPollingFallback(
+                    new NetworkError("WebSocket connection failed")
+                );
             };
 
             this.websocket.onopen = () => {
@@ -618,24 +692,36 @@ export class SwapManager implements SwapManagerClient {
             };
         } catch (error) {
             logger.error("Failed to create WebSocket:", error);
-            this.handleWebSocketFailure();
+            this.enterPollingFallback(
+                new NetworkError("WebSocket connection failed")
+            );
         }
     }
 
     /**
-     * Handle WebSocket connection failure
-     * Falls back to polling-only mode with exponential backoff
+     * Runtime feature detection for WebSocket API.
      */
-    private handleWebSocketFailure(): void {
+    private hasWebSocketSupport(): boolean {
+        return typeof globalThis.WebSocket === "function";
+    }
+
+    /**
+     * Enter polling fallback mode and notify listeners about WebSocket unavailability/failure.
+     * Resets fallback delay to its configured initial value (capped by max poll interval).
+     */
+    private enterPollingFallback(error: Error): void {
+        if (!this.isRunning) return;
+
         this.isReconnecting = false;
         this.websocket = null;
         this.usePollingFallback = true;
 
-        // Start polling with exponential backoff
-        this.startPollingFallback();
+        this.currentPollRetryDelay = Math.min(
+            this.config.pollRetryDelayMs!,
+            this.config.maxPollIntervalMs!
+        );
 
-        // Emit WebSocket disconnected event to all listeners
-        const error = new NetworkError("WebSocket connection failed");
+        this.startPollingFallback();
         this.wsDisconnectedListeners.forEach((listener) => listener(error));
     }
 
@@ -643,7 +729,12 @@ export class SwapManager implements SwapManagerClient {
      * Schedule WebSocket reconnection with exponential backoff
      */
     private scheduleReconnect(): void {
-        if (this.reconnectTimer) return;
+        if (
+            this.reconnectTimer ||
+            this.webSocketUnavailable ||
+            !this.hasWebSocketSupport()
+        )
+            return;
 
         logger.log(
             `Scheduling WebSocket reconnect in ${this.currentReconnectDelay}ms`
@@ -652,7 +743,7 @@ export class SwapManager implements SwapManagerClient {
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
             this.isReconnecting = false;
-            this.connectWebSocket();
+            this.tryConnectWebSocket();
         }, this.currentReconnectDelay);
 
         // Exponential backoff for reconnection
@@ -848,6 +939,17 @@ export class SwapManager implements SwapManagerClient {
                     if (swap.request.from === "BTC") {
                         // TODO: Implement BTC refund if needed
                     }
+                } else if (
+                    swap.request.to === "ARK" &&
+                    isChainSignableStatus(swap.status)
+                ) {
+                    logger.log(
+                        `Auto-signing server's cooperative claim for ARK chain swap ${swap.id}`
+                    );
+                    await this.executeSignServerClaimAction(swap);
+                    this.actionExecutedListeners.forEach((listener) =>
+                        listener(swap, "signServerClaim")
+                    );
                 }
             }
         } catch (error) {
@@ -930,6 +1032,20 @@ export class SwapManager implements SwapManagerClient {
     }
 
     /**
+     * Execute sign server claim action for chain swap
+     */
+    private async executeSignServerClaimAction(
+        swap: PendingChainSwap
+    ): Promise<void> {
+        if (!this.signServerClaimCallback) {
+            logger.error("signServerClaim callback not set");
+            return;
+        }
+
+        await this.signServerClaimCallback(swap);
+    }
+
+    /**
      * Save swap to storage
      */
     private async saveSwap(swap: PendingSwap): Promise<void> {
@@ -977,6 +1093,15 @@ export class SwapManager implements SwapManagerClient {
                     isChainRefundableStatus(swap.status)
                 ) {
                     logger.log(`Resuming chain refund for swap ${swap.id}`);
+                    await this.executeAutonomousAction(swap);
+                } else if (
+                    isPendingChainSwap(swap) &&
+                    swap.request.to === "ARK" &&
+                    isChainSignableStatus(swap.status)
+                ) {
+                    logger.log(
+                        `Resuming server claim signing for swap ${swap.id}`
+                    );
                     await this.executeAutonomousAction(swap);
                 }
             } catch (error) {

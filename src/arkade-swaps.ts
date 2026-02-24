@@ -159,6 +159,9 @@ export class ArkadeSwaps {
                 refundArk: async (swap: PendingChainSwap) => {
                     await this.refundArk(swap);
                 },
+                signServerClaim: async (swap: PendingChainSwap) => {
+                    await this.signCooperativeClaimForServer(swap);
+                },
                 saveSwap: async (swap: PendingSwap) => {
                     await saveSwap(swap, {
                         saveReverseSwap: this.savePendingReverseSwap.bind(this),
@@ -1488,9 +1491,19 @@ export class ArkadeSwaps {
             pendingSwap.id
         );
 
+        // Verify the server key from the claim response matches the one
+        // stored at swap creation. MuSig2 requires consistent keys across
+        // create() and aggregateNonces(); a mismatch produces an invalid sig.
+        const serverPubKey = pendingSwap.response.lockupDetails.serverPublicKey;
+        if (claimDetails.publicKey !== serverPubKey) {
+            throw new Error(
+                `Server public key mismatch: claim response has ${claimDetails.publicKey}, expected ${serverPubKey}`
+            );
+        }
+
         const musig = TaprootUtils.tweakMusig(
             Musig.create(hex.decode(pendingSwap.ephemeralKey), [
-                hex.decode(claimDetails.publicKey),
+                hex.decode(serverPubKey),
                 secp256k1.getPublicKey(hex.decode(pendingSwap.ephemeralKey)),
             ]),
             SwapTreeSerializer.deserializeSwapTree(

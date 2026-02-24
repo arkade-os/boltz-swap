@@ -7,6 +7,7 @@ export {
     isChainFinalStatus,
     isChainPendingStatus,
     isChainRefundableStatus,
+    isChainSignableStatus,
     isChainSuccessStatus,
     isChainSwapClaimable,
     isChainSwapRefundable,
