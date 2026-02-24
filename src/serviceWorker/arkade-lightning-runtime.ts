@@ -333,6 +333,7 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
                         | "claimArk"
                         | "claimBtc"
                         | "refundArk"
+                        | "signServerClaim"
                 ) => void
             ) => {
                 this.actionExecutedListeners.add(listener);
