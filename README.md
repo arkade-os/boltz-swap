@@ -183,13 +183,13 @@ import { decodeInvoice } from '@arkade-os/boltz-swap';
 const invoiceDetails = decodeInvoice('lnbc500u1pj...');
 console.log('Invoice amount:', invoiceDetails.amountSats, 'sats');
 
-// Send payment - returns immediately after creating swap
+// Send payment - blocks until settlement and preimage retrieval
 const paymentResult = await arkadeLightning.sendLightningPayment({
   invoice: 'lnbc500u1pj...',
 });
 
-console.log('Payment initiated:', paymentResult.txid);
-// SwapManager monitors in background and handles refunds if payment fails
+console.log('Payment successful:', paymentResult.txid);
+// Internally uses SwapManager polling (when enabled) for runtime compatibility
 ```
 
 **Without SwapManager (manual mode):**
@@ -571,7 +571,7 @@ const arkadeChainSwap = new ArkadeChainSwap({
 await arkadeLightning.startSwapManager();
 
 // Create swaps - they're automatically monitored!
-const { invoice } = await arkadeLightning.createLightningInvoice({ amount: 5000 });
+const { invoice } = await arkadeLightning.createLightningInvoice({ amount: 5000 });
 const { btcAddress, amountToPay } = await arkadeChainSwap.btcToArk({ receiverLockAmount: 5000 })
 // User can navigate to other pages - swap completes in background
 ```
@@ -580,7 +580,7 @@ const { btcAddress, amountToPay } = await arkadeChainSwap.btcToArk({ receiverLoc
 
 - **Single WebSocket** monitors all swaps (not one per swap)
 - **Automatic polling** after WebSocket connects/reconnects
-- **Fallback polling** with exponential backoff if WebSocket fails
+- **Fallback polling** with bounded exponential backoff if WebSocket fails or is unavailable
 - **Auto-claim/refund** executes when status allows
 - **Resumes on app reopen** - loads pending swaps, polls latest status, executes refunds if expired
 - **⚠️ Requires app running** - stops when app closes (service worker support planned)
@@ -600,7 +600,8 @@ const { btcAddress, amountToPay } = await arkadeChainSwap.btcToArk({ receiverLoc
     reconnectDelayMs: 1000,         // Initial WS reconnect delay (default)
     maxReconnectDelayMs: 60000,     // Max WS reconnect delay (default)
     pollRetryDelayMs: 5000,         // Initial fallback poll delay (default)
-    maxPollRetryDelayMs: 300000,    // Max fallback poll delay (default)
+    maxPollIntervalMs: 60000,       // Max polling/backoff interval (default)
+    // maxPollRetryDelayMs: 60000,   // Deprecated alias for maxPollIntervalMs
 
     // Optional: provide event listeners in config
     // (can also use on/off methods dynamically - see Event Subscription section)
@@ -608,7 +609,7 @@ const { btcAddress, amountToPay } = await arkadeChainSwap.btcToArk({ receiverLoc
       onSwapUpdate: (swap, oldStatus) => {},
       onSwapCompleted: (swap) => {},
       onSwapFailed: (swap, error) => {},
-      onActionExecuted: (swap, action) => {},  // 'claim' or 'refund'
+      onActionExecuted: (swap, action) => {},  // 'claim' | 'refund' | 'claimArk' | 'claimBtc' | 'refundArk'
       onWebSocketConnected: () => {},
       onWebSocketDisconnected: (error?) => {},
     }
@@ -813,6 +814,7 @@ import {
   InvoiceExpiredError,
   InvoiceFailedToPayError,
   InsufficientFundsError,
+  PreimageFetchError,
   TransactionFailedError,
 } from '@arkade-os/boltz-swap';
 
@@ -833,6 +835,9 @@ try {
     console.error('Invalid response from API. Please try again later.');
   } else if (error instanceof SwapExpiredError) {
     console.error('The swap has expired.');
+  } else if (error instanceof PreimageFetchError) {
+    console.error('Payment settled but preimage fetch failed:', error.message);
+    console.error('Do not retry payment automatically to avoid double-send.');
   } else if (error instanceof TransactionFailedError) {
     console.error('Transaction failed. Please try again later');
   } else {
