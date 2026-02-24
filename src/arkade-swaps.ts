@@ -54,16 +54,16 @@ import { TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { randomBytes } from "@noble/hashes/utils.js";
 import { Address, OutScript, SigHash, Transaction } from "@scure/btc-signer";
+import { NETWORK } from "@scure/btc-signer/utils.js";
+import { create as createMusig } from "./utils/musig";
 import {
-    SwapTreeSerializer,
-    TaprootUtils,
-    Musig,
-    Networks,
+    deserializeSwapTree,
+    tweakMusig,
+    detectSwapOutput,
     constructClaimTransaction,
     targetFee,
-    detectSwap,
-    OutputType,
-} from "boltz-core";
+    REGTEST_NETWORK,
+} from "./utils/boltz-swap-tx";
 import { decodeInvoice, getInvoicePaymentHash } from "./utils/decoding";
 import { normalizeToXOnlyKey } from "./utils/signatures";
 import {
@@ -1025,22 +1025,20 @@ export class ArkadeSwaps {
         const arkInfo = await this.arkProvider.getInfo();
 
         const network =
-            arkInfo.network === "bitcoin" ? Networks.bitcoin : Networks.regtest;
+            arkInfo.network === "bitcoin" ? NETWORK : REGTEST_NETWORK;
 
-        const swapTree = SwapTreeSerializer.deserializeSwapTree(
+        const swapTree = deserializeSwapTree(
             pendingSwap.response.claimDetails.swapTree
         );
 
-        const musig = TaprootUtils.tweakMusig(
-            Musig.create(hex.decode(pendingSwap.ephemeralKey), [
+        const musig = tweakMusig(
+            createMusig(hex.decode(pendingSwap.ephemeralKey), [
                 hex.decode(pendingSwap.response.claimDetails.serverPublicKey),
                 secp256k1.getPublicKey(hex.decode(pendingSwap.ephemeralKey)),
             ]),
             swapTree.tree
         );
-        const swapOutput = detectSwap(musig.aggPubkey, lockupTx)!;
-        if (!swapOutput)
-            throw new Error("Swap output not found in transaction");
+        const swapOutput = detectSwapOutput(musig.aggPubkey, lockupTx);
 
         const feeToDeliverExactAmount = BigInt(
             pendingSwap.request.serverLockAmount
@@ -1050,20 +1048,12 @@ export class ArkadeSwaps {
 
         const claimTx = targetFee(1, (fee) =>
             constructClaimTransaction(
-                [
-                    {
-                        preimage: hex.decode(pendingSwap.preimage),
-                        type: OutputType.Taproot,
-                        script: swapOutput.script!,
-                        amount: swapOutput.amount!,
-                        vout: swapOutput.vout!,
-                        privateKey: hex.decode(pendingSwap.ephemeralKey),
-                        transactionId: lockupTx.id,
-                        swapTree: swapTree,
-                        internalKey: musig.internalKey,
-                        cooperative: true,
-                    },
-                ],
+                {
+                    script: swapOutput.script!,
+                    amount: swapOutput.amount!,
+                    vout: swapOutput.vout!,
+                    transactionId: lockupTx.id,
+                },
                 OutScript.encode(
                     Address(network).decode(pendingSwap.toAddress!)
                 ),
@@ -1501,14 +1491,13 @@ export class ArkadeSwaps {
             );
         }
 
-        const musig = TaprootUtils.tweakMusig(
-            Musig.create(hex.decode(pendingSwap.ephemeralKey), [
+        const musig = tweakMusig(
+            createMusig(hex.decode(pendingSwap.ephemeralKey), [
                 hex.decode(serverPubKey),
                 secp256k1.getPublicKey(hex.decode(pendingSwap.ephemeralKey)),
             ]),
-            SwapTreeSerializer.deserializeSwapTree(
-                pendingSwap.response.lockupDetails.swapTree
-            ).tree
+            deserializeSwapTree(pendingSwap.response.lockupDetails.swapTree)
+                .tree
         );
 
         const musigNonces = musig
