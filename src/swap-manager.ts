@@ -364,8 +364,6 @@ export class SwapManager {
      * Cleanup: close WebSocket, stop all timers
      */
     async stop(): Promise<void> {
-        if (!this.isRunning) return;
-
         this.isRunning = false;
 
         // Close WebSocket
@@ -675,6 +673,7 @@ export class SwapManager {
      * Falls back to polling-only mode with bounded exponential backoff.
      */
     private handleWebSocketFailure(): void {
+        if (!this.isRunning) return;
         this.enterPollingFallback(
             new NetworkError("WebSocket connection failed")
         );
@@ -1095,6 +1094,8 @@ export class SwapManager {
      * Resets fallback delay to its configured initial value (capped by max poll interval).
      */
     private enterPollingFallback(error: Error): void {
+        if (!this.isRunning) return;
+
         this.isReconnecting = false;
         this.websocket = null;
         this.usePollingFallback = true;

@@ -329,6 +329,29 @@ describe("SwapManager", () => {
                 expect.any(Error)
             );
         });
+
+        it("should not schedule fallback polling after manager is stopped", async () => {
+            vi.useFakeTimers();
+
+            await swapManager.start([mockReverseSwap]);
+            await swapManager.stop();
+
+            (global.fetch as any).mockClear();
+
+            // Simulate late WebSocket error arriving after stop()
+            if (mockWebSocket.onerror) {
+                mockWebSocket.onerror(new Error("late websocket error"));
+            }
+
+            await vi.advanceTimersByTimeAsync(15000);
+
+            const stats = swapManager.getStats();
+            expect(stats.isRunning).toBe(false);
+            expect(stats.usePollingFallback).toBe(false);
+            expect(global.fetch).not.toHaveBeenCalled();
+
+            vi.useRealTimers();
+        });
     });
 
     describe("Swap Monitoring", () => {
