@@ -250,15 +250,16 @@ export class ArkadeChainSwap {
                         this.claimBtc(pendingSwap).catch(reject);
                         break;
                     }
-                    case "transaction.claimed":
+                    case "transaction.claimed": {
                         await updateSwapStatus();
-                        const finalStatus = await this.getSwapStatus(
+                        const claimedStatus = await this.getSwapStatus(
                             pendingSwap.id
                         );
                         resolve({
-                            txid: finalStatus.transaction?.id ?? "",
+                            txid: claimedStatus.transaction?.id ?? "",
                         });
                         break;
+                    }
                     case "transaction.lockupFailed":
                         await updateSwapStatus();
                         await this.quoteSwap(pendingSwap.response.id).catch(
@@ -624,15 +625,16 @@ export class ArkadeChainSwap {
                         claimStarted = true;
                         this.claimArk(pendingSwap).catch(reject);
                         break;
-                    case "transaction.claimed":
+                    case "transaction.claimed": {
                         await updateSwapStatus();
-                        const finalStatus = await this.getSwapStatus(
+                        const claimedStatus = await this.getSwapStatus(
                             pendingSwap.id
                         );
                         resolve({
-                            txid: finalStatus.transaction?.id ?? "",
+                            txid: claimedStatus.transaction?.id ?? "",
                         });
                         break;
+                    }
                     case "transaction.claim.pending":
                         // Be nice and sign a cooperative claim for the server
                         // Not required: you can treat this as success already,
@@ -640,7 +642,12 @@ export class ArkadeChainSwap {
                         await updateSwapStatus();
                         await this.signCooperativeClaimForServer(
                             pendingSwap
-                        ).catch();
+                        ).catch((err) => {
+                            logger.warn(
+                                `signCooperativeClaimForServer failed for ${pendingSwap.id} (non-fatal):`,
+                                err
+                            );
+                        });
                         break;
                     case "transaction.lockupFailed":
                         await updateSwapStatus();
@@ -858,9 +865,19 @@ export class ArkadeChainSwap {
             pendingSwap.id
         );
 
+        // Verify the server key from the claim response matches the one
+        // stored at swap creation. MuSig2 requires consistent keys across
+        // create() and aggregateNonces(); a mismatch produces an invalid sig.
+        const serverPubKey = pendingSwap.response.lockupDetails.serverPublicKey;
+        if (claimDetails.publicKey !== serverPubKey) {
+            throw new Error(
+                `Server public key mismatch: claim response has ${claimDetails.publicKey}, expected ${serverPubKey}`
+            );
+        }
+
         const musig = TaprootUtils.tweakMusig(
             Musig.create(hex.decode(pendingSwap.ephemeralKey), [
-                hex.decode(claimDetails.publicKey),
+                hex.decode(serverPubKey),
                 secp256k1.getPublicKey(hex.decode(pendingSwap.ephemeralKey)),
             ]),
             SwapTreeSerializer.deserializeSwapTree(

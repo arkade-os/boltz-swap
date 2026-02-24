@@ -185,21 +185,22 @@ export class SwapManager {
     }
 
     /**
-     * Set callbacks for claim, refund, and save operations
-     * These are called by the manager when autonomous actions are needed
+     * Set callbacks for chain swap claim, refund, save, and optional
+     * cooperative server-claim signing operations.
+     * These are called by the manager when autonomous actions are needed.
      */
     setChainCallbacks(callbacks: {
         claimArk: (swap: PendingChainSwap) => Promise<void>;
         claimBtc: (swap: PendingChainSwap) => Promise<void>;
         refundArk: (swap: PendingChainSwap) => Promise<void>;
         saveSwap: (swap: PendingSwap) => Promise<void>;
-        signServerClaim: (swap: PendingChainSwap) => Promise<void>;
+        signServerClaim?: (swap: PendingChainSwap) => Promise<void>;
     }): void {
         this.claimArkCallback = callbacks.claimArk;
         this.claimBtcCallback = callbacks.claimBtc;
         this.refundArkCallback = callbacks.refundArk;
         this.saveSwapCallback = callbacks.saveSwap;
-        this.signServerClaimCallback = callbacks.signServerClaim;
+        this.signServerClaimCallback = callbacks.signServerClaim ?? null;
     }
 
     /**
@@ -970,6 +971,15 @@ export class SwapManager {
                     isChainRefundableStatus(swap.status)
                 ) {
                     logger.log(`Resuming chain refund for swap ${swap.id}`);
+                    await this.executeAutonomousAction(swap);
+                } else if (
+                    isPendingChainSwap(swap) &&
+                    swap.request.to === "ARK" &&
+                    isChainSignableStatus(swap.status)
+                ) {
+                    logger.log(
+                        `Resuming server claim signing for swap ${swap.id}`
+                    );
                     await this.executeAutonomousAction(swap);
                 }
             } catch (error) {
