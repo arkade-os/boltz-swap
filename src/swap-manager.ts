@@ -772,20 +772,24 @@ export class SwapManager {
             });
         }
 
-        // Save updated swap to storage
-        await this.saveSwap(swap);
+        try {
+            // Save updated swap to storage
+            await this.saveSwap(swap);
 
-        // Execute autonomous actions if enabled
-        if (this.config.enableAutoActions) {
-            await this.executeAutonomousAction(swap);
-        }
-
-        // Remove from monitoring if final status
-        if (this.isFinalStatus(swap)) {
-            this.monitoredSwaps.delete(swap.id);
-            this.swapSubscriptions.delete(swap.id);
-            // Emit completed event to all listeners
-            this.swapCompletedListeners.forEach((listener) => listener(swap));
+            // Execute autonomous actions if enabled
+            if (this.config.enableAutoActions) {
+                await this.executeAutonomousAction(swap);
+            }
+        } finally {
+            // Always remove final swaps from monitoring, even if persistence fails.
+            if (this.isFinalStatus(swap)) {
+                this.monitoredSwaps.delete(swap.id);
+                this.swapSubscriptions.delete(swap.id);
+                // Emit completed event to all listeners
+                this.swapCompletedListeners.forEach((listener) =>
+                    listener(swap)
+                );
+            }
         }
     }
 

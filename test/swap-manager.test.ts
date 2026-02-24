@@ -564,6 +564,29 @@ describe("SwapManager", () => {
             expect(stats.monitoredSwaps).toBe(0);
         });
 
+        it("should remove final swap even when save fails", async () => {
+            const freshSwap = {
+                ...mockReverseSwap,
+                status: "swap.created" as const,
+            };
+            saveSwapCallback.mockRejectedValueOnce(new Error("save failed"));
+
+            await swapManager.start([freshSwap]);
+
+            await expect(
+                swapManager["handleSwapStatusUpdate"](
+                    freshSwap,
+                    "invoice.settled"
+                )
+            ).rejects.toThrow("save failed");
+
+            const stats = swapManager.getStats();
+            expect(stats.monitoredSwaps).toBe(0);
+            expect(onSwapCompleted).toHaveBeenCalledWith(
+                expect.objectContaining({ id: "reverse-swap-1" })
+            );
+        });
+
         it("should not execute action if auto-actions disabled", async () => {
             swapManager = new SwapManager(swapProvider, {
                 enableAutoActions: false,
