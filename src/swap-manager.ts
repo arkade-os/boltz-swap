@@ -946,10 +946,20 @@ export class SwapManager implements SwapManagerClient {
                     logger.log(
                         `Auto-signing server's cooperative claim for ARK chain swap ${swap.id}`
                     );
-                    await this.executeSignServerClaimAction(swap);
-                    this.actionExecutedListeners.forEach((listener) =>
-                        listener(swap, "signServerClaim")
-                    );
+                    try {
+                        const signed =
+                            await this.executeSignServerClaimAction(swap);
+                        if (signed) {
+                            this.actionExecutedListeners.forEach((listener) =>
+                                listener(swap, "signServerClaim")
+                            );
+                        }
+                    } catch (error) {
+                        logger.error(
+                            `Non-fatal: failed to sign server claim for swap ${swap.id}:`,
+                            error
+                        );
+                    }
                 }
             }
         } catch (error) {
@@ -1032,17 +1042,20 @@ export class SwapManager implements SwapManagerClient {
     }
 
     /**
-     * Execute sign server claim action for chain swap
+     * Execute sign server claim action for chain swap.
+     * Returns true on success, false if no callback is set.
+     * Throws if the callback itself throws.
      */
     private async executeSignServerClaimAction(
         swap: PendingChainSwap
-    ): Promise<void> {
+    ): Promise<boolean> {
         if (!this.signServerClaimCallback) {
             logger.error("signServerClaim callback not set");
-            return;
+            return false;
         }
 
         await this.signServerClaimCallback(swap);
+        return true;
     }
 
     /**
