@@ -121,7 +121,10 @@ export const isChainFailedStatus = (status: BoltzSwapStatus): boolean => {
 };
 
 export const isChainClaimableStatus = (status: BoltzSwapStatus): boolean => {
-    return ["transaction.mempool", "transaction.confirmed"].includes(status);
+    return [
+        "transaction.server.mempool",
+        "transaction.server.confirmed",
+    ].includes(status);
 };
 
 export const isChainFinalStatus = (status: BoltzSwapStatus): boolean => {
@@ -146,6 +149,10 @@ export const isChainPendingStatus = (status: BoltzSwapStatus): boolean => {
 
 export const isChainRefundableStatus = (status: BoltzSwapStatus): boolean => {
     return ["swap.expired"].includes(status);
+};
+
+export const isChainSignableStatus = (status: BoltzSwapStatus): boolean => {
+    return ["transaction.claim.pending"].includes(status);
 };
 
 export const isChainSuccessStatus = (status: BoltzSwapStatus): boolean => {

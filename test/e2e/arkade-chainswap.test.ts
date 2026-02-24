@@ -77,7 +77,7 @@ const waitForBtcTxConfirmation = async (address: string, timeout = 10_000) => {
 
 const waitForBalance = async (
     getBalance: () => Promise<{ available: number }>,
-    minAmount: number,
+    minAmount = 1,
     timeout = 5_000
 ): Promise<void> => {
     await new Promise((resolve, reject) => {
@@ -123,7 +123,7 @@ describe("ArkadeChainSwap", () => {
         });
 
         // Wait until the funds are reflected in the wallet balance
-        await waitForBalance(() => wallet.getBalance(), amount, 5_000);
+        await waitForBalance(() => wallet.getBalance(), amount);
     };
 
     const waitForSwapStatus = async (
@@ -168,7 +168,7 @@ describe("ArkadeChainSwap", () => {
         });
 
         // Wait until the funds are reflected in the wallet balance
-        await waitForBalance(() => fundedWallet.getBalance(), amount, 5_000);
+        await waitForBalance(() => fundedWallet.getBalance(), amount);
     }, 120_000);
 
     beforeEach(async () => {
@@ -532,7 +532,7 @@ describe("ArkadeChainSwap", () => {
 
         describe("createChainSwap", () => {
             it(
-                "should send exact amount to btc address",
+                "should send exact 4000 sats to btc address",
                 { timeout: 10_000 },
                 async () => {
                     // arrange
@@ -557,13 +557,91 @@ describe("ArkadeChainSwap", () => {
 
                     await chainSwap.waitAndClaimBtc(swap);
 
-                    await waitForBalance(
-                        async () => ({
-                            available: await getBtcAddressFunds(toAddress),
-                        }),
-                        1,
-                        5_000
+                    await waitForBalance(async () => ({
+                        available: await getBtcAddressFunds(toAddress),
+                    }));
+
+                    // assert
+                    const finalArkBalance = await wallet.getBalance();
+                    expect(finalArkBalance.available).toEqual(
+                        fundAmount - swap.response.lockupDetails.amount
                     );
+
+                    const btcBalance = await getBtcAddressFunds(toAddress);
+                    expect(btcBalance).toEqual(amountSats);
+                }
+            );
+
+            it(
+                "should send exact 40000 sats to btc address",
+                { timeout: 10_000 },
+                async () => {
+                    // arrange
+                    const amountSats = 40000;
+                    const fundAmount = 41000; // include buffer for fees
+                    const toAddress = await getBtcAddress();
+                    await fundWallet(fundAmount);
+
+                    // act
+                    const swap = await chainSwap.createChainSwap({
+                        to: "BTC",
+                        from: "ARK",
+                        feeSatsPerByte: 1,
+                        receiverLockAmount: amountSats,
+                        toAddress,
+                    });
+
+                    await wallet.sendBitcoin({
+                        address: swap.response.lockupDetails.lockupAddress,
+                        amount: swap.response.lockupDetails.amount,
+                    });
+
+                    await chainSwap.waitAndClaimBtc(swap);
+
+                    await waitForBalance(async () => ({
+                        available: await getBtcAddressFunds(toAddress),
+                    }));
+
+                    // assert
+                    const finalArkBalance = await wallet.getBalance();
+                    expect(finalArkBalance.available).toEqual(
+                        fundAmount - swap.response.lockupDetails.amount
+                    );
+
+                    const btcBalance = await getBtcAddressFunds(toAddress);
+                    expect(btcBalance).toEqual(amountSats);
+                }
+            );
+
+            it(
+                "should send exact 400000 sats to btc address",
+                { timeout: 10_000 },
+                async () => {
+                    // arrange
+                    const amountSats = 400000;
+                    const fundAmount = 410000; // include buffer for fees
+                    const toAddress = await getBtcAddress();
+                    await fundWallet(fundAmount);
+
+                    // act
+                    const swap = await chainSwap.createChainSwap({
+                        to: "BTC",
+                        from: "ARK",
+                        feeSatsPerByte: 1,
+                        receiverLockAmount: amountSats,
+                        toAddress,
+                    });
+
+                    await wallet.sendBitcoin({
+                        address: swap.response.lockupDetails.lockupAddress,
+                        amount: swap.response.lockupDetails.amount,
+                    });
+
+                    await chainSwap.waitAndClaimBtc(swap);
+
+                    await waitForBalance(async () => ({
+                        available: await getBtcAddressFunds(toAddress),
+                    }));
 
                     // assert
                     const finalArkBalance = await wallet.getBalance();
@@ -602,13 +680,9 @@ describe("ArkadeChainSwap", () => {
 
                     await chainSwap.waitAndClaimBtc(swap);
 
-                    await waitForBalance(
-                        async () => ({
-                            available: await getBtcAddressFunds(toAddress),
-                        }),
-                        1,
-                        5_000
-                    );
+                    await waitForBalance(async () => ({
+                        available: await getBtcAddressFunds(toAddress),
+                    }));
 
                     // assert
                     const finalArkBalance = await wallet.getBalance();

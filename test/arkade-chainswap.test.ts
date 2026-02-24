@@ -266,7 +266,6 @@ describe("ArkadeChainSwap", () => {
         ephemeralKey: hex.encode(randomBytes(32)),
         toAddress: mock.address.btc,
         status: "swap.created",
-        btcTxHex: "mock-btc-tx-hex",
         amount: mock.amount,
     };
 
@@ -510,23 +509,6 @@ describe("ArkadeChainSwap", () => {
         });
 
         describe("claimBtc", () => {
-            it("should throw error when btcTxHex is missing", async () => {
-                // arrange
-                const pendingSwap: PendingChainSwap = {
-                    ...mockArkBtcChainSwap,
-                    btcTxHex: undefined,
-                };
-
-                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
-                    mockArkInfo
-                );
-
-                // act & assert
-                await expect(chainSwap.claimBtc(pendingSwap)).rejects.toThrow(
-                    "BTC transaction hex is required"
-                );
-            });
-
             it("should throw error when toAddress is missing", async () => {
                 // arrange
                 const pendingSwap: PendingChainSwap = {
@@ -795,6 +777,10 @@ describe("ArkadeChainSwap", () => {
                     ...mockArkBtcChainSwap,
                 };
                 vi.spyOn(chainSwap, "claimBtc").mockResolvedValue();
+                vi.spyOn(chainSwap, "getSwapStatus").mockResolvedValueOnce({
+                    status: "transaction.claimed",
+                    transaction: { id: mock.id, hex: mock.hex },
+                });
                 vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
                     async (_id, callback) => {
                         // Simulate status updates
@@ -1215,6 +1201,10 @@ describe("ArkadeChainSwap", () => {
                     ...mockBtcArkChainSwap,
                 };
                 vi.spyOn(chainSwap, "claimArk").mockResolvedValue();
+                vi.spyOn(chainSwap, "getSwapStatus").mockResolvedValueOnce({
+                    status: "transaction.claimed",
+                    transaction: { id: mock.id, hex: mock.hex },
+                });
                 vi.spyOn(swapProvider, "monitorSwap").mockImplementation(
                     async (_id, callback) => {
                         // Simulate status updates

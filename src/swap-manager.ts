@@ -11,6 +11,7 @@ import {
     isChainClaimableStatus,
     isChainRefundableStatus,
     isChainFinalStatus,
+    isChainSignableStatus,
 } from "./boltz-swap-provider";
 import {
     PendingChainSwap,
@@ -21,7 +22,13 @@ import {
 import { NetworkError } from "./errors";
 import { logger } from "./logger";
 
-type Actions = "claim" | "refund" | "claimArk" | "claimBtc" | "refundArk";
+type Actions =
+    | "claim"
+    | "refund"
+    | "claimArk"
+    | "claimBtc"
+    | "refundArk"
+    | "signServerClaim";
 
 export interface SwapManagerConfig {
     /** Auto claim/refund swaps (default: true) */
@@ -132,6 +139,9 @@ export class SwapManager {
     private refundArkCallback:
         | ((swap: PendingChainSwap) => Promise<void>)
         | null = null;
+    private signServerClaimCallback:
+        | ((swap: PendingChainSwap) => Promise<void>)
+        | null = null;
 
     // Callback injected by ArkadeChainSwap and ArkadeLightning
     private saveSwapCallback: ((swap: PendingSwap) => Promise<void>) | null =
@@ -210,19 +220,22 @@ export class SwapManager {
     }
 
     /**
-     * Set callbacks for claim, refund, and save operations
-     * These are called by the manager when autonomous actions are needed
+     * Set callbacks for chain swap claim, refund, save, and optional
+     * cooperative server-claim signing operations.
+     * These are called by the manager when autonomous actions are needed.
      */
     setChainCallbacks(callbacks: {
         claimArk: (swap: PendingChainSwap) => Promise<void>;
         claimBtc: (swap: PendingChainSwap) => Promise<void>;
         refundArk: (swap: PendingChainSwap) => Promise<void>;
         saveSwap: (swap: PendingSwap) => Promise<void>;
+        signServerClaim?: (swap: PendingChainSwap) => Promise<void>;
     }): void {
         this.claimArkCallback = callbacks.claimArk;
         this.claimBtcCallback = callbacks.claimBtc;
         this.refundArkCallback = callbacks.refundArk;
         this.saveSwapCallback = callbacks.saveSwap;
+        this.signServerClaimCallback = callbacks.signServerClaim ?? null;
     }
 
     /**
@@ -899,6 +912,18 @@ export class SwapManager {
                     if (swap.request.from === "BTC") {
                         // TODO: Implement BTC refund if needed
                     }
+                } else if (
+                    swap.request.to === "ARK" &&
+                    isChainSignableStatus(swap.status)
+                ) {
+                    logger.log(
+                        `Auto-signing server's cooperative claim for ARK chain swap ${swap.id}`
+                    );
+                    await this.executeSignServerClaimAction(swap);
+                    // Emit action executed event to all listeners
+                    this.actionExecutedListeners.forEach((listener) =>
+                        listener(swap, "signServerClaim")
+                    );
                 }
             }
         } catch (error) {
@@ -981,6 +1006,20 @@ export class SwapManager {
     }
 
     /**
+     * Execute sign server claim action for chain swap
+     */
+    private async executeSignServerClaimAction(
+        swap: PendingChainSwap
+    ): Promise<void> {
+        if (!this.signServerClaimCallback) {
+            logger.error("signServerClaim callback not set");
+            return;
+        }
+
+        await this.signServerClaimCallback(swap);
+    }
+
+    /**
      * Save swap to storage
      */
     private async saveSwap(swap: PendingSwap): Promise<void> {
@@ -1028,6 +1067,15 @@ export class SwapManager {
                     isChainRefundableStatus(swap.status)
                 ) {
                     logger.log(`Resuming chain refund for swap ${swap.id}`);
+                    await this.executeAutonomousAction(swap);
+                } else if (
+                    isPendingChainSwap(swap) &&
+                    swap.request.to === "ARK" &&
+                    isChainSignableStatus(swap.status)
+                ) {
+                    logger.log(
+                        `Resuming server claim signing for swap ${swap.id}`
+                    );
                     await this.executeAutonomousAction(swap);
                 }
             } catch (error) {
