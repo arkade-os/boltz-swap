@@ -304,6 +304,54 @@ describe("SwapManager", () => {
 
             vi.useRealTimers();
         });
+
+        it("should switch to polling fallback when WebSocket API is unavailable", async () => {
+            const onWebSocketDisconnected = vi.fn();
+            const getWsUrlSpy = vi.spyOn(swapProvider, "getWsUrl");
+            (global as any).WebSocket = undefined;
+
+            swapManager = new SwapManager(swapProvider, {
+                events: { onWebSocketDisconnected },
+            });
+            swapManager.setCallbacks({
+                claim: vi.fn(),
+                refund: vi.fn(),
+                saveSwap: vi.fn(),
+            });
+
+            await swapManager.start([mockReverseSwap]);
+
+            const stats = swapManager.getStats();
+            expect(stats.usePollingFallback).toBe(true);
+            expect(stats.websocketConnected).toBe(false);
+            expect(getWsUrlSpy).not.toHaveBeenCalled();
+            expect(onWebSocketDisconnected).toHaveBeenCalledWith(
+                expect.any(Error)
+            );
+        });
+
+        it("should not schedule fallback polling after manager is stopped", async () => {
+            vi.useFakeTimers();
+
+            await swapManager.start([mockReverseSwap]);
+            await swapManager.stop();
+
+            (global.fetch as any).mockClear();
+
+            // Simulate late WebSocket error arriving after stop()
+            if (mockWebSocket.onerror) {
+                mockWebSocket.onerror(new Error("late websocket error"));
+            }
+
+            await vi.advanceTimersByTimeAsync(15000);
+
+            const stats = swapManager.getStats();
+            expect(stats.isRunning).toBe(false);
+            expect(stats.usePollingFallback).toBe(false);
+            expect(global.fetch).not.toHaveBeenCalled();
+
+            vi.useRealTimers();
+        });
     });
 
     describe("Swap Monitoring", () => {
@@ -539,6 +587,29 @@ describe("SwapManager", () => {
             expect(stats.monitoredSwaps).toBe(0);
         });
 
+        it("should remove final swap even when save fails", async () => {
+            const freshSwap = {
+                ...mockReverseSwap,
+                status: "swap.created" as const,
+            };
+            saveSwapCallback.mockRejectedValueOnce(new Error("save failed"));
+
+            await swapManager.start([freshSwap]);
+
+            await expect(
+                swapManager["handleSwapStatusUpdate"](
+                    freshSwap,
+                    "invoice.settled"
+                )
+            ).rejects.toThrow("save failed");
+
+            const stats = swapManager.getStats();
+            expect(stats.monitoredSwaps).toBe(0);
+            expect(onSwapCompleted).toHaveBeenCalledWith(
+                expect.objectContaining({ id: "reverse-swap-1" })
+            );
+        });
+
         it("should not execute action if auto-actions disabled", async () => {
             swapManager = new SwapManager(swapProvider, {
                 enableAutoActions: false,
@@ -702,6 +773,264 @@ describe("SwapManager", () => {
             expect(stats2.currentPollRetryDelay).toBeGreaterThan(1000);
 
             vi.useRealTimers();
+        });
+
+        it("should cap fallback poll interval at default maximum (60000ms)", async () => {
+            vi.useFakeTimers();
+
+            swapManager = new SwapManager(swapProvider, {
+                pollRetryDelayMs: 5000,
+            });
+            swapManager.setCallbacks({
+                claim: vi.fn(),
+                refund: vi.fn(),
+                saveSwap: vi.fn(),
+            });
+
+            await swapManager.start([mockReverseSwap]);
+            mockWebSocket.onerror(new Error("Connection failed"));
+
+            await vi.advanceTimersByTimeAsync(5000);
+            await vi.advanceTimersByTimeAsync(10000);
+            await vi.advanceTimersByTimeAsync(20000);
+            await vi.advanceTimersByTimeAsync(40000);
+
+            const stats1 = swapManager.getStats();
+            expect(stats1.currentPollRetryDelay).toBe(60000);
+
+            await vi.advanceTimersByTimeAsync(60000);
+            const stats2 = swapManager.getStats();
+            expect(stats2.currentPollRetryDelay).toBe(60000);
+
+            vi.useRealTimers();
+        });
+    });
+
+    describe("Dynamic Poll Interval", () => {
+        beforeEach(() => {
+            // Mock fetch for polling
+            global.fetch = vi.fn(() =>
+                Promise.resolve({
+                    ok: true,
+                    json: () =>
+                        Promise.resolve({
+                            status: "swap.created",
+                        }),
+                    headers: new Headers({
+                        "content-length": "100",
+                    }),
+                } as Response)
+            );
+        });
+
+        it("should change poll interval via setPollInterval", async () => {
+            vi.useFakeTimers();
+
+            swapManager = new SwapManager(swapProvider, {
+                pollInterval: 30000,
+            });
+            swapManager.setCallbacks({
+                claim: vi.fn(),
+                refund: vi.fn(),
+                saveSwap: vi.fn(),
+            });
+
+            await swapManager.start([mockReverseSwap]);
+
+            // Trigger WebSocket open so regular polling starts
+            mockWebSocket.onopen();
+
+            // Clear calls from initial poll
+            (global.fetch as any).mockClear();
+
+            // Change interval to 5s
+            swapManager.setPollInterval(5000);
+
+            // Advance 5s — should fire
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(global.fetch).toHaveBeenCalled();
+
+            (global.fetch as any).mockClear();
+
+            // Advance another 5s — should fire again at the new interval
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(global.fetch).toHaveBeenCalled();
+
+            await swapManager.stop();
+            vi.useRealTimers();
+        });
+
+        it("should reset fallback backoff via setPollInterval", async () => {
+            vi.useFakeTimers();
+
+            swapManager = new SwapManager(swapProvider, {
+                pollRetryDelayMs: 5000,
+            });
+            swapManager.setCallbacks({
+                claim: vi.fn(),
+                refund: vi.fn(),
+                saveSwap: vi.fn(),
+            });
+
+            await swapManager.start([mockReverseSwap]);
+
+            // Trigger WebSocket error to enter fallback mode
+            mockWebSocket.onerror(new Error("Connection failed"));
+
+            // Let the first fallback poll run so backoff increases
+            await vi.advanceTimersByTimeAsync(5000);
+
+            const stats1 = swapManager.getStats();
+            expect(stats1.usePollingFallback).toBe(true);
+            expect(stats1.currentPollRetryDelay).toBeGreaterThan(5000);
+
+            // Now set a fast interval — should reset the backoff
+            swapManager.setPollInterval(3000);
+
+            const stats2 = swapManager.getStats();
+            expect(stats2.currentPollRetryDelay).toBeLessThanOrEqual(3000);
+
+            await swapManager.stop();
+            vi.useRealTimers();
+        });
+
+        it("should be a no-op if manager is not running", () => {
+            swapManager = new SwapManager(swapProvider, {
+                pollInterval: 30000,
+            });
+
+            // Should not throw
+            swapManager.setPollInterval(5000);
+        });
+
+        it("should cap setPollInterval to maxPollIntervalMs", async () => {
+            vi.useFakeTimers();
+
+            swapManager = new SwapManager(swapProvider, {
+                pollInterval: 30000,
+                maxPollIntervalMs: 15000,
+            });
+            swapManager.setCallbacks({
+                claim: vi.fn(),
+                refund: vi.fn(),
+                saveSwap: vi.fn(),
+            });
+
+            await swapManager.start([mockReverseSwap]);
+            mockWebSocket.onopen();
+
+            (global.fetch as any).mockClear();
+
+            swapManager.setPollInterval(45000);
+
+            await vi.advanceTimersByTimeAsync(14999);
+            expect(global.fetch).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(1);
+            expect(global.fetch).toHaveBeenCalled();
+
+            await swapManager.stop();
+            vi.useRealTimers();
+        });
+    });
+
+    describe("addSwap polling reset", () => {
+        beforeEach(() => {
+            // Mock fetch for polling
+            global.fetch = vi.fn(() =>
+                Promise.resolve({
+                    ok: true,
+                    json: () =>
+                        Promise.resolve({
+                            status: "swap.created",
+                        }),
+                    headers: new Headers({
+                        "content-length": "100",
+                    }),
+                } as Response)
+            );
+        });
+
+        it("should reset backoff and poll immediately when adding swap in fallback mode", async () => {
+            vi.useFakeTimers();
+
+            swapManager = new SwapManager(swapProvider, {
+                pollRetryDelayMs: 5000,
+            });
+            swapManager.setCallbacks({
+                claim: vi.fn(),
+                refund: vi.fn(),
+                saveSwap: vi.fn(),
+            });
+
+            await swapManager.start([]);
+
+            // Trigger WebSocket error to enter fallback mode
+            mockWebSocket.onerror(new Error("Connection failed"));
+
+            // Let backoff grow
+            await vi.advanceTimersByTimeAsync(5000);
+            await vi.advanceTimersByTimeAsync(10000);
+
+            const statsBeforeAdd = swapManager.getStats();
+            expect(statsBeforeAdd.usePollingFallback).toBe(true);
+            expect(statsBeforeAdd.currentPollRetryDelay).toBeGreaterThan(5000);
+
+            // Clear fetch calls
+            (global.fetch as any).mockClear();
+
+            // Add a new swap — should trigger immediate poll and reset backoff
+            swapManager.addSwap(mockReverseSwap);
+
+            // fetch should have been called immediately (pollAllSwaps)
+            expect(global.fetch).toHaveBeenCalled();
+
+            // Backoff should be reset
+            const statsAfterAdd = swapManager.getStats();
+            expect(statsAfterAdd.currentPollRetryDelay).toBe(5000);
+
+            await swapManager.stop();
+            vi.useRealTimers();
+        });
+
+        it("should not reset polling when adding swap with WebSocket connected", async () => {
+            swapManager = new SwapManager(swapProvider, {
+                pollRetryDelayMs: 5000,
+            });
+            swapManager.setCallbacks({
+                claim: vi.fn(),
+                refund: vi.fn(),
+                saveSwap: vi.fn(),
+            });
+
+            await swapManager.start([]);
+
+            // WebSocket connects successfully
+            mockWebSocket.onopen();
+
+            await sleep(10);
+
+            const statsBeforeAdd = swapManager.getStats();
+            expect(statsBeforeAdd.usePollingFallback).toBe(false);
+
+            // Clear fetch calls from initial poll
+            (global.fetch as any).mockClear();
+
+            // Add swap — should subscribe via WebSocket, not trigger extra poll
+            swapManager.addSwap(mockReverseSwap);
+
+            expect(mockWebSocket.send).toHaveBeenCalledWith(
+                JSON.stringify({
+                    op: "subscribe",
+                    channel: "swap.update",
+                    args: ["reverse-swap-1"],
+                })
+            );
+
+            // No extra fetch call triggered by addSwap in WebSocket mode
+            expect(global.fetch).not.toHaveBeenCalled();
+
+            await swapManager.stop();
         });
     });
 

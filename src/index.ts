@@ -35,6 +35,7 @@ export {
     InvoiceFailedToPayError,
     InsufficientFundsError,
     NetworkError,
+    PreimageFetchError,
     TransactionFailedError,
 } from "./errors";
 export {

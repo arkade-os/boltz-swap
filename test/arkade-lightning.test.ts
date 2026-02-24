@@ -28,6 +28,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice } from "../src/utils/decoding";
 import { pubECDSA } from "@scure/btc-signer/utils.js";
+import { PreimageFetchError, TransactionFailedError } from "../src/errors";
 
 // Mock the @arkade-os/sdk modules
 vi.mock("@arkade-os/sdk", async () => {
@@ -714,6 +715,124 @@ describe("ArkadeLightning", () => {
                 expect(result.amount).toBe(mock.invoice.amount);
                 expect(result.preimage).toBe(mock.preimage);
                 expect(result.txid).toBe(mock.txid);
+            });
+
+            it("should delegate to SwapManager when enabled", async () => {
+                // arrange — create lightning with SwapManager enabled
+                const lightningWithManager = new ArkadeLightning({
+                    wallet,
+                    arkProvider,
+                    swapProvider,
+                    indexerProvider,
+                    swapManager: { autoStart: false },
+                });
+                const manager = lightningWithManager.getSwapManager()!;
+
+                const pendingSwap = { ...mockSubmarineSwap };
+                vi.spyOn(wallet, "sendBitcoin").mockResolvedValueOnce(
+                    mock.txid
+                );
+                vi.spyOn(
+                    lightningWithManager,
+                    "createSubmarineSwap"
+                ).mockResolvedValueOnce(pendingSwap);
+
+                // Mock SwapManager — the swap must be known to the manager
+                vi.spyOn(manager, "hasSwap").mockReturnValue(true);
+                vi.spyOn(
+                    manager,
+                    "waitForSwapCompletion"
+                ).mockResolvedValueOnce({ txid: pendingSwap.id });
+                vi.spyOn(swapProvider, "getSwapPreimage").mockResolvedValueOnce(
+                    {
+                        preimage: mock.preimage,
+                    }
+                );
+
+                // act
+                const result = await lightningWithManager.sendLightningPayment({
+                    invoice: mock.invoice.address,
+                });
+
+                // assert — should use SwapManager, not waitForSwapSettlement
+                expect(manager.waitForSwapCompletion).toHaveBeenCalledWith(
+                    pendingSwap.id
+                );
+                expect(swapProvider.getSwapPreimage).toHaveBeenCalledWith(
+                    pendingSwap.id
+                );
+                expect(result.amount).toBe(mock.invoice.amount);
+                expect(result.preimage).toBe(mock.preimage);
+                expect(result.txid).toBe(mock.txid);
+            });
+
+            it("should throw TransactionFailedError when SwapManager monitoring fails", async () => {
+                const lightningWithManager = new ArkadeLightning({
+                    wallet,
+                    arkProvider,
+                    swapProvider,
+                    indexerProvider,
+                    swapManager: { autoStart: false },
+                });
+                const manager = lightningWithManager.getSwapManager()!;
+
+                const pendingSwap = { ...mockSubmarineSwap };
+                vi.spyOn(wallet, "sendBitcoin").mockResolvedValueOnce(
+                    mock.txid
+                );
+                vi.spyOn(
+                    lightningWithManager,
+                    "createSubmarineSwap"
+                ).mockResolvedValueOnce(pendingSwap);
+                vi.spyOn(manager, "hasSwap").mockReturnValue(true);
+                vi.spyOn(
+                    manager,
+                    "waitForSwapCompletion"
+                ).mockRejectedValueOnce(new Error("swap failed"));
+                vi.spyOn(swapProvider, "getSwapPreimage");
+
+                await expect(
+                    lightningWithManager.sendLightningPayment({
+                        invoice: mock.invoice.address,
+                    })
+                ).rejects.toBeInstanceOf(TransactionFailedError);
+                expect(swapProvider.getSwapPreimage).not.toHaveBeenCalled();
+            });
+
+            it("should throw PreimageFetchError when preimage retrieval fails after settlement", async () => {
+                const lightningWithManager = new ArkadeLightning({
+                    wallet,
+                    arkProvider,
+                    swapProvider,
+                    indexerProvider,
+                    swapManager: { autoStart: false },
+                });
+                const manager = lightningWithManager.getSwapManager()!;
+
+                const pendingSwap = { ...mockSubmarineSwap };
+                vi.spyOn(wallet, "sendBitcoin").mockResolvedValueOnce(
+                    mock.txid
+                );
+                vi.spyOn(
+                    lightningWithManager,
+                    "createSubmarineSwap"
+                ).mockResolvedValueOnce(pendingSwap);
+                vi.spyOn(manager, "hasSwap").mockReturnValue(true);
+                vi.spyOn(
+                    manager,
+                    "waitForSwapCompletion"
+                ).mockResolvedValueOnce({ txid: pendingSwap.id });
+                vi.spyOn(swapProvider, "getSwapPreimage").mockRejectedValueOnce(
+                    new Error("network error")
+                );
+                vi.spyOn(lightningWithManager, "refundVHTLC");
+
+                await expect(
+                    lightningWithManager.sendLightningPayment({
+                        invoice: mock.invoice.address,
+                    })
+                ).rejects.toBeInstanceOf(PreimageFetchError);
+                expect(lightningWithManager.refundVHTLC).not.toHaveBeenCalled();
             });
         });
 
