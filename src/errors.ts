@@ -85,6 +85,16 @@ export class TransactionFailedError extends SwapError {
     }
 }
 
+export class PreimageFetchError extends SwapError {
+    constructor(options: ErrorOptions = {}) {
+        super({
+            message: "The payment settled, but fetching the preimage failed.",
+            ...options,
+        });
+        this.name = "PreimageFetchError";
+    }
+}
+
 export class TransactionLockupFailedError extends SwapError {
     constructor(options: ErrorOptions = {}) {
         super({ message: "The transaction lockup has failed.", ...options });

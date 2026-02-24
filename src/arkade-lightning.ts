@@ -1,6 +1,7 @@
 import {
     InvoiceExpiredError,
     InvoiceFailedToPayError,
+    PreimageFetchError,
     SwapError,
     SwapExpiredError,
     TransactionFailedError,
@@ -275,12 +276,28 @@ export class ArkadeLightning {
             amount: pendingSwap.response.expectedAmount,
         });
 
-        try {
-            // If SwapManager is enabled, delegate to its polling-based monitoring
-            // instead of waitForSwapSettlement which uses a direct WebSocket
-            // (unavailable in some runtimes like Bare worklets)
-            if (this.swapManager && this.swapManager.hasSwap(pendingSwap.id)) {
+        // If SwapManager is enabled, delegate to its polling-based monitoring
+        // instead of waitForSwapSettlement which uses a direct WebSocket
+        // (unavailable in some runtimes like Bare worklets)
+        if (this.swapManager && this.swapManager.hasSwap(pendingSwap.id)) {
+            try {
                 await this.swapManager.waitForSwapCompletion(pendingSwap.id);
+            } catch (error: any) {
+                if (error.isRefundable) {
+                    await this.refundVHTLC(pendingSwap);
+                    const finalStatus = await this.getSwapStatus(
+                        pendingSwap.id
+                    );
+                    await updateSubmarineSwapStatus(
+                        pendingSwap,
+                        finalStatus.status,
+                        this.savePendingSubmarineSwap.bind(this)
+                    );
+                }
+                throw new TransactionFailedError();
+            }
+
+            try {
                 const { preimage } = await this.swapProvider.getSwapPreimage(
                     pendingSwap.id
                 );
@@ -289,8 +306,14 @@ export class ArkadeLightning {
                     preimage,
                     txid,
                 };
+            } catch (error: any) {
+                throw new PreimageFetchError({
+                    message: `The payment settled, but fetching the preimage failed: ${error?.message ?? "unknown error"}`,
+                });
             }
+        }
 
+        try {
             const { preimage } = await this.waitForSwapSettlement(pendingSwap);
             return {
                 amount: pendingSwap.response.expectedAmount,
