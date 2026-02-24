@@ -71,7 +71,13 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
     private actionExecutedListeners = new Set<
         (
             swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
-            action: "claim" | "refund" | "claimArk" | "claimBtc" | "refundArk"
+            action:
+                | "claim"
+                | "refund"
+                | "claimArk"
+                | "claimBtc"
+                | "refundArk"
+                | "signServerClaim"
         ) => void
     >();
     private wsConnectedListeners = new Set<() => void>();

@@ -379,7 +379,8 @@ export type SwapManagerEventMessage =
                   | "refund"
                   | "claimArk"
                   | "claimBtc"
-                  | "refundArk";
+                  | "refundArk"
+                  | "signServerClaim";
           };
       }
     | {
