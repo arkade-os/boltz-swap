@@ -1016,7 +1016,8 @@ export class SwapManager {
 
     /**
      * Execute sign server claim action for chain swap.
-     * Returns true on success, false if no callback or on failure.
+     * Returns true on success, false if no callback is set.
+     * Throws if the callback itself throws.
      */
     private async executeSignServerClaimAction(
         swap: PendingChainSwap
