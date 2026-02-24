@@ -21,30 +21,83 @@ export class SwapError extends Error {
     }
 }
 
-export class NetworkError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = "NetworkError";
-    }
-}
-
-export class SchemaError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = "SchemaError";
-    }
-}
-
 export class InvoiceExpiredError extends SwapError {
     constructor(options: ErrorOptions = {}) {
-        super({ ...options, message: options.message ?? "Invoice expired." });
+        super({ message: "The invoice has expired.", ...options });
         this.name = "InvoiceExpiredError";
+    }
+}
+
+export class InvoiceFailedToPayError extends SwapError {
+    constructor(options: ErrorOptions = {}) {
+        super({
+            message: "The provider failed to pay the invoice",
+            ...options,
+        });
+        this.name = "InvoiceFailedToPayError";
+    }
+}
+
+export class InsufficientFundsError extends SwapError {
+    constructor(options: ErrorOptions = {}) {
+        super({ message: "Not enough funds available", ...options });
+        this.name = "InsufficientFundsError";
+    }
+}
+
+export class NetworkError extends Error {
+    public statusCode?: number;
+    public errorData?: any;
+
+    constructor(message: string, statusCode?: number, errorData?: any) {
+        super(message);
+        this.name = "NetworkError";
+        this.statusCode = statusCode;
+        this.errorData = errorData;
+    }
+}
+
+export class SchemaError extends SwapError {
+    constructor(options: ErrorOptions = {}) {
+        super({ message: "Invalid API response", ...options });
+        this.name = "SchemaError";
     }
 }
 
 export class SwapExpiredError extends SwapError {
     constructor(options: ErrorOptions = {}) {
-        super({ ...options, message: options.message ?? "Swap expired." });
+        super({ message: "The swap has expired", ...options });
         this.name = "SwapExpiredError";
+    }
+}
+
+export class TransactionFailedError extends SwapError {
+    constructor(options: ErrorOptions = {}) {
+        super({ message: "The transaction has failed.", ...options });
+        this.name = "TransactionFailedError";
+    }
+}
+
+export class PreimageFetchError extends SwapError {
+    constructor(options: ErrorOptions = {}) {
+        super({
+            message: "The payment settled, but fetching the preimage failed.",
+            ...options,
+        });
+        this.name = "PreimageFetchError";
+    }
+}
+
+export class TransactionLockupFailedError extends SwapError {
+    constructor(options: ErrorOptions = {}) {
+        super({ message: "The transaction lockup has failed.", ...options });
+        this.name = "TransactionLockupFailedError";
+    }
+}
+
+export class TransactionRefundedError extends SwapError {
+    constructor(options: ErrorOptions = {}) {
+        super({ message: "The transaction has been refunded.", ...options });
+        this.name = "TransactionRefundedError";
     }
 }

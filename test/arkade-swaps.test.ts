@@ -2003,10 +2003,11 @@ describe("ArkadeSwaps", () => {
 
             it("should handle mixed swap types and statuses correctly", async () => {
                 // arrange
+                const now = Date.now();
                 const mockReverseSwaps: PendingReverseSwap[] = [
                     {
                         ...mockReverseSwap,
-                        createdAt: Date.now() - 1000,
+                        createdAt: now - 1000,
                         preimage: "preimage1",
                         response: {
                             ...createReverseSwapResponse,
@@ -2019,6 +2020,7 @@ describe("ArkadeSwaps", () => {
                 const mockSubmarineSwaps: PendingSubmarineSwap[] = [
                     {
                         ...mockSubmarineSwap,
+                        createdAt: now,
                         response: {
                             ...createSubmarineSwapResponse,
                             id: "submarine1",
