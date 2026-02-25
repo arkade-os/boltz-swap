@@ -148,8 +148,20 @@ export const tweakMusig = (musig: MusigKeyAgg, tree: TapTree): MusigKeyAgg => {
 // Swap output detection
 // ---------------------------------------------------------------------------
 
-const toXOnly = (pubKey: Uint8Array): Uint8Array =>
-    pubKey.length === 32 ? pubKey : pubKey.subarray(1, 33);
+const toXOnly = (pubKey: Uint8Array): Uint8Array => {
+    if (pubKey.length === 32) return pubKey;
+    if (pubKey.length === 33) {
+        if (pubKey[0] !== 0x02 && pubKey[0] !== 0x03) {
+            throw new Error(
+                `Invalid compressed public key prefix: 0x${pubKey[0].toString(16).padStart(2, "0")}`
+            );
+        }
+        return pubKey.subarray(1, 33);
+    }
+    throw new Error(
+        `Invalid public key length: expected 32 or 33 bytes, got ${pubKey.length}`
+    );
+};
 
 const p2trScript = (publicKey: Uint8Array): Uint8Array =>
     Script.encode(["OP_1", toXOnly(publicKey)]);

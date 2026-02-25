@@ -1047,7 +1047,7 @@ export class ArkadeSwaps {
                 : 0
         );
 
-        const claimTx = targetFee(1, (fee) =>
+        const claimTx = targetFee(pendingSwap.feeSatsPerByte, (fee) =>
             constructClaimTransaction(
                 {
                     script: swapOutput.script!,
@@ -1887,53 +1887,63 @@ export class ArkadeSwaps {
      * Refreshes the status of all pending swaps in the storage provider.
      */
     async refreshSwapsStatus(): Promise<void> {
+        const promises: Promise<void>[] = [];
+
         for (const swap of await this.getPendingReverseSwapsFromStorage()) {
             if (isReverseFinalStatus(swap.status)) continue;
-            this.getSwapStatus(swap.id)
-                .then(({ status }) => {
-                    updateReverseSwapStatus(
-                        swap,
-                        status,
-                        this.savePendingReverseSwap.bind(this)
-                    );
-                })
-                .catch((error) => {
-                    logger.error(
-                        `Failed to refresh swap status for ${swap.id}:`,
-                        error
-                    );
-                });
+            promises.push(
+                this.getSwapStatus(swap.id)
+                    .then(({ status }) =>
+                        updateReverseSwapStatus(
+                            swap,
+                            status,
+                            this.savePendingReverseSwap.bind(this)
+                        )
+                    )
+                    .catch((error) => {
+                        logger.error(
+                            `Failed to refresh swap status for ${swap.id}:`,
+                            error
+                        );
+                    })
+            );
         }
         for (const swap of await this.getPendingSubmarineSwapsFromStorage()) {
             if (isSubmarineFinalStatus(swap.status)) continue;
-            this.getSwapStatus(swap.id)
-                .then(({ status }) => {
-                    updateSubmarineSwapStatus(
-                        swap,
-                        status,
-                        this.savePendingSubmarineSwap.bind(this)
-                    );
-                })
-                .catch((error) => {
-                    logger.error(
-                        `Failed to refresh swap status for ${swap.id}:`,
-                        error
-                    );
-                });
+            promises.push(
+                this.getSwapStatus(swap.id)
+                    .then(({ status }) =>
+                        updateSubmarineSwapStatus(
+                            swap,
+                            status,
+                            this.savePendingSubmarineSwap.bind(this)
+                        )
+                    )
+                    .catch((error) => {
+                        logger.error(
+                            `Failed to refresh swap status for ${swap.id}:`,
+                            error
+                        );
+                    })
+            );
         }
         for (const swap of await this.getPendingChainSwapsFromStorage()) {
             if (isChainFinalStatus(swap.status)) continue;
-            this.getSwapStatus(swap.id)
-                .then(async ({ status }) => {
-                    await this.savePendingChainSwap({ ...swap, status });
-                })
-                .catch((error) => {
-                    logger.error(
-                        `Failed to refresh swap status for ${swap.id}:`,
-                        error
-                    );
-                });
+            promises.push(
+                this.getSwapStatus(swap.id)
+                    .then(({ status }) =>
+                        this.savePendingChainSwap({ ...swap, status })
+                    )
+                    .catch((error) => {
+                        logger.error(
+                            `Failed to refresh swap status for ${swap.id}:`,
+                            error
+                        );
+                    })
+            );
         }
+
+        await Promise.all(promises);
     }
 
     // =========================================================================

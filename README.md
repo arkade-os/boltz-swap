@@ -626,6 +626,8 @@ import {
   InvoiceFailedToPayError,
   InsufficientFundsError,
   TransactionFailedError,
+  isPendingSubmarineSwap,
+  isPendingChainSwap,
 } from '@arkade-os/boltz-swap';
 
 try {
@@ -653,7 +655,11 @@ try {
 
   // Manual refund (only needed without SwapManager)
   if (error.isRefundable && error.pendingSwap) {
-    await swaps.refundVHTLC(error.pendingSwap);
+    if (isPendingChainSwap(error.pendingSwap)) {
+      await swaps.refundArk(error.pendingSwap);
+    } else if (isPendingSubmarineSwap(error.pendingSwap)) {
+      await swaps.refundVHTLC(error.pendingSwap);
+    }
   }
 }
 ```
