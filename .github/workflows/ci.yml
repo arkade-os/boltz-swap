@@ -30,7 +30,7 @@ jobs:
 
     - name: Setup pnpm cache
       env:
-        PNPM_CACHE_VERSION: v5  # bump this to bust caches
+        PNPM_CACHE_VERSION: v6  # bump this to bust caches
       uses: actions/cache@v3
       with:
         path: ${{ env.STORE_PATH }}
