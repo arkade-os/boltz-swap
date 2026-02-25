@@ -148,7 +148,7 @@ const invoice = await swaps.createLightningInvoice({ amount: 50000 });
       onSwapUpdate: (swap, oldStatus) => {},
       onSwapCompleted: (swap) => {},
       onSwapFailed: (swap, error) => {},
-      onActionExecuted: (swap, action) => {},  // 'claim', 'refund', 'claimArk', 'claimBtc', 'refundArk'
+      onActionExecuted: (swap, action) => {},  // 'claim', 'refund', 'claimArk', 'claimBtc', 'refundArk', 'signServerClaim'
       onWebSocketConnected: () => {},
       onWebSocketDisconnected: (error?) => {},
     }
@@ -183,7 +183,7 @@ manager.onSwapFailed((swap, error) => {
   console.error(`Swap ${swap.id} failed:`, error);
 });
 
-// Subscribe to actions (claim/refund/claimArk/claimBtc/refundArk)
+// Subscribe to actions (claim/refund/claimArk/claimBtc/refundArk/signServerClaim)
 manager.onActionExecuted((swap, action) => {
   console.log(`Executed ${action} for swap ${swap.id}`);
 });
