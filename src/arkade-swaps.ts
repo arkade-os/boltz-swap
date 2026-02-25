@@ -913,6 +913,11 @@ export class ArkadeSwaps {
         }
         return new Promise<{ txid: string }>((resolve, reject) => {
             let claimStarted = false;
+            // Local mutable copy — accumulates fields across status
+            // callbacks (e.g. btcTxHex) without mutating the caller's
+            // object. Spreading from the original on every callback
+            // would silently discard previously saved data.
+            const swap = { ...pendingSwap };
             const onStatusUpdate = async (
                 status: BoltzSwapStatus,
                 data: {
@@ -923,10 +928,10 @@ export class ArkadeSwaps {
                 const updateSwapStatus = async (
                     btcTxHex?: string
                 ): Promise<PendingChainSwap> => {
-                    const updatedSwap = { ...pendingSwap, status };
-                    if (btcTxHex) updatedSwap.btcTxHex = btcTxHex;
-                    await this.savePendingChainSwap(updatedSwap);
-                    return updatedSwap;
+                    swap.status = status;
+                    if (btcTxHex) swap.btcTxHex = btcTxHex;
+                    await this.savePendingChainSwap(swap);
+                    return swap;
                 };
                 switch (status) {
                     case "transaction.mempool":
@@ -952,18 +957,18 @@ export class ArkadeSwaps {
                         resolve({
                             txid:
                                 data?.transaction?.id ??
-                                pendingSwap.response.id,
+                                swap.response.id,
                         });
                         break;
                     case "transaction.lockupFailed":
                         await updateSwapStatus();
-                        await this.quoteSwap(pendingSwap.response.id).catch(
+                        await this.quoteSwap(swap.response.id).catch(
                             (err) => {
                                 reject(
                                     new SwapError({
                                         message: `Failed to renegotiate quote: ${err.message}`,
                                         isRefundable: true,
-                                        pendingSwap,
+                                        pendingSwap: swap,
                                     })
                                 );
                             }
@@ -974,7 +979,7 @@ export class ArkadeSwaps {
                         reject(
                             new SwapExpiredError({
                                 isRefundable: true,
-                                pendingSwap,
+                                pendingSwap: swap,
                             })
                         );
                         break;
@@ -998,7 +1003,7 @@ export class ArkadeSwaps {
             };
 
             this.swapProvider
-                .monitorSwap(pendingSwap.id, onStatusUpdate)
+                .monitorSwap(swap.id, onStatusUpdate)
                 .catch(reject);
         });
     }
@@ -1283,6 +1288,11 @@ export class ArkadeSwaps {
         }
         return new Promise<{ txid: string }>((resolve, reject) => {
             let claimStarted = false;
+            // Local mutable copy — accumulates fields across status
+            // callbacks without mutating the caller's object. Spreading
+            // from the original on every callback would silently
+            // discard previously saved data.
+            const swap = { ...pendingSwap };
             const onStatusUpdate = async (
                 status: BoltzSwapStatus,
                 data: {
@@ -1291,10 +1301,8 @@ export class ArkadeSwaps {
                 }
             ) => {
                 const updateSwapStatus = () => {
-                    return this.savePendingChainSwap({
-                        ...pendingSwap,
-                        status,
-                    });
+                    swap.status = status;
+                    return this.savePendingChainSwap(swap);
                 };
                 switch (status) {
                     case "transaction.server.mempool":
@@ -1302,37 +1310,47 @@ export class ArkadeSwaps {
                         await updateSwapStatus();
                         if (claimStarted) return;
                         claimStarted = true;
-                        this.claimArk(pendingSwap).catch(reject);
+                        this.claimArk(swap).catch(reject);
                         break;
                     case "transaction.claimed":
                         await updateSwapStatus();
                         resolve({
                             txid:
                                 data?.transaction?.id ??
-                                pendingSwap.response.id,
+                                swap.response.id,
                         });
                         break;
                     case "transaction.claim.pending":
                         await updateSwapStatus();
                         await this.signCooperativeClaimForServer(
-                            pendingSwap
+                            swap
                         ).catch((err) => {
                             logger.error(
-                                `Failed to sign cooperative claim for ${pendingSwap.id}:`,
+                                `Failed to sign cooperative claim for ${swap.id}:`,
                                 err
                             );
                         });
                         break;
                     case "transaction.lockupFailed":
                         await updateSwapStatus();
-                        await this.quoteSwap(pendingSwap.response.id);
+                        await this.quoteSwap(swap.response.id).catch(
+                            (err) => {
+                                reject(
+                                    new SwapError({
+                                        message: `Failed to renegotiate quote: ${err.message}`,
+                                        isRefundable: true,
+                                        pendingSwap: swap,
+                                    })
+                                );
+                            }
+                        );
                         break;
                     case "swap.expired":
                         await updateSwapStatus();
                         reject(
                             new SwapExpiredError({
                                 isRefundable: true,
-                                pendingSwap,
+                                pendingSwap: swap,
                             })
                         );
                         break;
@@ -1356,7 +1374,7 @@ export class ArkadeSwaps {
             };
 
             this.swapProvider
-                .monitorSwap(pendingSwap.id, onStatusUpdate)
+                .monitorSwap(swap.id, onStatusUpdate)
                 .catch(reject);
         });
     }

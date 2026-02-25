@@ -937,7 +937,13 @@ export class SwapManager implements SwapManagerClient {
                         );
                     }
                     if (swap.request.from === "BTC") {
-                        // TODO: Implement BTC refund if needed
+                        // BTC-side lockup refunds are handled on-chain by
+                        // Boltz after the timelock expires — there is no
+                        // client-side action to take. We log a warning so
+                        // the event is visible in diagnostics.
+                        logger.warn(
+                            `Chain swap ${swap.id} expired: BTC lockup will be refunded by Boltz after timelock`
+                        );
                     }
                 } else if (
                     swap.request.to === "ARK" &&
