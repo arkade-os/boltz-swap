@@ -675,20 +675,20 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "SM-ADD_SWAP": {
-                    await this.getSwapManagerOrThrow()
-                        .addSwap(message.payload);
+                    await this.getSwapManagerOrThrow().addSwap(message.payload);
                     return this.tagged({ id, type: "SM-SWAP_ADDED" });
                 }
 
                 case "SM-REMOVE_SWAP": {
-                    await this.getSwapManagerOrThrow()
-                        .removeSwap(message.payload.swapId);
+                    await this.getSwapManagerOrThrow().removeSwap(
+                        message.payload.swapId
+                    );
                     return this.tagged({ id, type: "SM-SWAP_REMOVED" });
                 }
 
                 case "SM-GET_PENDING_SWAPS": {
-                    const res = await this.getSwapManagerOrThrow()
-                        .getPendingSwaps();
+                    const res =
+                        await this.getSwapManagerOrThrow().getPendingSwaps();
                     return this.tagged({
                         id,
                         type: "SM-PENDING_SWAPS",
@@ -697,8 +697,9 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "SM-HAS_SWAP": {
-                    const has = await this.getSwapManagerOrThrow()
-                        .hasSwap(message.payload.swapId);
+                    const has = await this.getSwapManagerOrThrow().hasSwap(
+                        message.payload.swapId
+                    );
                     return this.tagged({
                         id,
                         type: "SM-HAS_SWAP_RESULT",
@@ -707,8 +708,10 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "SM-IS_PROCESSING": {
-                    const processing = await this.getSwapManagerOrThrow()
-                        .isProcessing(message.payload.swapId);
+                    const processing =
+                        await this.getSwapManagerOrThrow().isProcessing(
+                            message.payload.swapId
+                        );
                     return this.tagged({
                         id,
                         type: "SM-IS_PROCESSING_RESULT",
@@ -717,8 +720,7 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "SM-GET_STATS": {
-                    const stats = await this.getSwapManagerOrThrow()
-                        .getStats();
+                    const stats = await this.getSwapManagerOrThrow().getStats();
                     return this.tagged({
                         id,
                         type: "SM-STATS",
@@ -727,8 +729,10 @@ export class ArkadeLightningMessageHandler
                 }
 
                 case "SM-WAIT_FOR_COMPLETION": {
-                    const res = await this.getSwapManagerOrThrow()
-                        .waitForSwapCompletion(message.payload.swapId);
+                    const res =
+                        await this.getSwapManagerOrThrow().waitForSwapCompletion(
+                            message.payload.swapId
+                        );
                     return this.tagged({
                         id,
                         type: "SM-COMPLETED",

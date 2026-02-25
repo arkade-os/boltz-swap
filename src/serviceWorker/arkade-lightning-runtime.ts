@@ -339,7 +339,10 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
             },
             offSwapUpdate: (
                 listener: (
-                    swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap,
                     oldStatus: BoltzSwapStatus
                 ) => void
             ) => {
@@ -347,14 +350,20 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
             },
             offSwapCompleted: (
                 listener: (
-                    swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap
                 ) => void
             ) => {
                 this.swapCompletedListeners.delete(listener);
             },
             offSwapFailed: (
                 listener: (
-                    swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap,
                     error: Error
                 ) => void
             ) => {
@@ -362,7 +371,10 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
             },
             offActionExecuted: (
                 listener: (
-                    swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap,
                     action: Actions
                 ) => void
             ) => {
