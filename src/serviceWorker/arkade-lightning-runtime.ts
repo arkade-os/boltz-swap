@@ -1,11 +1,12 @@
 import { GetSwapStatusResponse, BoltzSwapStatus } from "../boltz-swap-provider";
 import {
-    ArkadeLightningConfig,
+    ArkadeSwapsConfig,
     CreateLightningInvoiceRequest,
     CreateLightningInvoiceResponse,
     FeesResponse,
     LimitsResponse,
     Network,
+    PendingChainSwap,
     PendingReverseSwap,
     PendingSubmarineSwap,
     SendLightningPaymentRequest,
@@ -34,12 +35,12 @@ import type {
     ResponseWaitForSwapSettlement,
 } from "./arkade-lightning-message-handler";
 import type { VHTLC } from "@arkade-os/sdk";
-import { IArkadeLightning } from "../arkade-lightning";
+import { IArkadeLightning } from "../arkade-swaps";
 import { IndexedDbSwapRepository } from "../repositories/IndexedDb/swap-repository";
-import type { SwapManagerClient } from "../swap-manager";
+import type { Actions, SwapManagerClient } from "../swap-manager";
 
 export type SvcWrkArkadeLightningConfig = Pick<
-    ArkadeLightningConfig,
+    ArkadeSwapsConfig,
     "swapManager" | "swapProvider" | "swapRepository"
 > & {
     serviceWorker: ServiceWorker;
@@ -52,20 +53,25 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
     private eventListenerInitialized = false;
     private swapUpdateListeners = new Set<
         (
-            swap: PendingReverseSwap | PendingSubmarineSwap,
+            swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
             oldStatus: BoltzSwapStatus
         ) => void
     >();
     private swapCompletedListeners = new Set<
-        (swap: PendingReverseSwap | PendingSubmarineSwap) => void
+        (
+            swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap
+        ) => void
     >();
     private swapFailedListeners = new Set<
-        (swap: PendingReverseSwap | PendingSubmarineSwap, error: Error) => void
+        (
+            swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
+            error: Error
+        ) => void
     >();
     private actionExecutedListeners = new Set<
         (
-            swap: PendingReverseSwap | PendingSubmarineSwap,
-            action: "claim" | "refund"
+            swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
+            action: Actions
         ) => void
     >();
     private wsConnectedListeners = new Set<() => void>();
@@ -156,7 +162,10 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
                 });
             },
             addSwap: async (
-                swap: PendingReverseSwap | PendingSubmarineSwap
+                swap:
+                    | PendingReverseSwap
+                    | PendingSubmarineSwap
+                    | PendingChainSwap
             ) => {
                 await send({
                     id: getRandomId(),
@@ -181,7 +190,11 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
                 });
                 return (
                     res as ArkadeLightningUpdaterResponse & {
-                        payload: (PendingReverseSwap | PendingSubmarineSwap)[];
+                        payload: (
+                            | PendingReverseSwap
+                            | PendingSubmarineSwap
+                            | PendingChainSwap
+                        )[];
                     }
                 ).payload;
             },
@@ -246,12 +259,18 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
             subscribeToSwapUpdates: async (
                 swapId: string,
                 callback: (
-                    swap: PendingReverseSwap | PendingSubmarineSwap,
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap,
                     oldStatus: BoltzSwapStatus
                 ) => void
             ) => {
                 const filteredListener = (
-                    swap: PendingReverseSwap | PendingSubmarineSwap,
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap,
                     oldStatus: BoltzSwapStatus
                 ) => {
                     if (swap.id === swapId) {
@@ -263,7 +282,10 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
             },
             onSwapUpdate: async (
                 listener: (
-                    swap: PendingReverseSwap | PendingSubmarineSwap,
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap,
                     oldStatus: BoltzSwapStatus
                 ) => void
             ) => {
@@ -272,7 +294,10 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
             },
             onSwapCompleted: async (
                 listener: (
-                    swap: PendingReverseSwap | PendingSubmarineSwap
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap
                 ) => void
             ) => {
                 this.swapCompletedListeners.add(listener);
@@ -280,7 +305,10 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
             },
             onSwapFailed: async (
                 listener: (
-                    swap: PendingReverseSwap | PendingSubmarineSwap,
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap,
                     error: Error
                 ) => void
             ) => {
@@ -289,8 +317,11 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
             },
             onActionExecuted: async (
                 listener: (
-                    swap: PendingReverseSwap | PendingSubmarineSwap,
-                    action: "claim" | "refund"
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap,
+                    action: Actions
                 ) => void
             ) => {
                 this.actionExecutedListeners.add(listener);
@@ -305,6 +336,55 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
             ) => {
                 this.wsDisconnectedListeners.add(listener);
                 return () => this.wsDisconnectedListeners.delete(listener);
+            },
+            offSwapUpdate: (
+                listener: (
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap,
+                    oldStatus: BoltzSwapStatus
+                ) => void
+            ) => {
+                this.swapUpdateListeners.delete(listener);
+            },
+            offSwapCompleted: (
+                listener: (
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap
+                ) => void
+            ) => {
+                this.swapCompletedListeners.delete(listener);
+            },
+            offSwapFailed: (
+                listener: (
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap,
+                    error: Error
+                ) => void
+            ) => {
+                this.swapFailedListeners.delete(listener);
+            },
+            offActionExecuted: (
+                listener: (
+                    swap:
+                        | PendingReverseSwap
+                        | PendingSubmarineSwap
+                        | PendingChainSwap,
+                    action: Actions
+                ) => void
+            ) => {
+                this.actionExecutedListeners.delete(listener);
+            },
+            offWebSocketConnected: (listener: () => void) => {
+                this.wsConnectedListeners.delete(listener);
+            },
+            offWebSocketDisconnected: (listener: (error?: Error) => void) => {
+                this.wsDisconnectedListeners.delete(listener);
             },
         };
 
@@ -549,7 +629,7 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
     }
 
     async getSwapHistory(): Promise<
-        (PendingReverseSwap | PendingSubmarineSwap)[]
+        (PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap)[]
     > {
         try {
             const res = await this.sendMessage({
