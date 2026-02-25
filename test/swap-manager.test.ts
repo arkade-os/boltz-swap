@@ -71,8 +71,12 @@ describe("SwapManager", () => {
     const mockChainSwap: PendingChainSwap = {
         id: "chain-swap-1",
         type: "chain",
-        createdAt: Date.now() / 1000,
+        createdAt: Math.floor(Date.now() / 1000),
         status: "swap.created",
+        preimage: "0".repeat(64),
+        ephemeralKey: "0".repeat(64),
+        feeSatsPerByte: 1,
+        amount: 100000,
         request: {
             from: "ARK",
             to: "BTC",

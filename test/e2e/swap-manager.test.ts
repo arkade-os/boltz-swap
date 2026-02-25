@@ -197,7 +197,7 @@ describe("SwapManager", () => {
     });
 
     describe("SwapManager Stats", () => {
-        it("should return correct stats when not running", () => {
+        it("should return correct stats when not running", async () => {
             // arrange
             swapManagerInstance = new ArkadeSwaps({
                 wallet,

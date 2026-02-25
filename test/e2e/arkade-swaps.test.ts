@@ -1129,6 +1129,10 @@ describe("ArkadeSwaps", () => {
     // ==========================================
 
     describe("Swap Storage and History", () => {
+        beforeEach(async () => {
+            await swaps.swapRepository.clear();
+        });
+
         describe("getPendingReverseSwaps", () => {
             it("should return empty array when no reverse swaps exist", async () => {
                 const result = await swaps.getPendingReverseSwaps();

@@ -239,7 +239,7 @@ describe("ArkadeSwaps", () => {
     const mockReverseSwap: PendingReverseSwap = {
         id: mock.id,
         type: "reverse",
-        createdAt: Date.now(),
+        createdAt: Math.floor(Date.now() / 1000),
         preimage: hex.encode(randomBytes(20)),
         request: createReverseSwapRequest,
         response: createReverseSwapResponse,
@@ -249,7 +249,7 @@ describe("ArkadeSwaps", () => {
     const mockSubmarineSwap: PendingSubmarineSwap = {
         id: mock.id,
         type: "submarine",
-        createdAt: Date.now(),
+        createdAt: Math.floor(Date.now() / 1000),
         request: createSubmarineSwapRequest,
         response: createSubmarineSwapResponse,
         status: "swap.created",
