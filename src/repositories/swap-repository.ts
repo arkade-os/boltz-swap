@@ -1,14 +1,7 @@
-import {
-    PendingChainSwap,
-    PendingReverseSwap,
-    PendingSubmarineSwap,
-} from "../types";
+import { PendingSwap } from "../types";
 import { BoltzSwapStatus } from "../boltz-swap-provider";
 
-export type PendingSwap =
-    | PendingReverseSwap
-    | PendingSubmarineSwap
-    | PendingChainSwap;
+export type { PendingSwap };
 
 export type GetSwapsFilter = {
     id?: string | string[];

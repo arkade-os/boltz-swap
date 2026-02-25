@@ -74,6 +74,7 @@ export type {
     FeesResponse,
     PendingSwap,
     Network,
+    Chain,
     Vtxo,
 } from "./types";
 export type {

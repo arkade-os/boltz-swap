@@ -722,7 +722,9 @@ export class SwapManager implements SwapManagerClient {
         );
 
         this.startPollingFallback();
-        this.wsDisconnectedListeners.forEach((listener) => listener(error));
+        this.wsDisconnectedListeners.forEach((listener) => {
+            listener(error);
+        });
     }
 
     /**

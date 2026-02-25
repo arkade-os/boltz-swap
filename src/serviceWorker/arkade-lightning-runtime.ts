@@ -37,7 +37,7 @@ import type {
 import type { VHTLC } from "@arkade-os/sdk";
 import { IArkadeLightning } from "../arkade-swaps";
 import { IndexedDbSwapRepository } from "../repositories/IndexedDb/swap-repository";
-import type { SwapManagerClient } from "../swap-manager";
+import type { Actions, SwapManagerClient } from "../swap-manager";
 
 export type SvcWrkArkadeLightningConfig = Pick<
     ArkadeSwapsConfig,
@@ -71,13 +71,7 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
     private actionExecutedListeners = new Set<
         (
             swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
-            action:
-                | "claim"
-                | "refund"
-                | "claimArk"
-                | "claimBtc"
-                | "refundArk"
-                | "signServerClaim"
+            action: Actions
         ) => void
     >();
     private wsConnectedListeners = new Set<() => void>();
@@ -327,13 +321,7 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
                         | PendingReverseSwap
                         | PendingSubmarineSwap
                         | PendingChainSwap,
-                    action:
-                        | "claim"
-                        | "refund"
-                        | "claimArk"
-                        | "claimBtc"
-                        | "refundArk"
-                        | "signServerClaim"
+                    action: Actions
                 ) => void
             ) => {
                 this.actionExecutedListeners.add(listener);
@@ -349,22 +337,41 @@ export class ServiceWorkerArkadeLightning implements IArkadeLightning {
                 this.wsDisconnectedListeners.add(listener);
                 return () => this.wsDisconnectedListeners.delete(listener);
             },
-            offSwapUpdate: (listener: any) => {
+            offSwapUpdate: (
+                listener: (
+                    swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
+                    oldStatus: BoltzSwapStatus
+                ) => void
+            ) => {
                 this.swapUpdateListeners.delete(listener);
             },
-            offSwapCompleted: (listener: any) => {
+            offSwapCompleted: (
+                listener: (
+                    swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap
+                ) => void
+            ) => {
                 this.swapCompletedListeners.delete(listener);
             },
-            offSwapFailed: (listener: any) => {
+            offSwapFailed: (
+                listener: (
+                    swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
+                    error: Error
+                ) => void
+            ) => {
                 this.swapFailedListeners.delete(listener);
             },
-            offActionExecuted: (listener: any) => {
+            offActionExecuted: (
+                listener: (
+                    swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
+                    action: Actions
+                ) => void
+            ) => {
                 this.actionExecutedListeners.delete(listener);
             },
-            offWebSocketConnected: (listener: any) => {
+            offWebSocketConnected: (listener: () => void) => {
                 this.wsConnectedListeners.delete(listener);
             },
-            offWebSocketDisconnected: (listener: any) => {
+            offWebSocketDisconnected: (listener: (error?: Error) => void) => {
                 this.wsDisconnectedListeners.delete(listener);
             },
         };

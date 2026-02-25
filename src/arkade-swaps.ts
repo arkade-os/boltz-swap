@@ -955,24 +955,20 @@ export class ArkadeSwaps {
                     case "transaction.claimed":
                         await updateSwapStatus();
                         resolve({
-                            txid:
-                                data?.transaction?.id ??
-                                swap.response.id,
+                            txid: data?.transaction?.id ?? swap.response.id,
                         });
                         break;
                     case "transaction.lockupFailed":
                         await updateSwapStatus();
-                        await this.quoteSwap(swap.response.id).catch(
-                            (err) => {
-                                reject(
-                                    new SwapError({
-                                        message: `Failed to renegotiate quote: ${err.message}`,
-                                        isRefundable: true,
-                                        pendingSwap: swap,
-                                    })
-                                );
-                            }
-                        );
+                        await this.quoteSwap(swap.response.id).catch((err) => {
+                            reject(
+                                new SwapError({
+                                    message: `Failed to renegotiate quote: ${err.message}`,
+                                    isRefundable: true,
+                                    pendingSwap: swap,
+                                })
+                            );
+                        });
                         break;
                     case "swap.expired":
                         await updateSwapStatus();
@@ -1315,35 +1311,31 @@ export class ArkadeSwaps {
                     case "transaction.claimed":
                         await updateSwapStatus();
                         resolve({
-                            txid:
-                                data?.transaction?.id ??
-                                swap.response.id,
+                            txid: data?.transaction?.id ?? swap.response.id,
                         });
                         break;
                     case "transaction.claim.pending":
                         await updateSwapStatus();
-                        await this.signCooperativeClaimForServer(
-                            swap
-                        ).catch((err) => {
-                            logger.error(
-                                `Failed to sign cooperative claim for ${swap.id}:`,
-                                err
-                            );
-                        });
-                        break;
-                    case "transaction.lockupFailed":
-                        await updateSwapStatus();
-                        await this.quoteSwap(swap.response.id).catch(
+                        await this.signCooperativeClaimForServer(swap).catch(
                             (err) => {
-                                reject(
-                                    new SwapError({
-                                        message: `Failed to renegotiate quote: ${err.message}`,
-                                        isRefundable: true,
-                                        pendingSwap: swap,
-                                    })
+                                logger.error(
+                                    `Failed to sign cooperative claim for ${swap.id}:`,
+                                    err
                                 );
                             }
                         );
+                        break;
+                    case "transaction.lockupFailed":
+                        await updateSwapStatus();
+                        await this.quoteSwap(swap.response.id).catch((err) => {
+                            reject(
+                                new SwapError({
+                                    message: `Failed to renegotiate quote: ${err.message}`,
+                                    isRefundable: true,
+                                    pendingSwap: swap,
+                                })
+                            );
+                        });
                         break;
                     case "swap.expired":
                         await updateSwapStatus();
