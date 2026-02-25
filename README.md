@@ -461,6 +461,12 @@ console.log('Transaction ID:', paymentResult.txid);
 
 Chain swaps move funds between Arkade and Bitcoin on-chain via Boltz.
 
+#### Amounts
+
+When creating a swap, and because there are fees to be paid, you must define one and only one type of amount:
+- senderLockAmount: sender will send this exact amount, receiver will receive less (amount - fees)
+- receiverLockAmount: receiver will receive this exact amount, sender needs to send more (amount + fees)
+
 ### ARK to BTC
 
 Send funds from your Arkade wallet to a Bitcoin address:
@@ -469,16 +475,15 @@ Send funds from your Arkade wallet to a Bitcoin address:
 // Create the swap
 const result = await swaps.arkToBtc({
   btcAddress: 'bc1q...',
-  // Optional: specify amounts if needed
-  // senderLockAmount: 100000,
-  // receiverLockAmount: 99000,
-  // feeSatsPerByte: 2,
+  senderLockAmount: 100000,
+  feeSatsPerByte: 2, // optional, defaults to 1
 });
 
 console.log('Pay to ARK address:', result.arkAddress);
 console.log('Amount to pay:', result.amountToPay, 'sats');
 
 // Wait for BTC to be claimed
+// If you use swapManager, this step is not needed
 const { txid } = await swaps.waitAndClaimBtc(result.pendingSwap);
 console.log('BTC claimed:', txid);
 ```
@@ -496,16 +501,15 @@ Receive funds from Bitcoin into your Arkade wallet:
 ```typescript
 // Create the swap
 const result = await swaps.btcToArk({
-  // Optional: specify amounts
-  // senderLockAmount: 100000,
-  // receiverLockAmount: 99000,
-  // feeSatsPerByte: 2,
+  receiverLockAmount: 100000,
+  feeSatsPerByte: 2, // optional, defaults to 1
 });
 
 console.log('Pay to BTC address:', result.btcAddress);
 console.log('Amount to pay:', result.amountToPay, 'sats');
 
 // Wait for ARK to be claimed
+// If you use swapManager, this step is not needed
 const { txid } = await swaps.waitAndClaimArk(result.pendingSwap);
 console.log('ARK claimed:', txid);
 ```
@@ -528,7 +532,7 @@ console.log('Max:', chainLimits.max, 'sats');
 
 ### Renegotiating Quotes
 
-If a chain swap quote expires, renegotiate it:
+If the amount sent to the swap is different from the expected, renegotiate it:
 
 ```typescript
 const newAmount = await swaps.quoteSwap(pendingSwap.id);
