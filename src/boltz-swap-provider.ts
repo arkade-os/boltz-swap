@@ -879,6 +879,7 @@ export class BoltzSwapProvider {
 
     constructor(config: SwapProviderConfig) {
         this.network = config.network;
+        this.referralId = config.referralId;
         const apiUrl = config.apiUrl || BASE_URLS[config.network];
         if (!apiUrl)
             throw new Error(
