@@ -54,22 +54,29 @@ const swaps = new ArkadeSwaps({
 });
 ```
 
-**SwapRepository**: Swap storage is pluggable via `SwapRepository`. By default, `ArkadeSwaps` uses an IndexedDB-backed repository in browser contexts. You can inject your own repository (for tests, Node.js, or custom storage) via the `swapRepository` option.
+**SwapRepository**: Swap storage is pluggable via `SwapRepository`. By default, `ArkadeSwaps` uses an IndexedDB-backed repository in browser contexts. You can inject your own repository (for tests, Node.js, or custom storage) via the `swapRepository` option. Custom implementations must set `readonly version = 1` to match the interface — TypeScript will error when the version is bumped, signaling a required update.
 
 > [!WARNING]
 > If you previously used the v1 `StorageAdapter`-based repositories, migrate
-> data into the new IndexedDB repositories before use:
+> data into the new IndexedDB repositories before use. You can use
+> `getMigrationStatus` from `@arkade-os/sdk` to check whether migration is
+> needed before running it:
 >
 > ```typescript
 > import {
 >   IndexedDbSwapRepository,
 >   migrateToSwapRepository
 > } from '@arkade-os/boltz-swap'
+> import { getMigrationStatus } from '@arkade-os/sdk'
 > import { IndexedDBStorageAdapter } from '@arkade-os/sdk/adapters/indexedDB'
 >
 > // if you used a different name for the DB, use your own here
 > const oldStorage = new IndexedDBStorageAdapter('arkade-service-worker', 1)
-> await migrateToSwapRepository(oldStorage, new IndexedDbSwapRepository())
+>
+> const status = await getMigrationStatus('wallet', oldStorage)
+> if (status !== 'not-needed') {
+>   await migrateToSwapRepository(oldStorage, new IndexedDbSwapRepository())
+> }
 > ```
 
 Existing data stays in the old DB (e.g. `arkade-service-worker`) until you run the migration once.

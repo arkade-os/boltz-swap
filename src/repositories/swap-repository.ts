@@ -12,6 +12,8 @@ export type GetSwapsFilter = {
 };
 
 export interface SwapRepository extends AsyncDisposable {
+    readonly version: 1;
+
     saveSwap<T extends PendingSwap>(swap: T): Promise<void>;
     deleteSwap(id: string): Promise<void>;
     getAllSwaps<T extends PendingSwap>(filter?: GetSwapsFilter): Promise<T[]>;

@@ -4,6 +4,7 @@ import {
     SwapRepository,
 } from "../swap-repository";
 export class InMemorySwapRepository implements SwapRepository {
+    readonly version = 1 as const;
     private readonly swaps: Map<string, PendingSwap> = new Map();
 
     async saveSwap<T extends PendingSwap>(swap: T): Promise<void> {
