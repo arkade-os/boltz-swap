@@ -35,13 +35,23 @@
                 "types": "./dist/adapters/sqlite.d.ts",
                 "default": "./dist/adapters/sqlite.cjs"
             }
+        },
+        "./adapters/realm": {
+            "import": {
+                "types": "./dist/adapters/realm.d.ts",
+                "default": "./dist/adapters/realm.js"
+            },
+            "require": {
+                "types": "./dist/adapters/realm.d.ts",
+                "default": "./dist/adapters/realm.cjs"
+            }
         }
     },
     "files": [
         "dist"
     ],
     "scripts": {
-        "build": "tsup src/index.ts src/expo/index.ts src/adapters/sqlite.ts --format esm,cjs --dts --clean",
+        "build": "tsup src/index.ts src/expo/index.ts src/adapters/sqlite.ts src/adapters/realm.ts --format esm,cjs --dts --clean",
         "format": "prettier --write src test",
         "lint": "prettier --check src test",
         "prepack": "pnpm run build",
