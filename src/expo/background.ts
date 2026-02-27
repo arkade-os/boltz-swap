@@ -63,6 +63,12 @@ function getRandomId(): string {
     return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+/**
+ * Minimal IWallet for Expo background tasks (~30s window).
+ * Only `identity` and `getAddress` are used — for signing claim/refund
+ * transactions and deriving the Ark address respectively.
+ * Everything else throws so accidental usage is caught immediately.
+ */
 function createBackgroundWalletShim(args: {
     identity: IWallet["identity"];
     getAddress: IWallet["getAddress"];
@@ -149,8 +155,6 @@ export function defineExpoSwapBackgroundTask(
                 apiUrl: config.boltzApiUrl,
             });
 
-            // Minimal IWallet implementation used only for claim/refund.
-            // Any unexpected calls will throw a clear error.
             const wallet = createBackgroundWalletShim({
                 identity,
                 getAddress: async () => {
