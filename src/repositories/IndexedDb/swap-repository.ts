@@ -21,6 +21,7 @@ function initDatabase(db: IDBDatabase) {
 }
 
 export class IndexedDbSwapRepository implements SwapRepository {
+    readonly version = 1 as const;
     private db: IDBDatabase | null = null;
 
     constructor(private readonly dbName: string = DEFAULT_DB_NAME) {}
