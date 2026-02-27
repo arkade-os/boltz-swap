@@ -25,13 +25,23 @@
                 "types": "./dist/expo/index.d.ts",
                 "default": "./dist/expo/index.cjs"
             }
+        },
+        "./adapters/sqlite": {
+            "import": {
+                "types": "./dist/adapters/sqlite.d.ts",
+                "default": "./dist/adapters/sqlite.js"
+            },
+            "require": {
+                "types": "./dist/adapters/sqlite.d.ts",
+                "default": "./dist/adapters/sqlite.cjs"
+            }
         }
     },
     "files": [
         "dist"
     ],
     "scripts": {
-        "build": "tsup src/index.ts src/expo/index.ts --format esm,cjs --dts --clean",
+        "build": "tsup src/index.ts src/expo/index.ts src/adapters/sqlite.ts --format esm,cjs --dts --clean",
         "format": "prettier --write src test",
         "lint": "prettier --check src test",
         "prepack": "pnpm run build",
