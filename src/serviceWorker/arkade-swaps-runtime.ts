@@ -909,11 +909,24 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         return this.dispose();
     }
 
+    private static readonly LONG_RUNNING_TYPES = new Set([
+        "WAIT_AND_CLAIM",
+        "WAIT_AND_CLAIM_CHAIN",
+        "WAIT_AND_CLAIM_ARK",
+        "WAIT_AND_CLAIM_BTC",
+        "WAIT_FOR_SWAP_SETTLEMENT",
+    ]);
+
     private async sendMessage(
-        request: ArkadeSwapsUpdaterRequest
+        request: ArkadeSwapsUpdaterRequest,
+        timeoutOverrideMs?: number
     ): Promise<ArkadeSwapsUpdaterResponse> {
         return new Promise((resolve, reject) => {
-            const timeoutMs = 30_000;
+            const timeoutMs =
+                timeoutOverrideMs ??
+                (ServiceWorkerArkadeSwaps.LONG_RUNNING_TYPES.has(request.type)
+                    ? 10 * 60_000
+                    : 30_000);
             let timeout: ReturnType<typeof setTimeout> | undefined;
 
             const cleanup = () => {
