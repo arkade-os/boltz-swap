@@ -30,7 +30,7 @@ import { Wallet, MnemonicIdentity } from '@arkade-os/sdk';
 import { ArkadeSwaps, BoltzSwapProvider } from '@arkade-os/boltz-swap';
 
 // Create an identity
-const identity = MnemonicIdentity.fromMnemonic('your twelve word mnemonic phrase ...');
+const identity = MnemonicIdentity.fromMnemonic('your twelve word mnemonic phrase ...', { isMainnet: false });
 
 // Initialize your Arkade wallet
 const wallet = await Wallet.create({

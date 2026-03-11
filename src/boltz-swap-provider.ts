@@ -13,14 +13,23 @@ import {
 } from "./types";
 import { base64 } from "@scure/base";
 
+/** Configuration for BoltzSwapProvider. */
 export interface SwapProviderConfig {
+    /** Custom API URL. If omitted, defaults based on `network` (e.g. mutinynet → https://api.boltz.mutinynet.arkade.sh). */
     apiUrl?: string;
+    /** The network to operate on (e.g. "mutinynet", "regtest", "bitcoin"). */
     network: Network;
+    /** Optional referral ID appended to swap requests. */
     referralId?: string;
 }
 
-// Boltz swap status types
-
+/**
+ * All possible Boltz swap status values.
+ *
+ * Lifecycle (submarine): swap.created → invoice.set → invoice.pending → invoice.paid → transaction.claimed
+ * Lifecycle (reverse):   swap.created → transaction.mempool → transaction.confirmed → invoice.settled
+ * Lifecycle (chain):     swap.created → transaction.mempool → transaction.server.mempool → transaction.claimed
+ */
 export type BoltzSwapStatus =
     | "invoice.expired"
     | "invoice.failedToPay"
@@ -40,6 +49,7 @@ export type BoltzSwapStatus =
     | "transaction.server.mempool"
     | "transaction.server.confirmed";
 
+/** Returns true if the status indicates a failed submarine swap. */
 export const isSubmarineFailedStatus = (status: BoltzSwapStatus): boolean => {
     return [
         "invoice.failedToPay",
@@ -48,6 +58,7 @@ export const isSubmarineFailedStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
+/** Returns true if the submarine swap has reached a terminal state. */
 export const isSubmarineFinalStatus = (status: BoltzSwapStatus): boolean => {
     return [
         "invoice.failedToPay",
@@ -56,6 +67,7 @@ export const isSubmarineFinalStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
+/** Returns true if the submarine swap is still in progress. */
 export const isSubmarinePendingStatus = (status: BoltzSwapStatus): boolean => {
     return [
         "swap.created",
@@ -68,6 +80,7 @@ export const isSubmarinePendingStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
+/** Returns true if the submarine swap is eligible for refund. */
 export const isSubmarineRefundableStatus = (
     status: BoltzSwapStatus
 ): boolean => {
@@ -78,10 +91,12 @@ export const isSubmarineRefundableStatus = (
     ].includes(status);
 };
 
+/** Returns true if the submarine swap completed successfully. */
 export const isSubmarineSuccessStatus = (status: BoltzSwapStatus): boolean => {
     return status === "transaction.claimed";
 };
 
+/** Returns true if the reverse swap failed. */
 export const isReverseFailedStatus = (status: BoltzSwapStatus): boolean => {
     return [
         "invoice.expired",
@@ -91,6 +106,7 @@ export const isReverseFailedStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
+/** Returns true if the reverse swap has reached a terminal state. */
 export const isReverseFinalStatus = (status: BoltzSwapStatus): boolean => {
     return [
         "transaction.refunded",
@@ -100,6 +116,7 @@ export const isReverseFinalStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
+/** Returns true if the reverse swap is still in progress. */
 export const isReversePendingStatus = (status: BoltzSwapStatus): boolean => {
     return [
         "swap.created",
@@ -108,18 +125,22 @@ export const isReversePendingStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
+/** Returns true if the reverse swap VHTLC can be claimed. */
 export const isReverseClaimableStatus = (status: BoltzSwapStatus): boolean => {
     return ["transaction.mempool", "transaction.confirmed"].includes(status);
 };
 
+/** Returns true if the reverse swap completed successfully. */
 export const isReverseSuccessStatus = (status: BoltzSwapStatus): boolean => {
     return status === "invoice.settled";
 };
 
+/** Returns true if the chain swap failed. */
 export const isChainFailedStatus = (status: BoltzSwapStatus): boolean => {
     return ["transaction.failed", "swap.expired"].includes(status);
 };
 
+/** Returns true if the chain swap is claimable (server transaction in mempool or confirmed). */
 export const isChainClaimableStatus = (status: BoltzSwapStatus): boolean => {
     return [
         "transaction.server.mempool",
@@ -127,6 +148,7 @@ export const isChainClaimableStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
+/** Returns true if the chain swap has reached a terminal state. */
 export const isChainFinalStatus = (status: BoltzSwapStatus): boolean => {
     return [
         "transaction.refunded",
@@ -136,6 +158,7 @@ export const isChainFinalStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
+/** Returns true if the chain swap is still in progress. */
 export const isChainPendingStatus = (status: BoltzSwapStatus): boolean => {
     return [
         "swap.created",
@@ -147,40 +170,43 @@ export const isChainPendingStatus = (status: BoltzSwapStatus): boolean => {
     ].includes(status);
 };
 
+/** Returns true if the chain swap is eligible for refund (swap.expired). */
 export const isChainRefundableStatus = (status: BoltzSwapStatus): boolean => {
     return ["swap.expired"].includes(status);
 };
 
+/** Returns true if the chain swap is ready for cooperative signing. */
 export const isChainSignableStatus = (status: BoltzSwapStatus): boolean => {
     return ["transaction.claim.pending"].includes(status);
 };
 
+/** Returns true if the chain swap completed successfully. */
 export const isChainSuccessStatus = (status: BoltzSwapStatus): boolean => {
     return status === "transaction.claimed";
 };
 
-// type guards
-
+/** Type guard: narrows PendingSwap to PendingReverseSwap. */
 export const isPendingReverseSwap = (
     swap: PendingSwap
 ): swap is PendingReverseSwap => {
     return swap.type === "reverse";
 };
 
+/** Type guard: narrows PendingSwap to PendingSubmarineSwap. */
 export const isPendingSubmarineSwap = (
     swap: PendingSwap
 ): swap is PendingSubmarineSwap => {
     return swap.type === "submarine";
 };
 
+/** Type guard: narrows PendingSwap to PendingChainSwap. */
 export const isPendingChainSwap = (
     swap: PendingSwap
 ): swap is PendingChainSwap => {
     return swap.type === "chain";
 };
 
-// refundable submarine swaps are those that have failed and can be refunded
-
+/** Type guard: checks if swap is a refundable submarine swap (failed + not yet refunded). */
 export const isSubmarineSwapRefundable = (
     swap: PendingSwap
 ): swap is PendingSubmarineSwap => {
@@ -192,6 +218,7 @@ export const isSubmarineSwapRefundable = (
     );
 };
 
+/** Type guard: checks if swap is a refundable chain swap (expired ARK → BTC). */
 export const isChainSwapRefundable = (
     swap: PendingSwap
 ): swap is PendingChainSwap => {
@@ -202,12 +229,14 @@ export const isChainSwapRefundable = (
     );
 };
 
+/** Type guard: checks if swap is a claimable reverse swap. */
 export const isReverseSwapClaimable = (
     swap: PendingSwap
 ): swap is PendingReverseSwap => {
     return isReverseClaimableStatus(swap.status) && isPendingReverseSwap(swap);
 };
 
+/** Type guard: checks if swap is a claimable chain swap. */
 export const isChainSwapClaimable = (
     swap: PendingSwap
 ): swap is PendingChainSwap => {
@@ -371,17 +400,27 @@ const isGetReversePairsResponse = (
     );
 };
 
+/** Request to create a submarine swap (Arkade → Lightning). */
 export type CreateSubmarineSwapRequest = {
+    /** BOLT11 Lightning invoice to pay. */
     invoice: string;
+    /** Compressed public key (33 bytes / 66 hex chars) for the refund path. */
     refundPublicKey: string;
 };
 
+/** Response from creating a submarine swap. */
 export type CreateSubmarineSwapResponse = {
+    /** Unique swap ID. */
     id: string;
+    /** ARK lockup address to send funds to. */
     address: string;
+    /** Amount in satoshis to send. */
     expectedAmount: number;
+    /** Boltz's public key for the claim path. */
     claimPublicKey: string;
+    /** Whether zero-conf transactions are accepted. */
     acceptZeroConf: boolean;
+    /** Block heights for various timeout/refund scenarios. */
     timeoutBlockHeights: TimeoutBlockHeights;
 };
 
@@ -412,19 +451,31 @@ export const isGetSwapPreimageResponse = (
     );
 };
 
+/** Request to create a reverse swap (Lightning → Arkade). */
 export type CreateReverseSwapRequest = {
+    /** Compressed public key (33 bytes / 66 hex chars) for the claim path. */
     claimPublicKey: string;
+    /** Invoice amount in satoshis. */
     invoiceAmount: number;
+    /** SHA256 hash of the preimage (hex-encoded). */
     preimageHash: string;
-    description?: string; // optional description for the invoice
+    /** Optional description for the BOLT11 invoice. */
+    description?: string;
 };
 
+/** Response from creating a reverse swap. */
 export type CreateReverseSwapResponse = {
+    /** Unique swap ID. */
     id: string;
+    /** BOLT11-encoded Lightning invoice to be paid. */
     invoice: string;
+    /** On-chain amount in satoshis (after Boltz fees). */
     onchainAmount: number;
+    /** ARK lockup address where Boltz will lock funds. */
     lockupAddress: string;
+    /** Boltz's public key for the refund path. */
     refundPublicKey: string;
+    /** Block heights for various timeout/refund scenarios. */
     timeoutBlockHeights: TimeoutBlockHeights;
 };
 
@@ -599,21 +650,35 @@ const isChainSwapDetailsResponse = (
     );
 };
 
+/** Request to create a chain swap (ARK ↔ BTC). */
 export type CreateChainSwapRequest = {
+    /** Destination chain. */
     to: Chain;
+    /** Source chain. */
     from: Chain;
+    /** SHA256 hash of the preimage (hex-encoded). */
     preimageHash: string;
+    /** Compressed public key for the claim path. */
     claimPublicKey: string;
+    /** Fee rate (sats/vbyte) for BTC transactions. */
     feeSatsPerByte: number;
+    /** Compressed public key for the refund path. */
     refundPublicKey: string;
+    /** Amount Boltz should lock (specify this OR userLockAmount). */
     serverLockAmount?: number;
+    /** Amount user will lock (specify this OR serverLockAmount). */
     userLockAmount?: number;
+    /** Optional referral ID. */
     referralId?: string;
 };
 
+/** Response from creating a chain swap. */
 export type CreateChainSwapResponse = {
+    /** Unique swap ID. */
     id: string;
+    /** Details for claiming the received funds. */
     claimDetails: ChainSwapDetailsResponse;
+    /** Details for the lockup (user sends funds here). */
     lockupDetails: ChainSwapDetailsResponse;
 };
 
@@ -871,12 +936,18 @@ const BASE_URLS: Partial<Record<Network, string>> = {
     regtest: "http://localhost:9069",
 };
 
+/**
+ * API client for the Boltz swap service.
+ * Handles swap creation, status monitoring, fee/limit queries, and cooperative signing
+ * for both Lightning and chain swaps.
+ */
 export class BoltzSwapProvider {
     private readonly wsUrl: string;
     private readonly apiUrl: string;
     private readonly network: Network;
     private readonly referralId?: string;
 
+    /** @param config Provider configuration with network and optional API URL. */
     constructor(config: SwapProviderConfig) {
         this.network = config.network;
         this.referralId = config.referralId;
@@ -892,18 +963,22 @@ export class BoltzSwapProvider {
                 .replace("9069", "9004") + "/v2/ws";
     }
 
+    /** Returns the Boltz API base URL. */
     getApiUrl(): string {
         return this.apiUrl;
     }
 
+    /** Returns the Boltz WebSocket URL (derived from apiUrl). */
     getWsUrl(): string {
         return this.wsUrl;
     }
 
+    /** Returns the configured network. */
     getNetwork(): Network {
         return this.network;
     }
 
+    /** Returns current Lightning swap fees (submarine + reverse) from Boltz. */
     async getFees(): Promise<FeesResponse> {
         const [submarine, reverse] = await Promise.all([
             this.request<GetSubmarinePairsResponse>(
@@ -928,6 +1003,7 @@ export class BoltzSwapProvider {
         };
     }
 
+    /** Returns current Lightning swap min/max limits from Boltz. */
     async getLimits(): Promise<LimitsResponse> {
         const response = await this.request<GetSubmarinePairsResponse>(
             "/v2/swap/submarine",
@@ -941,6 +1017,7 @@ export class BoltzSwapProvider {
         };
     }
 
+    /** Gets the lockup transaction ID for a reverse swap. */
     async getReverseSwapTxId(id: string): Promise<GetReverseSwapTxIdResponse> {
         const res = await this.request<GetReverseSwapTxIdResponse>(
             `/v2/swap/reverse/${id}/transaction`,
@@ -953,6 +1030,7 @@ export class BoltzSwapProvider {
         return res;
     }
 
+    /** Queries the current status of a swap by ID. */
     async getSwapStatus(id: string): Promise<GetSwapStatusResponse> {
         const response = await this.request<GetSwapStatusResponse>(
             `/v2/swap/${id}`,
@@ -965,6 +1043,7 @@ export class BoltzSwapProvider {
         return response;
     }
 
+    /** Gets the preimage for a settled submarine swap (proof of payment). */
     async getSwapPreimage(id: string): Promise<GetSwapPreimageResponse> {
         const res = await this.request<GetSwapPreimageResponse>(
             `/v2/swap/submarine/${id}/preimage`,
@@ -977,6 +1056,7 @@ export class BoltzSwapProvider {
         return res;
     }
 
+    /** Creates a submarine swap (Arkade → Lightning) on Boltz. */
     async createSubmarineSwap({
         invoice,
         refundPublicKey,
@@ -1005,6 +1085,7 @@ export class BoltzSwapProvider {
         return response;
     }
 
+    /** Creates a reverse swap (Lightning → Arkade) on Boltz. */
     async createReverseSwap({
         invoiceAmount,
         claimPublicKey,
@@ -1040,6 +1121,7 @@ export class BoltzSwapProvider {
         return response;
     }
 
+    /** Creates a chain swap (ARK ↔ BTC) on Boltz. */
     async createChainSwap({
         to,
         from,
@@ -1120,6 +1202,7 @@ export class BoltzSwapProvider {
         return response;
     }
 
+    /** Requests Boltz co-signature for a submarine swap refund. Returns signed transaction + checkpoint. */
     async refundSubmarineSwap(
         swapId: string,
         transaction: Transaction,
@@ -1152,6 +1235,7 @@ export class BoltzSwapProvider {
         };
     }
 
+    /** Requests Boltz co-signature for a chain swap refund. Returns signed transaction + checkpoint. */
     async refundChainSwap(
         swapId: string,
         transaction: Transaction,
@@ -1184,6 +1268,7 @@ export class BoltzSwapProvider {
         };
     }
 
+    /** Monitors swap status updates via WebSocket. Calls update callback on each status change. Resolves when terminal. */
     async monitorSwap(
         swapId: string,
         update: (type: BoltzSwapStatus, data?: any) => void
@@ -1270,6 +1355,7 @@ export class BoltzSwapProvider {
         });
     }
 
+    /** Returns current chain swap fees for a given pair (e.g. ARK→BTC). */
     async getChainFees(from: Chain, to: Chain): Promise<ChainFeesResponse> {
         if (from === to) {
             throw new SwapError({ message: "Invalid chain pair" });
@@ -1291,6 +1377,7 @@ export class BoltzSwapProvider {
         return response[from][to].fees;
     }
 
+    /** Returns current chain swap min/max limits for a given pair. */
     async getChainLimits(from: Chain, to: Chain): Promise<LimitsResponse> {
         if (from === to) {
             throw new SwapError({ message: "Invalid chain pair" });
@@ -1316,6 +1403,7 @@ export class BoltzSwapProvider {
         };
     }
 
+    /** Gets claim details (pubNonce, publicKey, transactionHash) for cooperative chain swap claiming. */
     async getChainClaimDetails(
         swapId: string
     ): Promise<GetChainClaimDetailsResponse> {
@@ -1330,6 +1418,7 @@ export class BoltzSwapProvider {
         return response;
     }
 
+    /** Gets a renegotiated quote for a chain swap when lockup amount differs from expected. */
     async getChainQuote(swapId: string): Promise<GetChainQuoteResponse> {
         const response = await this.request<GetChainQuoteResponse>(
             `/v2/swap/chain/${swapId}/quote`,
@@ -1342,6 +1431,7 @@ export class BoltzSwapProvider {
         return response;
     }
 
+    /** Accepts a renegotiated quote amount for a chain swap. */
     async postChainQuote(
         swapId: string,
         request: PostChainQuoteRequest
@@ -1358,6 +1448,7 @@ export class BoltzSwapProvider {
         return response;
     }
 
+    /** Broadcasts a raw BTC transaction through Boltz. */
     async postBtcTransaction(hex: string): Promise<PostBtcTransactionResponse> {
         const requestBody: PostBtcTransactionRequest = { hex };
 
@@ -1375,6 +1466,7 @@ export class BoltzSwapProvider {
         return response;
     }
 
+    /** Posts claim details (preimage + signing data) or cooperative signature for a chain swap. */
     async postChainClaimDetails(
         swapId: string,
         request: PostChainClaimDetailsRequest
@@ -1393,6 +1485,7 @@ export class BoltzSwapProvider {
         return response;
     }
 
+    /** Restores swaps from Boltz API using the wallet's public key. */
     async restoreSwaps(publicKey: string): Promise<CreateSwapsRestoreResponse> {
         const requestBody: CreateSwapsRestoreRequest = {
             publicKey,
