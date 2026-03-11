@@ -2170,6 +2170,7 @@ export interface IArkadeSwaps extends AsyncDisposable {
         pendingSwap: PendingSubmarineSwap
     ): Promise<{ preimage: string }>;
     restoreSwaps(boltzFees?: FeesResponse): Promise<{
+        chainSwaps: PendingChainSwap[];
         reverseSwaps: PendingReverseSwap[];
         submarineSwaps: PendingSubmarineSwap[];
     }>;
