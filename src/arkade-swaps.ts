@@ -29,6 +29,7 @@ import type {
     PendingSubmarineSwap,
     PendingSwap,
     ArkadeSwapsConfig,
+    ArkadeSwapsCreateConfig,
     CreateLightningInvoiceRequest,
     CreateLightningInvoiceResponse,
     SendLightningPaymentRequest,
@@ -121,7 +122,7 @@ export class ArkadeSwaps {
      *
      * This is the recommended way to initialize ArkadeSwaps.
      *
-     * @param config - Configuration options (swapProvider is optional).
+     * @param config - Configuration options. swapProvider is auto-created from the wallet's network if omitted.
      * @returns A fully initialized ArkadeSwaps instance.
      *
      * @example
@@ -133,10 +134,10 @@ export class ArkadeSwaps {
      * ```
      */
     static async create(
-        config: ArkadeSwapsConfig
+        config: ArkadeSwapsCreateConfig
     ): Promise<ArkadeSwaps> {
         if (config.swapProvider) {
-            return new ArkadeSwaps(config);
+            return new ArkadeSwaps(config as ArkadeSwapsConfig);
         }
 
         const arkProvider =
@@ -155,10 +156,7 @@ export class ArkadeSwaps {
 
     constructor(config: ArkadeSwapsConfig) {
         if (!config.wallet) throw new Error("Wallet is required.");
-        if (!config.swapProvider)
-            throw new Error(
-                "Swap provider is required. Use ArkadeSwaps.create() for automatic setup."
-            );
+        if (!config.swapProvider) throw new Error("Swap provider is required.");
 
         this.wallet = config.wallet;
         // Prioritize wallet providers, fallback to config providers for backward compatibility
