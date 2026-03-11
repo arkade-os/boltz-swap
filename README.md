@@ -35,7 +35,7 @@ const identity = MnemonicIdentity.fromMnemonic('your twelve word mnemonic phrase
 // Initialize your Arkade wallet
 const wallet = await Wallet.create({
   identity,
-  arkServerUrl: 'https://arkade.sh',
+  arkServerUrl: 'https://arkade.computer',
 });
 
 // Initialize swaps (apiUrl defaults from network, swapManager auto-monitors all swaps)
