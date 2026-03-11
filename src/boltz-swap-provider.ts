@@ -15,7 +15,7 @@ import { base64 } from "@scure/base";
 
 /** Configuration for BoltzSwapProvider. */
 export interface SwapProviderConfig {
-    /** Custom API URL. If omitted, defaults based on `network` (e.g. mutinynet → https://api.boltz.mutinynet.arkade.sh). */
+    /** Custom API URL. If omitted, defaults based on `network` (e.g. bitcoin → https://api.ark.boltz.exchange). */
     apiUrl?: string;
     /** The network to operate on (e.g. "mutinynet", "regtest", "bitcoin"). */
     network: Network;
@@ -932,6 +932,7 @@ export const isCreateSwapsRestoreResponse = (
 };
 
 const BASE_URLS: Partial<Record<Network, string>> = {
+    bitcoin: "https://api.ark.boltz.exchange",
     mutinynet: "https://api.boltz.mutinynet.arkade.sh",
     regtest: "http://localhost:9069",
 };

@@ -30,18 +30,18 @@ import { Wallet, MnemonicIdentity } from '@arkade-os/sdk';
 import { ArkadeSwaps, BoltzSwapProvider } from '@arkade-os/boltz-swap';
 
 // Create an identity
-const identity = MnemonicIdentity.fromMnemonic('your twelve word mnemonic phrase ...', { isMainnet: false });
+const identity = MnemonicIdentity.fromMnemonic('your twelve word mnemonic phrase ...', { isMainnet: true });
 
 // Initialize your Arkade wallet
 const wallet = await Wallet.create({
   identity,
-  arkServerUrl: 'https://mutinynet.arkade.sh',
+  arkServerUrl: 'https://arkade.sh',
 });
 
 // Initialize swaps (apiUrl defaults from network, swapManager auto-monitors all swaps)
 const swaps = new ArkadeSwaps({
   wallet,
-  swapProvider: new BoltzSwapProvider({ network: 'mutinynet' }),
+  swapProvider: new BoltzSwapProvider({ network: 'bitcoin' }),
   swapManager: true,
 });
 ```
