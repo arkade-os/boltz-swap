@@ -88,9 +88,19 @@ console.log('Pay to:', result.btcAddress, 'Amount:', result.amountToPay);
 ```typescript
 const manager = swaps.getSwapManager();
 
+// Global listeners
 manager.onSwapCompleted((swap) => console.log(`${swap.id} completed`));
 manager.onSwapFailed((swap, error) => console.error(`${swap.id} failed`, error));
 manager.onSwapUpdate((swap, oldStatus) => console.log(`${swap.id}: ${oldStatus} → ${swap.status}`));
+
+// Wait for a specific swap
+const result = await swaps.createLightningInvoice({ amount: 50000 });
+const unsubscribe = manager.subscribeToSwapUpdates(result.pendingSwap.id, (swap, oldStatus) => {
+  console.log(`${oldStatus} → ${swap.status}`);
+});
+
+// Or block until a specific swap completes
+const { txid } = await manager.waitForSwapCompletion(result.pendingSwap.id);
 ```
 
 ### Fees and Limits
