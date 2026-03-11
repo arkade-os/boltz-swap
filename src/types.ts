@@ -208,7 +208,10 @@ export interface ArkadeSwapsConfig {
  * Configuration for {@link ArkadeSwaps.create} — same as ArkadeSwapsConfig but
  * `swapProvider` is optional (auto-created from the wallet's network if omitted).
  */
-export type ArkadeSwapsCreateConfig = Omit<ArkadeSwapsConfig, "swapProvider"> & {
+export type ArkadeSwapsCreateConfig = Omit<
+    ArkadeSwapsConfig,
+    "swapProvider"
+> & {
     swapProvider?: BoltzSwapProvider;
 };
 

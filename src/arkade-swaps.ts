@@ -133,9 +133,7 @@ export class ArkadeSwaps {
      * });
      * ```
      */
-    static async create(
-        config: ArkadeSwapsCreateConfig
-    ): Promise<ArkadeSwaps> {
+    static async create(config: ArkadeSwapsCreateConfig): Promise<ArkadeSwaps> {
         if (config.swapProvider) {
             return new ArkadeSwaps(config as ArkadeSwapsConfig);
         }
