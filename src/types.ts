@@ -185,8 +185,11 @@ export interface ArkadeSwapsConfig {
     wallet: IWallet;
     /** Explicit ArkProvider. Falls back to wallet.arkProvider if omitted. */
     arkProvider?: ArkProvider;
-    /** BoltzSwapProvider instance for interacting with the Boltz API. */
-    swapProvider: BoltzSwapProvider;
+    /**
+     * BoltzSwapProvider instance for interacting with the Boltz API.
+     * If omitted, use {@link ArkadeSwaps.create} to auto-create one from the wallet's network.
+     */
+    swapProvider?: BoltzSwapProvider;
     /** Explicit IndexerProvider. Falls back to wallet.indexerProvider if omitted. */
     indexerProvider?: IndexerProvider;
     /**

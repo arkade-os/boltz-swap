@@ -20,6 +20,7 @@ import {
 } from "@arkade-os/sdk";
 import type {
     Chain,
+    Network,
     LimitsResponse,
     FeesResponse,
     ChainFeesResponse,
@@ -114,9 +115,50 @@ export class ArkadeSwaps {
     /** Storage backend for persisting swap data. */
     readonly swapRepository: SwapRepository;
 
+    /**
+     * Creates an ArkadeSwaps instance, auto-detecting the network from the wallet's Ark server.
+     * If no `swapProvider` is given, one is created automatically using the detected network.
+     *
+     * This is the recommended way to initialize ArkadeSwaps.
+     *
+     * @param config - Configuration options (swapProvider is optional).
+     * @returns A fully initialized ArkadeSwaps instance.
+     *
+     * @example
+     * ```ts
+     * const swaps = await ArkadeSwaps.create({
+     *   wallet,
+     *   swapManager: true,
+     * });
+     * ```
+     */
+    static async create(
+        config: ArkadeSwapsConfig
+    ): Promise<ArkadeSwaps> {
+        if (config.swapProvider) {
+            return new ArkadeSwaps(config);
+        }
+
+        const arkProvider =
+            (config.wallet as any).arkProvider ?? config.arkProvider;
+        if (!arkProvider)
+            throw new Error(
+                "Ark provider is required either in wallet or config."
+            );
+
+        const arkInfo = await arkProvider.getInfo();
+        const network = arkInfo.network as Network;
+        const swapProvider = new BoltzSwapProvider({ network });
+
+        return new ArkadeSwaps({ ...config, swapProvider });
+    }
+
     constructor(config: ArkadeSwapsConfig) {
         if (!config.wallet) throw new Error("Wallet is required.");
-        if (!config.swapProvider) throw new Error("Swap provider is required.");
+        if (!config.swapProvider)
+            throw new Error(
+                "Swap provider is required. Use ArkadeSwaps.create() for automatic setup."
+            );
 
         this.wallet = config.wallet;
         // Prioritize wallet providers, fallback to config providers for backward compatibility

@@ -27,7 +27,7 @@ npm install @arkade-os/sdk @arkade-os/boltz-swap
 
 ```typescript
 import { Wallet, MnemonicIdentity } from '@arkade-os/sdk';
-import { ArkadeSwaps, BoltzSwapProvider } from '@arkade-os/boltz-swap';
+import { ArkadeSwaps } from '@arkade-os/boltz-swap';
 
 // Create an identity
 const identity = MnemonicIdentity.fromMnemonic('your twelve word mnemonic phrase ...', { isMainnet: true });
@@ -38,10 +38,9 @@ const wallet = await Wallet.create({
   arkServerUrl: 'https://arkade.computer',
 });
 
-// Initialize swaps (apiUrl defaults from network, swapManager auto-monitors all swaps)
-const swaps = new ArkadeSwaps({
+// Initialize swaps (network auto-detected from wallet, swapManager auto-monitors all swaps)
+const swaps = await ArkadeSwaps.create({
   wallet,
-  swapProvider: new BoltzSwapProvider({ network: 'bitcoin' }),
   swapManager: true,
 });
 ```
@@ -154,7 +153,7 @@ const { txid } = await swaps.waitAndClaim(result.pendingSwap);
 If SwapManager is not enabled, you must manually monitor and act on swaps:
 
 ```typescript
-const swaps = new ArkadeSwaps({ wallet, swapProvider });
+const swaps = await ArkadeSwaps.create({ wallet });
 
 const result = await swaps.createLightningInvoice({ amount: 50000 });
 await swaps.waitAndClaim(result.pendingSwap); // blocks until complete
@@ -163,9 +162,8 @@ await swaps.waitAndClaim(result.pendingSwap); // blocks until complete
 ### SwapManager Configuration
 
 ```typescript
-const swaps = new ArkadeSwaps({
+const swaps = await ArkadeSwaps.create({
   wallet,
-  swapProvider: new BoltzSwapProvider({ network: 'mutinynet' }),
   swapManager: {
     enableAutoActions: true,        // Auto claim/refund (default: true)
     autoStart: true,                // Auto-start on init (default: true)
@@ -204,7 +202,7 @@ await swaps.dispose();
 
 // Automatic (TypeScript 5.2+)
 {
-  await using swaps = new ArkadeSwaps({ wallet, swapProvider, swapManager: true });
+  await using swaps = await ArkadeSwaps.create({ wallet, swapManager: true });
   // ...
 } // auto-disposed
 ```
