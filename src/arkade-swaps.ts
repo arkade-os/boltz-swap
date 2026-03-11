@@ -139,7 +139,7 @@ export class ArkadeSwaps {
         }
 
         const arkProvider =
-            (config.wallet as any).arkProvider ?? config.arkProvider;
+            config.arkProvider ?? (config.wallet as any).arkProvider;
         if (!arkProvider)
             throw new Error(
                 "Ark provider is required either in wallet or config."
@@ -159,7 +159,7 @@ export class ArkadeSwaps {
         this.wallet = config.wallet;
         // Prioritize wallet providers, fallback to config providers for backward compatibility
         const arkProvider =
-            (config.wallet as any).arkProvider ?? config.arkProvider;
+            config.arkProvider ?? (config.wallet as any).arkProvider;
         if (!arkProvider)
             throw new Error(
                 "Ark provider is required either in wallet or config."
@@ -167,7 +167,7 @@ export class ArkadeSwaps {
         this.arkProvider = arkProvider;
 
         const indexerProvider =
-            (config.wallet as any).indexerProvider ?? config.indexerProvider;
+            config.indexerProvider ?? (config.wallet as any).indexerProvider;
         if (!indexerProvider)
             throw new Error(
                 "Indexer provider is required either in wallet or config."
