@@ -183,13 +183,15 @@ export class ArkadeSwaps {
             this.swapRepository = new IndexedDbSwapRepository();
         }
 
-        // Initialize SwapManager if config is provided
-        // - true: use defaults
+        // Initialize SwapManager (enabled by default)
+        // - true/undefined: use defaults
         // - object: use provided config
-        // - false/undefined: disabled
-        if (config.swapManager) {
+        // - false: disabled
+        if (config.swapManager !== false) {
             const swapManagerConfig =
-                config.swapManager === true ? {} : config.swapManager;
+                !config.swapManager || config.swapManager === true
+                    ? {}
+                    : config.swapManager;
 
             // Extract autostart (defaults to true) before passing to SwapManager
             const shouldAutostart = swapManagerConfig.autoStart ?? true;

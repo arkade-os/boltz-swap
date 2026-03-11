@@ -190,9 +190,9 @@ export interface ArkadeSwapsConfig {
     /** Explicit IndexerProvider. Falls back to wallet.indexerProvider if omitted. */
     indexerProvider?: IndexerProvider;
     /**
-     * Enable background swap monitoring and autonomous actions.
-     * - `false` or `undefined`: SwapManager disabled
-     * - `true`: SwapManager enabled with default configuration
+     * Background swap monitoring and autonomous actions (enabled by default).
+     * - `undefined` or `true`: SwapManager enabled with default configuration
+     * - `false`: SwapManager disabled
      * - `SwapManagerConfig` object: SwapManager enabled with custom configuration
      */
     swapManager?: boolean | (SwapManagerConfig & { autoStart?: boolean });

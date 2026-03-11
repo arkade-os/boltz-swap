@@ -38,11 +38,8 @@ const wallet = await Wallet.create({
   arkServerUrl: 'https://arkade.computer',
 });
 
-// Initialize swaps (network auto-detected from wallet, swapManager auto-monitors all swaps)
-const swaps = await ArkadeSwaps.create({
-  wallet,
-  swapManager: true,
-});
+// Initialize swaps (network auto-detected from wallet, SwapManager enabled by default)
+const swaps = await ArkadeSwaps.create({ wallet });
 ```
 
 > [!NOTE]
@@ -150,10 +147,10 @@ const { txid } = await swaps.waitAndClaim(result.pendingSwap);
 
 ### Without SwapManager (Manual Mode)
 
-If SwapManager is not enabled, you must manually monitor and act on swaps:
+If you disable SwapManager, you must manually monitor and act on swaps:
 
 ```typescript
-const swaps = await ArkadeSwaps.create({ wallet });
+const swaps = await ArkadeSwaps.create({ wallet, swapManager: false });
 
 const result = await swaps.createLightningInvoice({ amount: 50000 });
 await swaps.waitAndClaim(result.pendingSwap); // blocks until complete
@@ -202,7 +199,7 @@ await swaps.dispose();
 
 // Automatic (TypeScript 5.2+)
 {
-  await using swaps = await ArkadeSwaps.create({ wallet, swapManager: true });
+  await using swaps = await ArkadeSwaps.create({ wallet });
   // ...
 } // auto-disposed
 ```
