@@ -5,14 +5,24 @@ import { hex } from "@scure/base";
 export const verifySignatures = (
     tx: Transaction,
     inputIndex: number,
-    requiredSigners: string[]
+    requiredSigners: string[],
+    expectedLeafHash: Uint8Array
 ): boolean => {
     try {
         verifyTapscriptSignatures(tx, inputIndex, requiredSigners);
-        return true;
     } catch (_) {
         return false;
     }
+
+    const input = tx.getInput(inputIndex);
+    const expectedHex = hex.encode(expectedLeafHash);
+    return requiredSigners.every((signer) =>
+        input.tapScriptSig?.some(
+            ([{ pubKey, leafHash }]) =>
+                hex.encode(pubKey) === signer &&
+                hex.encode(leafHash) === expectedHex
+        )
+    );
 };
 
 /**
