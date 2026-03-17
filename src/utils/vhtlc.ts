@@ -14,6 +14,7 @@ import {
     CSVMultisigTapscript,
     combineTapscriptSigs,
     Transaction,
+    TapLeafScript,
 } from "@arkade-os/sdk";
 import { logger } from "../logger";
 import { hex, base64 } from "@scure/base";
@@ -264,8 +265,9 @@ export const claimVHTLCwithOffchainTx = async (
     // verify the server signed the transaction with correct key on the claim leaf
     const finalTx = Transaction.fromPSBT(base64.decode(finalArkTx));
     const serverPubkeyHex = hex.encode(serverXOnlyPublicKey);
-    const [{ version }, script] = vhtlcScript.claim();
-    const claimLeafHash = tapLeafHash(script, version);
+    const claimLeafHash = tapLeafHash(
+        scriptFromTapLeafScript(vhtlcScript.claim())
+    );
     for (let i = 0; i < finalTx.inputsLength; i++) {
         if (!verifySignatures(finalTx, i, [serverPubkeyHex], claimLeafHash)) {
             throw new Error("Invalid final Ark transaction");
@@ -278,8 +280,9 @@ export const claimVHTLCwithOffchainTx = async (
             const tx = Transaction.fromPSBT(base64.decode(c));
             const checkpointLeaf =
                 checkpoints[idx].getInput(0).tapLeafScript![0];
-            const [{ version: cpVer }, cpScript] = checkpointLeaf;
-            const cpLeafHash = tapLeafHash(cpScript, cpVer);
+            const cpLeafHash = tapLeafHash(
+                scriptFromTapLeafScript(checkpointLeaf)
+            );
             if (!verifySignatures(tx, 0, [serverPubkeyHex], cpLeafHash)) {
                 throw new Error(
                     "Invalid server signature in checkpoint transaction"
@@ -352,8 +355,9 @@ export const refundVHTLCwithOffchainTx = async (
 
     // Verify Boltz signatures before combining
     const boltzXOnlyPublicKeyHex = hex.encode(boltzXOnlyPublicKey);
-    const [{ version: refundVer }, refundScript] = input.tapLeafScript;
-    const refundLeafHash = tapLeafHash(refundScript, refundVer);
+    const refundLeafHash = tapLeafHash(
+        scriptFromTapLeafScript(input.tapLeafScript)
+    );
     if (
         !verifySignatures(
             boltzSignedRefundTx,
@@ -365,8 +369,9 @@ export const refundVHTLCwithOffchainTx = async (
         throw new Error("Invalid Boltz signature in refund transaction");
     }
     const checkpointLeaf = unsignedCheckpointTx.getInput(0).tapLeafScript![0];
-    const [{ version: cpVer }, cpScript] = checkpointLeaf;
-    const checkpointLeafHash = tapLeafHash(cpScript, cpVer);
+    const checkpointLeafHash = tapLeafHash(
+        scriptFromTapLeafScript(checkpointLeaf)
+    );
     if (
         !verifySignatures(
             boltzSignedCheckpointTx,
@@ -445,3 +450,7 @@ export const refundVHTLCwithOffchainTx = async (
         base64.encode(finalCheckpointTx.toPSBT()),
     ]);
 };
+
+function scriptFromTapLeafScript(leaf: TapLeafScript): Uint8Array {
+    return leaf[1].subarray(0, leaf[1].length - 1); // remove the version byte
+}
