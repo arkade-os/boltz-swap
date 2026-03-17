@@ -691,7 +691,7 @@ describe("ArkadeSwaps", () => {
                 }
             );
 
-            it.skip(
+            it(
                 "should recover swept VHTLCs",
                 { timeout: 120_000 },
                 async () => {
