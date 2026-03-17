@@ -861,9 +861,7 @@ describe("ArkadeSwaps", () => {
             it("should send a Lightning payment", async () => {
                 // arrange
                 const pendingSwap = mockSubmarineSwap;
-                vi.spyOn(wallet, "send").mockResolvedValueOnce(
-                    mock.txid
-                );
+                vi.spyOn(wallet, "send").mockResolvedValueOnce(mock.txid);
                 vi.spyOn(swaps, "createSubmarineSwap").mockResolvedValueOnce(
                     pendingSwap
                 );
