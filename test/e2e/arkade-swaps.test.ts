@@ -1472,9 +1472,6 @@ describe("ArkadeSwaps", () => {
                         15_000
                     );
 
-                    // give time to server to index vtxo
-                    await sleep(2000);
-
                     const { invoice } = await getNewLightningInvoice(amount);
                     const result = await defaultSwaps.sendLightningPayment({
                         invoice,
