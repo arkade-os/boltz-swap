@@ -145,6 +145,10 @@ export interface BoltzSubmarineSwap {
     request: CreateSubmarineSwapRequest;
     /** Boltz API response with payment address and expected amount. */
     response: CreateSubmarineSwapResponse;
+    /** Lockup transaction ID (hex). Available from Boltz restore or after wallet.send(). */
+    lockupTxid?: string;
+    /** Lockup output index. Available from Boltz restore. */
+    lockupVout?: number;
 }
 
 /** Tracks an in-progress chain swap (ARK ↔ BTC). */
