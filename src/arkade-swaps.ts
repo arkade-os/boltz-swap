@@ -229,10 +229,9 @@ export class ArkadeSwaps {
                     // fields set by concurrent code paths (e.g. preimage
                     // from waitForSwapSettlement, lockupTxid from
                     // sendLightningPayment).
-                    const [existing] =
-                        await this.swapRepository.getAllSwaps({
-                            id: swap.id,
-                        });
+                    const [existing] = await this.swapRepository.getAllSwaps({
+                        id: swap.id,
+                    });
                     if (existing) {
                         Object.assign(swap, { ...existing, ...swap });
                     }
