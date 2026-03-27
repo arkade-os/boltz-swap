@@ -6,6 +6,8 @@ import {
     TransactionFailedError,
     TransactionLockupFailedError,
     TransactionRefundedError,
+    BoltzRefundError,
+    PendingSwapPersistError,
 } from "./errors";
 import {
     ArkAddress,
@@ -675,7 +677,11 @@ export class ArkadeSwaps {
 
         // persist lockup txid so refunds can match the correct outpoint
         pendingSwap.lockupTxid = txid;
-        await this.savePendingSubmarineSwap(pendingSwap);
+        try {
+            await this.savePendingSubmarineSwap(pendingSwap);
+        } catch (persistError) {
+            throw new PendingSwapPersistError(txid, pendingSwap, persistError);
+        }
 
         try {
             const { preimage } = await this.waitForSwapSettlement(pendingSwap);
@@ -879,19 +885,25 @@ export class ArkadeSwaps {
                     );
                     boltzCallCount++;
                 } catch (error) {
-                    // Boltz rejected the refund (e.g. outpoint mismatch
-                    // after an Ark round, or other Boltz-side failure).
+                    // Only fall back for Boltz-side rejections (e.g.
+                    // outpoint mismatch after an Ark round). Re-throw
+                    // any other error (local signing, Ark submitTx, etc.)
+                    if (!(error instanceof BoltzRefundError)) {
+                        throw error;
+                    }
+
                     // Fall back to the refundWithoutReceiver leaf
                     // (sender + server, no Boltz) which is spendable
                     // after the CLTV locktime.
                     const refundLocktime =
                         pendingSwap.response.timeoutBlockHeights.refund;
-                    const nowSec = Math.floor(Date.now() / 1000);
-                    if (nowSec < refundLocktime) {
+                    const currentBlockHeight =
+                        await this.swapProvider.getChainHeight();
+                    if (currentBlockHeight < refundLocktime) {
                         throw new Error(
                             `Swap ${pendingSwap.id}: Boltz rejected VTXO outpoint and ` +
                                 `refundWithoutReceiver locktime has not passed yet ` +
-                                `(now=${nowSec}, locktime=${refundLocktime}). ` +
+                                `(currentBlockHeight=${currentBlockHeight}, locktime=${refundLocktime}). ` +
                                 `Refund will be retried after locktime.`
                         );
                     }
