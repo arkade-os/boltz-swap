@@ -79,6 +79,35 @@ export class SQLiteSwapRepository implements SwapRepository {
         );
     }
 
+    async mergeAndSaveSwap<T extends PendingSwap>(swap: T): Promise<void> {
+        await this.ensureInit();
+        await this.executor.run("BEGIN IMMEDIATE");
+        try {
+            const existing = await this.executor.get<Pick<SwapRow, "data">>(
+                `SELECT data FROM boltz_swaps WHERE id = ?`,
+                [swap.id]
+            );
+            const merged = existing
+                ? { ...JSON.parse(existing.data), ...swap }
+                : swap;
+            await this.executor.run(
+                `INSERT OR REPLACE INTO boltz_swaps (id, type, status, created_at, data)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [
+                    merged.id,
+                    merged.type,
+                    merged.status,
+                    merged.createdAt,
+                    JSON.stringify(merged),
+                ]
+            );
+            await this.executor.run("COMMIT");
+        } catch (e) {
+            await this.executor.run("ROLLBACK").catch(() => {});
+            throw e;
+        }
+    }
+
     async deleteSwap(id: string): Promise<void> {
         await this.ensureInit();
         await this.executor.run(`DELETE FROM boltz_swaps WHERE id = ?`, [id]);
