@@ -42,6 +42,23 @@ export class IndexedDbSwapRepository implements SwapRepository {
         });
     }
 
+    async mergeAndSaveSwap<T extends PendingSwap>(swap: T): Promise<void> {
+        const db = await this.getDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction([STORE_SWAPS_STATE], "readwrite");
+            const store = tx.objectStore(STORE_SWAPS_STATE);
+            const getReq = store.get(swap.id);
+            getReq.onsuccess = () => {
+                const existing = getReq.result;
+                const merged = existing ? { ...existing, ...swap } : swap;
+                const putReq = store.put(merged);
+                putReq.onsuccess = () => resolve();
+                putReq.onerror = () => reject(putReq.error);
+            };
+            getReq.onerror = () => reject(getReq.error);
+        });
+    }
+
     async deleteSwap(id: string): Promise<void> {
         const db = await this.getDB();
         return new Promise((resolve, reject) => {

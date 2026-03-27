@@ -80,9 +80,11 @@ export const swapsPollProcessor: TaskProcessor<SwapTaskDependencies> = {
                         await swapProvider.getSwapStatus(swap.id);
                     polled++;
 
-                    // Persist status change if different
+                    // Persist status change if different — use atomic
+                    // merge to avoid overwriting fields (e.g. preimage,
+                    // lockupTxid) set by concurrent code paths.
                     if (currentStatus !== swap.status) {
-                        await swapRepository.saveSwap({
+                        await swapRepository.mergeAndSaveSwap({
                             ...swap,
                             status: currentStatus,
                         });

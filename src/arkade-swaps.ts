@@ -7,7 +7,6 @@ import {
     TransactionLockupFailedError,
     TransactionRefundedError,
     BoltzRefundError,
-    PendingSwapPersistError,
 } from "./errors";
 import {
     ArkAddress,
@@ -78,7 +77,6 @@ import {
 } from "./utils/restoration";
 import { SwapManager, SwapManagerClient } from "./swap-manager";
 import {
-    saveSwap,
     updateReverseSwapStatus,
     updateSubmarineSwapStatus,
     enrichReverseSwapPreimage,
@@ -224,23 +222,13 @@ export class ArkadeSwaps {
                     await this.signCooperativeClaimForServer(swap);
                 },
                 saveSwap: async (swap: BoltzSwap) => {
-                    // Read-before-write: merge with DB state so the
-                    // SwapManager's in-memory reference never overwrites
-                    // fields set by concurrent code paths (e.g. preimage
-                    // from waitForSwapSettlement, lockupTxid from
-                    // sendLightningPayment).
-                    const [existing] = await this.swapRepository.getAllSwaps({
-                        id: swap.id,
-                    });
-                    if (existing) {
-                        Object.assign(swap, { ...existing, ...swap });
-                    }
-                    await saveSwap(swap, {
-                        saveReverseSwap: this.savePendingReverseSwap.bind(this),
-                        saveSubmarineSwap:
-                            this.savePendingSubmarineSwap.bind(this),
-                        saveChainSwap: this.savePendingChainSwap.bind(this),
-                    });
+                    // Atomic merge-and-save: the repository reads the
+                    // current DB row, merges incoming fields on top, and
+                    // writes back in a single transaction. This prevents
+                    // the TOCTOU race where a concurrent writer
+                    // (e.g. waitForSwapSettlement setting preimage) could
+                    // be overwritten between a separate read and save.
+                    await this.swapRepository.mergeAndSaveSwap(swap);
                 },
             });
 
@@ -689,7 +677,14 @@ export class ArkadeSwaps {
         try {
             await this.savePendingSubmarineSwap(pendingSwap);
         } catch (persistError) {
-            throw new PendingSwapPersistError(txid, pendingSwap, persistError);
+            // Log but do NOT throw — funds are already sent, so we must
+            // continue to the settlement/refund loop below.  Losing the
+            // persisted lockupTxid is recoverable; losing the refund path
+            // is not.
+            logger.error(
+                `[sendLightningPayment] Failed to persist lockup txid for swap ${pendingSwap.id}:`,
+                persistError
+            );
         }
 
         try {

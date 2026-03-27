@@ -49,6 +49,30 @@ export class RealmSwapRepository implements SwapRepository {
         });
     }
 
+    async mergeAndSaveSwap<T extends PendingSwap>(swap: T): Promise<void> {
+        await this.ensureInit();
+        this.realm.write(() => {
+            const existing = this.realm
+                .objects("BoltzSwap")
+                .filtered("id == $0", swap.id);
+            const merged =
+                existing.length > 0
+                    ? { ...JSON.parse(existing[0].data), ...swap }
+                    : swap;
+            this.realm.create(
+                "BoltzSwap",
+                {
+                    id: merged.id,
+                    type: merged.type,
+                    status: merged.status,
+                    createdAt: merged.createdAt,
+                    data: JSON.stringify(merged),
+                },
+                "modified"
+            );
+        });
+    }
+
     async deleteSwap(id: string): Promise<void> {
         await this.ensureInit();
         this.realm.write(() => {
