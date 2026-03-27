@@ -6,6 +6,7 @@ import {
     TransactionFailedError,
     TransactionLockupFailedError,
     TransactionRefundedError,
+    isVtxoMismatchError,
 } from "./errors";
 import {
     ArkAddress,
@@ -830,20 +831,17 @@ export class ArkadeSwaps {
         for (const vtxo of spendableVtxos) {
             const isRecoverableVtxo = isRecoverable(vtxo);
 
-            const input = {
-                ...vtxo,
-                tapLeafScript: isRecoverableVtxo
-                    ? vhtlcScript.refundWithoutReceiver()
-                    : vhtlcScript.refund(),
-                tapTree: vhtlcScript.encode(),
-            };
-
             const output = {
                 amount: BigInt(vtxo.value),
                 script: outputScript,
             };
 
             if (isRecoverableVtxo) {
+                const input = {
+                    ...vtxo,
+                    tapLeafScript: vhtlcScript.refundWithoutReceiver(),
+                    tapTree: vhtlcScript.encode(),
+                };
                 await this.joinBatch(
                     this.wallet.identity,
                     input,
@@ -851,24 +849,66 @@ export class ArkadeSwaps {
                     arkInfo
                 );
             } else {
-                if (boltzCallCount > 0) {
-                    await new Promise((r) => setTimeout(r, 2000));
+                const input = {
+                    ...vtxo,
+                    tapLeafScript: vhtlcScript.refund(),
+                    tapTree: vhtlcScript.encode(),
+                };
+                try {
+                    if (boltzCallCount > 0) {
+                        await new Promise((r) => setTimeout(r, 2000));
+                    }
+                    await refundVHTLCwithOffchainTx(
+                        pendingSwap.id,
+                        this.wallet.identity,
+                        this.arkProvider,
+                        boltzXOnlyPublicKey,
+                        ourXOnlyPublicKey,
+                        serverXOnlyPublicKey,
+                        input,
+                        output,
+                        arkInfo,
+                        this.swapProvider.refundSubmarineSwap.bind(
+                            this.swapProvider
+                        )
+                    );
+                    boltzCallCount++;
+                } catch (error) {
+                    if (!isVtxoMismatchError(error)) throw error;
+
+                    // Boltz doesn't recognize this VTXO outpoint (likely
+                    // changed by an Ark round). Fall back to the
+                    // refundWithoutReceiver leaf (sender + server, no Boltz)
+                    // which is spendable after the CLTV locktime.
+                    const refundLocktime =
+                        pendingSwap.response.timeoutBlockHeights.refund;
+                    const nowSec = Math.floor(Date.now() / 1000);
+                    if (nowSec < refundLocktime) {
+                        throw new Error(
+                            `Swap ${pendingSwap.id}: Boltz rejected VTXO outpoint and ` +
+                                `refundWithoutReceiver locktime has not passed yet ` +
+                                `(now=${nowSec}, locktime=${refundLocktime}). ` +
+                                `Refund will be retried after locktime.`
+                        );
+                    }
+
+                    logger.warn(
+                        `Swap ${pendingSwap.id}: Boltz rejected VTXO outpoint, ` +
+                            `falling back to refundWithoutReceiver via joinBatch`
+                    );
+                    const fallbackInput = {
+                        ...vtxo,
+                        tapLeafScript: vhtlcScript.refundWithoutReceiver(),
+                        tapTree: vhtlcScript.encode(),
+                    };
+                    await this.joinBatch(
+                        this.wallet.identity,
+                        fallbackInput,
+                        output,
+                        arkInfo,
+                        false
+                    );
                 }
-                await refundVHTLCwithOffchainTx(
-                    pendingSwap.id,
-                    this.wallet.identity,
-                    this.arkProvider,
-                    boltzXOnlyPublicKey,
-                    ourXOnlyPublicKey,
-                    serverXOnlyPublicKey,
-                    input,
-                    output,
-                    arkInfo,
-                    this.swapProvider.refundSubmarineSwap.bind(
-                        this.swapProvider
-                    )
-                );
-                boltzCallCount++;
             }
         }
 
