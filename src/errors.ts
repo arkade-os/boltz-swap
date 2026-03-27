@@ -132,6 +132,41 @@ export class TransactionRefundedError extends SwapError {
     }
 }
 
+/**
+ * Thrown when the Boltz API rejects a refund request
+ * (e.g. outpoint mismatch after an Ark round).
+ * Used to distinguish Boltz-side refund failures from local/Ark errors
+ * inside {@link refundVHTLCwithOffchainTx}.
+ */
+export class BoltzRefundError extends Error {
+    constructor(
+        message: string,
+        public override readonly cause?: unknown
+    ) {
+        super(message);
+        this.name = "BoltzRefundError";
+    }
+}
+
+/**
+ * Thrown when persisting a pending swap fails after funds have already been sent.
+ * Callers can inspect {@link txid} and {@link pendingSwap} to recover.
+ */
+export class PendingSwapPersistError extends Error {
+    public readonly txid: string;
+    public readonly pendingSwap: PendingSwap;
+
+    constructor(txid: string, pendingSwap: PendingSwap, cause?: unknown) {
+        super(
+            `Failed to persist pending swap ${pendingSwap.id} after lockup tx ${txid}`
+        );
+        this.name = "PendingSwapPersistError";
+        this.txid = txid;
+        this.pendingSwap = pendingSwap;
+        this.cause = cause;
+    }
+}
+
 /** Returns true if the error is a Boltz 400 "transaction is not for this swap". */
 export function isVtxoMismatchError(error: unknown): boolean {
     return (
