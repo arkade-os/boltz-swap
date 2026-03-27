@@ -2692,7 +2692,8 @@ describe("ArkadeSwaps", () => {
                 swapManager: { autoStart: false, enableAutoActions: false },
             });
 
-            const manager = swapsWithManager.getSwapManager() as unknown as SwapManager;
+            const manager =
+                swapsWithManager.getSwapManager() as unknown as SwapManager;
 
             // Start the manager with the stale reference (no WS connection needed)
             await manager.start([staleSwap]);
@@ -2764,7 +2765,8 @@ describe("ArkadeSwaps", () => {
                 swapManager: { autoStart: false, enableAutoActions: false },
             });
 
-            const manager = swapsWithManager.getSwapManager() as unknown as SwapManager;
+            const manager =
+                swapsWithManager.getSwapManager() as unknown as SwapManager;
             await manager.start([staleSwap]);
 
             // First status update
