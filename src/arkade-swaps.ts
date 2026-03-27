@@ -672,6 +672,10 @@ export class ArkadeSwaps {
             amount: pendingSwap.response.expectedAmount,
         });
 
+        // persist lockup txid so refunds can match the correct outpoint
+        pendingSwap.lockupTxid = txid;
+        await this.savePendingSubmarineSwap(pendingSwap);
+
         try {
             const { preimage } = await this.waitForSwapSettlement(pendingSwap);
             return {
@@ -2185,8 +2189,13 @@ export class ArkadeSwaps {
                     preimage: "",
                 } as BoltzReverseSwap);
             } else if (isRestoredSubmarineSwap(swap)) {
-                const { amount, lockupAddress, serverPublicKey, tree } =
-                    swap.refundDetails;
+                const {
+                    amount,
+                    lockupAddress,
+                    serverPublicKey,
+                    tree,
+                    transaction,
+                } = swap.refundDetails;
 
                 let preimage = "";
                 // Skip preimage fetch for terminal swaps — nothing actionable
@@ -2237,6 +2246,10 @@ export class ArkadeSwaps {
                                 ),
                         },
                     },
+                    ...(transaction && {
+                        lockupTxid: transaction.id,
+                        lockupVout: transaction.vout,
+                    }),
                 } as BoltzSubmarineSwap);
             } else if (isRestoredChainSwap(swap)) {
                 const {
