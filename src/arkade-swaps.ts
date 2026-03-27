@@ -224,6 +224,18 @@ export class ArkadeSwaps {
                     await this.signCooperativeClaimForServer(swap);
                 },
                 saveSwap: async (swap: BoltzSwap) => {
+                    // Read-before-write: merge with DB state so the
+                    // SwapManager's in-memory reference never overwrites
+                    // fields set by concurrent code paths (e.g. preimage
+                    // from waitForSwapSettlement, lockupTxid from
+                    // sendLightningPayment).
+                    const [existing] =
+                        await this.swapRepository.getAllSwaps({
+                            id: swap.id,
+                        });
+                    if (existing) {
+                        Object.assign(swap, { ...existing, ...swap });
+                    }
                     await saveSwap(swap, {
                         saveReverseSwap: this.savePendingReverseSwap.bind(this),
                         saveSubmarineSwap:
