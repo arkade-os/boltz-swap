@@ -1088,6 +1088,19 @@ export class BoltzSwapProvider {
         return res;
     }
 
+    /** Returns the current BTC chain tip height from Boltz. */
+    async getChainHeight(): Promise<number> {
+        const response = await this.request<{ BTC: number }>(
+            "/v2/chain/heights",
+            "GET"
+        );
+        if (typeof response?.BTC !== "number")
+            throw new SchemaError({
+                message: "error fetching chain heights",
+            });
+        return response.BTC;
+    }
+
     /** Queries the current status of a swap by ID. */
     async getSwapStatus(id: string): Promise<GetSwapStatusResponse> {
         const response = await this.request<GetSwapStatusResponse>(
