@@ -6,6 +6,7 @@ import {
     TransactionFailedError,
     TransactionLockupFailedError,
     TransactionRefundedError,
+    BoltzRefundError,
 } from "./errors";
 import {
     ArkAddress,
@@ -76,7 +77,6 @@ import {
 } from "./utils/restoration";
 import { SwapManager, SwapManagerClient } from "./swap-manager";
 import {
-    saveSwap,
     updateReverseSwapStatus,
     updateSubmarineSwapStatus,
     enrichReverseSwapPreimage,
@@ -222,12 +222,13 @@ export class ArkadeSwaps {
                     await this.signCooperativeClaimForServer(swap);
                 },
                 saveSwap: async (swap: PendingSwap) => {
-                    await saveSwap(swap, {
-                        saveReverseSwap: this.savePendingReverseSwap.bind(this),
-                        saveSubmarineSwap:
-                            this.savePendingSubmarineSwap.bind(this),
-                        saveChainSwap: this.savePendingChainSwap.bind(this),
-                    });
+                    // Atomic merge-and-save: the repository reads the
+                    // current DB row, merges incoming fields on top, and
+                    // writes back in a single transaction. This prevents
+                    // the TOCTOU race where a concurrent writer
+                    // (e.g. waitForSwapSettlement setting preimage) could
+                    // be overwritten between a separate read and save.
+                    await this.swapRepository.mergeAndSaveSwap(swap);
                 },
             });
 
@@ -673,6 +674,21 @@ export class ArkadeSwaps {
             amount: pendingSwap.response.expectedAmount,
         });
 
+        // persist lockup txid so refunds can match the correct outpoint
+        pendingSwap.lockupTxid = txid;
+        try {
+            await this.savePendingSubmarineSwap(pendingSwap);
+        } catch (persistError) {
+            // Log but do NOT throw — funds are already sent, so we must
+            // continue to the settlement/refund loop below.  Losing the
+            // persisted lockupTxid is recoverable; losing the refund path
+            // is not.
+            logger.error(
+                `[sendLightningPayment] Failed to persist lockup txid for swap ${pendingSwap.id}:`,
+                persistError
+            );
+        }
+
         try {
             const { preimage } = await this.waitForSwapSettlement(pendingSwap);
             return {
@@ -832,20 +848,17 @@ export class ArkadeSwaps {
         for (const vtxo of spendableVtxos) {
             const isRecoverableVtxo = isRecoverable(vtxo);
 
-            const input = {
-                ...vtxo,
-                tapLeafScript: isRecoverableVtxo
-                    ? vhtlcScript.refundWithoutReceiver()
-                    : vhtlcScript.refund(),
-                tapTree: vhtlcScript.encode(),
-            };
-
             const output = {
                 amount: BigInt(vtxo.value),
                 script: outputScript,
             };
 
             if (isRecoverableVtxo) {
+                const input = {
+                    ...vtxo,
+                    tapLeafScript: vhtlcScript.refundWithoutReceiver(),
+                    tapTree: vhtlcScript.encode(),
+                };
                 await this.joinBatch(
                     this.wallet.identity,
                     input,
@@ -853,24 +866,71 @@ export class ArkadeSwaps {
                     arkInfo
                 );
             } else {
-                if (boltzCallCount > 0) {
-                    await new Promise((r) => setTimeout(r, 2000));
+                const input = {
+                    ...vtxo,
+                    tapLeafScript: vhtlcScript.refund(),
+                    tapTree: vhtlcScript.encode(),
+                };
+                try {
+                    if (boltzCallCount > 0) {
+                        await new Promise((r) => setTimeout(r, 2000));
+                    }
+                    await refundVHTLCwithOffchainTx(
+                        pendingSwap.id,
+                        this.wallet.identity,
+                        this.arkProvider,
+                        boltzXOnlyPublicKey,
+                        ourXOnlyPublicKey,
+                        serverXOnlyPublicKey,
+                        input,
+                        output,
+                        arkInfo,
+                        this.swapProvider.refundSubmarineSwap.bind(
+                            this.swapProvider
+                        )
+                    );
+                    boltzCallCount++;
+                } catch (error) {
+                    // Only fall back for Boltz-side rejections (e.g.
+                    // outpoint mismatch after an Ark round). Re-throw
+                    // any other error (local signing, Ark submitTx, etc.)
+                    if (!(error instanceof BoltzRefundError)) {
+                        throw error;
+                    }
+
+                    // Fall back to the refundWithoutReceiver leaf
+                    // (sender + server, no Boltz) which is spendable
+                    // after the CLTV locktime.
+                    const refundLocktime =
+                        pendingSwap.response.timeoutBlockHeights.refund;
+                    const currentBlockHeight =
+                        await this.swapProvider.getChainHeight();
+                    if (currentBlockHeight < refundLocktime) {
+                        throw new Error(
+                            `Swap ${pendingSwap.id}: Boltz rejected VTXO outpoint and ` +
+                                `refundWithoutReceiver locktime has not passed yet ` +
+                                `(currentBlockHeight=${currentBlockHeight}, locktime=${refundLocktime}). ` +
+                                `Refund will be retried after locktime.`
+                        );
+                    }
+
+                    logger.warn(
+                        `Swap ${pendingSwap.id}: Boltz rejected VTXO outpoint, ` +
+                            `falling back to refundWithoutReceiver via joinBatch`
+                    );
+                    const fallbackInput = {
+                        ...vtxo,
+                        tapLeafScript: vhtlcScript.refundWithoutReceiver(),
+                        tapTree: vhtlcScript.encode(),
+                    };
+                    await this.joinBatch(
+                        this.wallet.identity,
+                        fallbackInput,
+                        output,
+                        arkInfo,
+                        false
+                    );
                 }
-                await refundVHTLCwithOffchainTx(
-                    pendingSwap.id,
-                    this.wallet.identity,
-                    this.arkProvider,
-                    boltzXOnlyPublicKey,
-                    ourXOnlyPublicKey,
-                    serverXOnlyPublicKey,
-                    input,
-                    output,
-                    arkInfo,
-                    this.swapProvider.refundSubmarineSwap.bind(
-                        this.swapProvider
-                    )
-                );
-                boltzCallCount++;
             }
         }
 
@@ -2148,8 +2208,13 @@ export class ArkadeSwaps {
                     preimage: "",
                 } as PendingReverseSwap);
             } else if (isRestoredSubmarineSwap(swap)) {
-                const { amount, lockupAddress, serverPublicKey, tree } =
-                    swap.refundDetails;
+                const {
+                    amount,
+                    lockupAddress,
+                    serverPublicKey,
+                    tree,
+                    transaction,
+                } = swap.refundDetails;
 
                 let preimage = "";
                 // Skip preimage fetch for terminal swaps — nothing actionable
@@ -2200,6 +2265,10 @@ export class ArkadeSwaps {
                                 ),
                         },
                     },
+                    ...(transaction && {
+                        lockupTxid: transaction.id,
+                        lockupVout: transaction.vout,
+                    }),
                 } as PendingSubmarineSwap);
             } else if (isRestoredChainSwap(swap)) {
                 const {

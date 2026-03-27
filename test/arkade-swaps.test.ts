@@ -34,6 +34,8 @@ import { ripemd160 } from "@noble/hashes/legacy.js";
 import { decodeInvoice } from "../src/utils/decoding";
 import { pubECDSA } from "@scure/btc-signer/utils.js";
 import { refundVHTLCwithOffchainTx } from "../src/utils/vhtlc";
+import { InMemorySwapRepository } from "../src/repositories/inMemory/swap-repository";
+import { SwapManager } from "../src/swap-manager";
 
 // Mock the @arkade-os/sdk modules
 vi.mock("@arkade-os/sdk", async () => {
@@ -2624,6 +2626,170 @@ describe("ArkadeSwaps", () => {
 
             // should not reach indexer or any refund call
             expect(indexerProvider.getVtxos).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("SwapManager read-before-write", () => {
+        // The SwapManager holds an in-memory reference to each monitored
+        // swap.  Other code paths (waitForSwapSettlement, sendLightningPayment)
+        // may write additional fields (preimage, lockupTxid) to the repository
+        // via spread-copies.  When the SwapManager later saves the in-memory
+        // reference on a status update, the read-before-write merge in the
+        // saveSwap callback must preserve those DB-only fields.
+
+        const timeoutBlockHeights = {
+            refund: 100,
+            unilateralClaim: 200,
+            unilateralRefund: 300,
+            unilateralRefundWithoutReceiver: 400,
+        };
+
+        it("should preserve preimage and lockupTxid when SwapManager saves a status update", async () => {
+            const repo = new InMemorySwapRepository();
+
+            // Swap as written to DB by waitForSwapSettlement (has preimage + lockupTxid)
+            const swapInDb: PendingSubmarineSwap = {
+                id: "sub-1",
+                type: "submarine",
+                createdAt: 1000,
+                status: "transaction.mempool",
+                preimage: "deadbeef".repeat(8),
+                lockupTxid: "abc123".repeat(10),
+                lockupVout: 0,
+                request: {
+                    invoice: "lnbc100n1p0",
+                    refundPublicKey: "0".repeat(66),
+                },
+                response: {
+                    id: "sub-1",
+                    address: "ark1test",
+                    expectedAmount: 10000,
+                    claimPublicKey: "0".repeat(66),
+                    acceptZeroConf: false,
+                    timeoutBlockHeights,
+                },
+            };
+            await repo.saveSwap({ ...swapInDb });
+
+            // Stale in-memory reference the SwapManager holds — same swap but
+            // without the fields that were written by a concurrent code path.
+            const staleSwap: PendingSubmarineSwap = {
+                id: "sub-1",
+                type: "submarine",
+                createdAt: 1000,
+                status: "transaction.mempool",
+                // NOTE: no preimage, no lockupTxid, no lockupVout
+                request: swapInDb.request,
+                response: swapInDb.response,
+            };
+
+            const swapsWithManager = new ArkadeSwaps({
+                wallet,
+                arkProvider,
+                swapProvider,
+                indexerProvider,
+                swapRepository: repo,
+                swapManager: { autoStart: false, enableAutoActions: false },
+            });
+
+            const manager =
+                swapsWithManager.getSwapManager() as unknown as SwapManager;
+
+            // Start the manager with the stale reference (no WS connection needed)
+            await manager.start([staleSwap]);
+
+            // Simulate the SwapManager receiving a status update
+            await (manager as any).handleSwapStatusUpdate(
+                staleSwap,
+                "transaction.claimed"
+            );
+
+            // Read the swap from the repository
+            const [saved] = await repo.getAllSwaps<PendingSubmarineSwap>({
+                id: "sub-1",
+            });
+
+            // The status update must be applied
+            expect(saved.status).toBe("transaction.claimed");
+
+            // Critical: fields written by other code paths must survive
+            expect(saved.preimage).toBe("deadbeef".repeat(8));
+            expect(saved.lockupTxid).toBe("abc123".repeat(10));
+            expect(saved.lockupVout).toBe(0);
+
+            await swapsWithManager.stopSwapManager();
+        });
+
+        it("should not clobber DB fields across multiple status updates", async () => {
+            const repo = new InMemorySwapRepository();
+
+            // Swap in DB has preimage + lockupTxid from a prior save
+            const swapInDb: PendingSubmarineSwap = {
+                id: "sub-2",
+                type: "submarine",
+                createdAt: 2000,
+                status: "transaction.mempool",
+                preimage: "aa".repeat(32),
+                lockupTxid: "bb".repeat(32),
+                request: {
+                    invoice: "lnbc200n1p0",
+                    refundPublicKey: "0".repeat(66),
+                },
+                response: {
+                    id: "sub-2",
+                    address: "ark1test2",
+                    expectedAmount: 20000,
+                    claimPublicKey: "0".repeat(66),
+                    acceptZeroConf: false,
+                    timeoutBlockHeights,
+                },
+            };
+            await repo.saveSwap({ ...swapInDb });
+
+            // Stale reference the SwapManager holds (no preimage/lockupTxid)
+            const staleSwap: PendingSubmarineSwap = {
+                id: "sub-2",
+                type: "submarine",
+                createdAt: 2000,
+                status: "transaction.mempool",
+                request: swapInDb.request,
+                response: swapInDb.response,
+            };
+
+            const swapsWithManager = new ArkadeSwaps({
+                wallet,
+                arkProvider,
+                swapProvider,
+                indexerProvider,
+                swapRepository: repo,
+                swapManager: { autoStart: false, enableAutoActions: false },
+            });
+
+            const manager =
+                swapsWithManager.getSwapManager() as unknown as SwapManager;
+            await manager.start([staleSwap]);
+
+            // First status update
+            await (manager as any).handleSwapStatusUpdate(
+                staleSwap,
+                "transaction.confirmed"
+            );
+
+            // Second status update
+            await (manager as any).handleSwapStatusUpdate(
+                staleSwap,
+                "transaction.claimed"
+            );
+
+            const [saved] = await repo.getAllSwaps<PendingSubmarineSwap>({
+                id: "sub-2",
+            });
+
+            expect(saved.status).toBe("transaction.claimed");
+            expect(saved.preimage).toBe("aa".repeat(32));
+            expect(saved.lockupTxid).toBe("bb".repeat(32));
+
+            await swapsWithManager.stopSwapManager();
         });
     });
 });
