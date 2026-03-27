@@ -6,7 +6,6 @@ import {
     TransactionFailedError,
     TransactionLockupFailedError,
     TransactionRefundedError,
-    isVtxoMismatchError,
 } from "./errors";
 import {
     ArkAddress,
@@ -880,12 +879,11 @@ export class ArkadeSwaps {
                     );
                     boltzCallCount++;
                 } catch (error) {
-                    if (!isVtxoMismatchError(error)) throw error;
-
-                    // Boltz doesn't recognize this VTXO outpoint (likely
-                    // changed by an Ark round). Fall back to the
-                    // refundWithoutReceiver leaf (sender + server, no Boltz)
-                    // which is spendable after the CLTV locktime.
+                    // Boltz rejected the refund (e.g. outpoint mismatch
+                    // after an Ark round, or other Boltz-side failure).
+                    // Fall back to the refundWithoutReceiver leaf
+                    // (sender + server, no Boltz) which is spendable
+                    // after the CLTV locktime.
                     const refundLocktime =
                         pendingSwap.response.timeoutBlockHeights.refund;
                     const nowSec = Math.floor(Date.now() / 1000);
