@@ -229,10 +229,9 @@ export class ArkadeSwaps {
                     // fields set by concurrent code paths (e.g. preimage
                     // from waitForSwapSettlement, lockupTxid from
                     // sendLightningPayment).
-                    const [existing] =
-                        await this.swapRepository.getAllSwaps({
-                            id: swap.id,
-                        });
+                    const [existing] = await this.swapRepository.getAllSwaps({
+                        id: swap.id,
+                    });
                     if (existing) {
                         Object.assign(swap, { ...existing, ...swap });
                     }
@@ -291,9 +290,7 @@ export class ArkadeSwaps {
         });
     }
 
-    private async getPendingChainSwapsFromStorage(): Promise<
-        BoltzChainSwap[]
-    > {
+    private async getPendingChainSwapsFromStorage(): Promise<BoltzChainSwap[]> {
         return this.swapRepository.getAllSwaps<BoltzChainSwap>({
             type: "chain",
         });
@@ -1110,12 +1107,11 @@ export class ArkadeSwaps {
                     failureReason?: string;
                 }
             ) => {
-                const updateSwapStatus =
-                    async (): Promise<BoltzChainSwap> => {
-                        swap.status = status;
-                        await this.savePendingChainSwap(swap);
-                        return swap;
-                    };
+                const updateSwapStatus = async (): Promise<BoltzChainSwap> => {
+                    swap.status = status;
+                    await this.savePendingChainSwap(swap);
+                    return swap;
+                };
                 switch (status) {
                     case "transaction.mempool":
                     case "transaction.confirmed":
