@@ -49,7 +49,7 @@ export class RealmSwapRepository implements SwapRepository {
         });
     }
 
-    async mergeAndSaveSwap<T extends PendingSwap>(swap: T): Promise<void> {
+    async mergeAndSaveSwap<T extends BoltzSwap>(swap: T): Promise<void> {
         await this.ensureInit();
         this.realm.write(() => {
             const existing = this.realm

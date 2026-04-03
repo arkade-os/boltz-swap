@@ -42,7 +42,7 @@ export class IndexedDbSwapRepository implements SwapRepository {
         });
     }
 
-    async mergeAndSaveSwap<T extends PendingSwap>(swap: T): Promise<void> {
+    async mergeAndSaveSwap<T extends BoltzSwap>(swap: T): Promise<void> {
         const db = await this.getDB();
         return new Promise((resolve, reject) => {
             const tx = db.transaction([STORE_SWAPS_STATE], "readwrite");
