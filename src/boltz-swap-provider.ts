@@ -201,9 +201,7 @@ export const isPendingSubmarineSwap = (
 };
 
 /** Type guard: narrows BoltzSwap to BoltzChainSwap. */
-export const isPendingChainSwap = (
-    swap: BoltzSwap
-): swap is BoltzChainSwap => {
+export const isPendingChainSwap = (swap: BoltzSwap): swap is BoltzChainSwap => {
     return swap.type === "chain";
 };
 
@@ -1088,6 +1086,19 @@ export class BoltzSwapProvider {
                 message: `error fetching txid for swap: ${id}`,
             });
         return res;
+    }
+
+    /** Returns the current BTC chain tip height from Boltz. */
+    async getChainHeight(): Promise<number> {
+        const response = await this.request<{ BTC: number }>(
+            "/v2/chain/heights",
+            "GET"
+        );
+        if (typeof response?.BTC !== "number")
+            throw new SchemaError({
+                message: "error fetching chain heights",
+            });
+        return response.BTC;
     }
 
     /** Queries the current status of a swap by ID. */

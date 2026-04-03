@@ -1,14 +1,16 @@
-import {
-    GetSwapsFilter,
-    BoltzSwap,
-    SwapRepository,
-} from "../swap-repository";
+import { GetSwapsFilter, BoltzSwap, SwapRepository } from "../swap-repository";
 export class InMemorySwapRepository implements SwapRepository {
     readonly version = 1 as const;
     private readonly swaps: Map<string, BoltzSwap> = new Map();
 
     async saveSwap<T extends BoltzSwap>(swap: T): Promise<void> {
         this.swaps.set(swap.id, swap);
+    }
+
+    async mergeAndSaveSwap<T extends PendingSwap>(swap: T): Promise<void> {
+        const existing = this.swaps.get(swap.id);
+        const merged = existing ? { ...existing, ...swap } : swap;
+        this.swaps.set(swap.id, merged);
     }
 
     async deleteSwap(id: string): Promise<void> {

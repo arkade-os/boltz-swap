@@ -1,8 +1,4 @@
-import {
-    GetSwapsFilter,
-    BoltzSwap,
-    SwapRepository,
-} from "../swap-repository";
+import { GetSwapsFilter, BoltzSwap, SwapRepository } from "../swap-repository";
 import { closeDatabase, openDatabase } from "@arkade-os/sdk";
 
 const DEFAULT_DB_NAME = "arkade-boltz-swap";
@@ -43,6 +39,23 @@ export class IndexedDbSwapRepository implements SwapRepository {
             const request = store.put(swap);
             request.onsuccess = () => resolve();
             request.onerror = () => reject(request.error);
+        });
+    }
+
+    async mergeAndSaveSwap<T extends BoltzSwap>(swap: T): Promise<void> {
+        const db = await this.getDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction([STORE_SWAPS_STATE], "readwrite");
+            const store = tx.objectStore(STORE_SWAPS_STATE);
+            const getReq = store.get(swap.id);
+            getReq.onsuccess = () => {
+                const existing = getReq.result;
+                const merged = existing ? { ...existing, ...swap } : swap;
+                const putReq = store.put(merged);
+                putReq.onsuccess = () => resolve();
+                putReq.onerror = () => reject(putReq.error);
+            };
+            getReq.onerror = () => reject(getReq.error);
         });
     }
 
