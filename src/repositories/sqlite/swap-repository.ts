@@ -79,7 +79,7 @@ export class SQLiteSwapRepository implements SwapRepository {
         );
     }
 
-    async mergeAndSaveSwap<T extends PendingSwap>(swap: T): Promise<void> {
+    async mergeAndSaveSwap<T extends BoltzSwap>(swap: T): Promise<void> {
         await this.ensureInit();
         await this.executor.run("BEGIN IMMEDIATE");
         try {

@@ -154,9 +154,9 @@ export class BoltzRefundError extends Error {
  */
 export class PendingSwapPersistError extends Error {
     public readonly txid: string;
-    public readonly pendingSwap: PendingSwap;
+    public readonly pendingSwap: BoltzSwap;
 
-    constructor(txid: string, pendingSwap: PendingSwap, cause?: unknown) {
+    constructor(txid: string, pendingSwap: BoltzSwap, cause?: unknown) {
         super(
             `Failed to persist pending swap ${pendingSwap.id} after lockup tx ${txid}`
         );
