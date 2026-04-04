@@ -6,8 +6,8 @@ import {
     CreateSubmarineSwapRequest,
 } from "../../src/boltz-swap-provider";
 import type {
-    PendingReverseSwap,
-    PendingSubmarineSwap,
+    BoltzReverseSwap,
+    BoltzSubmarineSwap,
     ArkadeSwapsConfig,
 } from "../../src/types";
 import {
@@ -188,7 +188,7 @@ describe("ArkadeSwaps", () => {
     const arkUrl = "http://localhost:7070";
 
     const fundWallet = async (amount: number): Promise<void> => {
-        await fundedWallet.sendBitcoin({
+        await fundedWallet.send({
             address: await wallet.getAddress(),
             amount,
         });
@@ -648,7 +648,7 @@ describe("ArkadeSwaps", () => {
                     invoice,
                 });
 
-                await wallet.sendBitcoin({
+                await wallet.send({
                     address: pendingSwap.response.address,
                     amount: pendingSwap.response.expectedAmount,
                 });
@@ -686,7 +686,7 @@ describe("ArkadeSwaps", () => {
 
                     const swapHistory = await swaps.getSwapHistory();
                     expect(swapHistory.length).toBeGreaterThanOrEqual(1);
-                    const failedSwap = swapHistory[0] as PendingSubmarineSwap;
+                    const failedSwap = swapHistory[0] as BoltzSubmarineSwap;
                     expect(failedSwap.status).toBe("invoice.failedToPay");
                 }
             );
@@ -705,7 +705,7 @@ describe("ArkadeSwaps", () => {
                         invoice: res.invoice,
                     });
 
-                    await wallet.sendBitcoin({
+                    await wallet.send({
                         address: pendingSwap.response.address,
                         amount: pendingSwap.response.expectedAmount,
                     });
@@ -842,7 +842,7 @@ describe("ArkadeSwaps", () => {
                             btcAddress,
                         });
 
-                    await wallet.sendBitcoin({
+                    await wallet.send({
                         address: arkAddress,
                         amount: amountToPay,
                     });
@@ -892,7 +892,7 @@ describe("ArkadeSwaps", () => {
                             btcAddress,
                         });
 
-                    await wallet.sendBitcoin({
+                    await wallet.send({
                         address: arkAddress,
                         amount: amountToPay,
                     });
@@ -930,7 +930,7 @@ describe("ArkadeSwaps", () => {
                         toAddress,
                     });
 
-                    await wallet.sendBitcoin({
+                    await wallet.send({
                         address: swap.response.lockupDetails.lockupAddress,
                         amount: swap.response.lockupDetails.amount,
                     });
@@ -972,7 +972,7 @@ describe("ArkadeSwaps", () => {
                         toAddress,
                     });
 
-                    await wallet.sendBitcoin({
+                    await wallet.send({
                         address: swap.response.lockupDetails.lockupAddress,
                         amount: swap.response.lockupDetails.amount,
                     });
@@ -1016,7 +1016,7 @@ describe("ArkadeSwaps", () => {
                         toAddress,
                     });
 
-                    await wallet.sendBitcoin({
+                    await wallet.send({
                         address: swap.response.lockupDetails.lockupAddress,
                         amount: sendAmount,
                     });
@@ -1247,7 +1247,7 @@ describe("ArkadeSwaps", () => {
                 const swapHistory = await swaps.getSwapHistory();
                 expect(swapHistory.length).toBeGreaterThanOrEqual(1);
 
-                const swap = swapHistory[0] as PendingReverseSwap;
+                const swap = swapHistory[0] as BoltzReverseSwap;
                 expect(swap.request.invoiceAmount).toBe(amount);
                 expect(swap.status).toBe("invoice.settled");
                 expect(swap.type).toBe("reverse");
@@ -1284,7 +1284,7 @@ describe("ArkadeSwaps", () => {
                 const swapHistory = await swaps.getSwapHistory();
                 expect(swapHistory.length).toBeGreaterThanOrEqual(1);
 
-                const swap = swapHistory[0] as PendingSubmarineSwap;
+                const swap = swapHistory[0] as BoltzSubmarineSwap;
                 expect(swap.status).toBe("transaction.claimed");
                 expect(swap.request.invoice).toBe(invoice);
                 expect(swap.type).toBe("submarine");
@@ -1448,7 +1448,7 @@ describe("ArkadeSwaps", () => {
                     // Fund the wallet via the shared funded wallet
                     const amount = 1000;
                     const fundAmount = amount + 10;
-                    await fundedWallet.sendBitcoin({
+                    await fundedWallet.send({
                         address: await defaultWallet.getAddress(),
                         amount: fundAmount,
                     });

@@ -10,9 +10,9 @@ import {
     FeesResponse,
     LimitsResponse,
     Network,
-    PendingChainSwap,
-    PendingReverseSwap,
-    PendingSubmarineSwap,
+    BoltzChainSwap,
+    BoltzReverseSwap,
+    BoltzSubmarineSwap,
     SendLightningPaymentRequest,
     SendLightningPaymentResponse,
 } from "../types";
@@ -47,7 +47,14 @@ import type {
     ResponseWaitAndClaim,
     ResponseWaitForSwapSettlement,
 } from "./arkade-swaps-message-handler";
-import type { ArkInfo, ArkTxInput, Identity, VHTLC } from "@arkade-os/sdk";
+import {
+    MESSAGE_BUS_NOT_INITIALIZED,
+    ServiceWorkerTimeoutError,
+    type ArkInfo,
+    type ArkTxInput,
+    type Identity,
+    type VHTLC,
+} from "@arkade-os/sdk";
 import type { TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { IArkadeSwaps } from "../arkade-swaps";
 import { IndexedDbSwapRepository } from "../repositories/IndexedDb/swap-repository";
@@ -56,6 +63,36 @@ import {
     enrichSubmarineSwapInvoice as _enrichSubmarineSwapInvoice,
 } from "../utils/swap-helpers";
 import type { Actions, SwapManagerClient } from "../swap-manager";
+
+// Check by error message content instead of instanceof because postMessage uses the
+// structured clone algorithm which strips the prototype chain — the page
+// receives a plain Error, not the original MessageBusNotInitializedError.
+function isMessageBusNotInitializedError(error: unknown): boolean {
+    return (
+        error instanceof Error &&
+        error.message.includes(MESSAGE_BUS_NOT_INITIALIZED)
+    );
+}
+
+const DEDUPABLE_REQUEST_TYPES: ReadonlySet<string> = new Set([
+    "GET_FEES",
+    "GET_LIMITS",
+    "GET_SWAP_STATUS",
+    "GET_PENDING_SUBMARINE_SWAPS",
+    "GET_PENDING_REVERSE_SWAPS",
+    "GET_PENDING_CHAIN_SWAPS",
+    "GET_SWAP_HISTORY",
+    "QUOTE_SWAP",
+    "SM-GET_PENDING_SWAPS",
+    "SM-HAS_SWAP",
+    "SM-IS_PROCESSING",
+    "SM-GET_STATS",
+]);
+
+function getRequestDedupKey(request: ArkadeSwapsUpdaterRequest): string {
+    const { id, tag, ...rest } = request;
+    return JSON.stringify(rest);
+}
 
 export type SvcWrkArkadeSwapsConfig = Pick<
     ArkadeSwapsConfig,
@@ -71,29 +108,37 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     private eventListenerInitialized = false;
     private swapUpdateListeners = new Set<
         (
-            swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
+            swap: BoltzReverseSwap | BoltzSubmarineSwap | BoltzChainSwap,
             oldStatus: BoltzSwapStatus
         ) => void
     >();
     private swapCompletedListeners = new Set<
         (
-            swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap
+            swap: BoltzReverseSwap | BoltzSubmarineSwap | BoltzChainSwap
         ) => void
     >();
     private swapFailedListeners = new Set<
         (
-            swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
+            swap: BoltzReverseSwap | BoltzSubmarineSwap | BoltzChainSwap,
             error: Error
         ) => void
     >();
     private actionExecutedListeners = new Set<
         (
-            swap: PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap,
+            swap: BoltzReverseSwap | BoltzSubmarineSwap | BoltzChainSwap,
             action: Actions
         ) => void
     >();
     private wsConnectedListeners = new Set<() => void>();
     private wsDisconnectedListeners = new Set<(error?: Error) => void>();
+
+    private initPayload: RequestInitArkSwaps["payload"] | null = null;
+    private reinitPromise: Promise<void> | null = null;
+    private pingPromise: Promise<void> | null = null;
+    private inflightRequests = new Map<
+        string,
+        Promise<ArkadeSwapsUpdaterResponse>
+    >();
 
     private constructor(
         private readonly messageTag: string,
@@ -115,19 +160,22 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             Boolean(config.swapManager)
         );
 
+        const initPayload: RequestInitArkSwaps["payload"] = {
+            network: config.network,
+            arkServerUrl: config.arkServerUrl,
+            swapProvider: { baseUrl: config.swapProvider.getApiUrl() },
+            swapManager: config.swapManager,
+        };
+
         const initMessage: RequestInitArkSwaps = {
             tag: messageTag,
             id: getRandomId(),
             type: "INIT_ARKADE_SWAPS",
-            payload: {
-                network: config.network,
-                arkServerUrl: config.arkServerUrl,
-                swapProvider: { baseUrl: config.swapProvider.getApiUrl() },
-                swapManager: config.swapManager,
-            },
+            payload: initPayload,
         };
 
         await svcArkadeSwaps.sendMessage(initMessage);
+        svcArkadeSwaps.initPayload = initPayload;
 
         return svcArkadeSwaps;
     }
@@ -181,9 +229,9 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             },
             addSwap: async (
                 swap:
-                    | PendingReverseSwap
-                    | PendingSubmarineSwap
-                    | PendingChainSwap
+                    | BoltzReverseSwap
+                    | BoltzSubmarineSwap
+                    | BoltzChainSwap
             ) => {
                 await send({
                     id: getRandomId(),
@@ -209,9 +257,9 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
                 return (
                     res as ArkadeSwapsUpdaterResponse & {
                         payload: (
-                            | PendingReverseSwap
-                            | PendingSubmarineSwap
-                            | PendingChainSwap
+                            | BoltzReverseSwap
+                            | BoltzSubmarineSwap
+                            | BoltzChainSwap
                         )[];
                     }
                 ).payload;
@@ -278,17 +326,17 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
                 swapId: string,
                 callback: (
                     swap:
-                        | PendingReverseSwap
-                        | PendingSubmarineSwap
-                        | PendingChainSwap,
+                        | BoltzReverseSwap
+                        | BoltzSubmarineSwap
+                        | BoltzChainSwap,
                     oldStatus: BoltzSwapStatus
                 ) => void
             ) => {
                 const filteredListener = (
                     swap:
-                        | PendingReverseSwap
-                        | PendingSubmarineSwap
-                        | PendingChainSwap,
+                        | BoltzReverseSwap
+                        | BoltzSubmarineSwap
+                        | BoltzChainSwap,
                     oldStatus: BoltzSwapStatus
                 ) => {
                     if (swap.id === swapId) {
@@ -301,9 +349,9 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             onSwapUpdate: async (
                 listener: (
                     swap:
-                        | PendingReverseSwap
-                        | PendingSubmarineSwap
-                        | PendingChainSwap,
+                        | BoltzReverseSwap
+                        | BoltzSubmarineSwap
+                        | BoltzChainSwap,
                     oldStatus: BoltzSwapStatus
                 ) => void
             ) => {
@@ -313,9 +361,9 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             onSwapCompleted: async (
                 listener: (
                     swap:
-                        | PendingReverseSwap
-                        | PendingSubmarineSwap
-                        | PendingChainSwap
+                        | BoltzReverseSwap
+                        | BoltzSubmarineSwap
+                        | BoltzChainSwap
                 ) => void
             ) => {
                 this.swapCompletedListeners.add(listener);
@@ -324,9 +372,9 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             onSwapFailed: async (
                 listener: (
                     swap:
-                        | PendingReverseSwap
-                        | PendingSubmarineSwap
-                        | PendingChainSwap,
+                        | BoltzReverseSwap
+                        | BoltzSubmarineSwap
+                        | BoltzChainSwap,
                     error: Error
                 ) => void
             ) => {
@@ -336,9 +384,9 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             onActionExecuted: async (
                 listener: (
                     swap:
-                        | PendingReverseSwap
-                        | PendingSubmarineSwap
-                        | PendingChainSwap,
+                        | BoltzReverseSwap
+                        | BoltzSubmarineSwap
+                        | BoltzChainSwap,
                     action: Actions
                 ) => void
             ) => {
@@ -358,9 +406,9 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             offSwapUpdate: (
                 listener: (
                     swap:
-                        | PendingReverseSwap
-                        | PendingSubmarineSwap
-                        | PendingChainSwap,
+                        | BoltzReverseSwap
+                        | BoltzSubmarineSwap
+                        | BoltzChainSwap,
                     oldStatus: BoltzSwapStatus
                 ) => void
             ) => {
@@ -369,9 +417,9 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             offSwapCompleted: (
                 listener: (
                     swap:
-                        | PendingReverseSwap
-                        | PendingSubmarineSwap
-                        | PendingChainSwap
+                        | BoltzReverseSwap
+                        | BoltzSubmarineSwap
+                        | BoltzChainSwap
                 ) => void
             ) => {
                 this.swapCompletedListeners.delete(listener);
@@ -379,9 +427,9 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             offSwapFailed: (
                 listener: (
                     swap:
-                        | PendingReverseSwap
-                        | PendingSubmarineSwap
-                        | PendingChainSwap,
+                        | BoltzReverseSwap
+                        | BoltzSubmarineSwap
+                        | BoltzChainSwap,
                     error: Error
                 ) => void
             ) => {
@@ -390,9 +438,9 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             offActionExecuted: (
                 listener: (
                     swap:
-                        | PendingReverseSwap
-                        | PendingSubmarineSwap
-                        | PendingChainSwap,
+                        | BoltzReverseSwap
+                        | BoltzSubmarineSwap
+                        | BoltzChainSwap,
                     action: Actions
                 ) => void
             ) => {
@@ -443,7 +491,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
 
     async createSubmarineSwap(
         args: SendLightningPaymentRequest
-    ): Promise<PendingSubmarineSwap> {
+    ): Promise<BoltzSubmarineSwap> {
         try {
             const res = await this.sendMessage({
                 id: getRandomId(),
@@ -459,7 +507,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
 
     async createReverseSwap(
         args: CreateLightningInvoiceRequest
-    ): Promise<PendingReverseSwap> {
+    ): Promise<BoltzReverseSwap> {
         try {
             const res = await this.sendMessage({
                 id: getRandomId(),
@@ -473,7 +521,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         }
     }
 
-    async claimVHTLC(pendingSwap: PendingReverseSwap): Promise<void> {
+    async claimVHTLC(pendingSwap: BoltzReverseSwap): Promise<void> {
         await this.sendMessage({
             id: getRandomId(),
             tag: this.messageTag,
@@ -482,7 +530,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         });
     }
 
-    async refundVHTLC(pendingSwap: PendingSubmarineSwap): Promise<void> {
+    async refundVHTLC(pendingSwap: BoltzSubmarineSwap): Promise<void> {
         await this.sendMessage({
             id: getRandomId(),
             tag: this.messageTag,
@@ -492,7 +540,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     }
 
     async waitAndClaim(
-        pendingSwap: PendingReverseSwap
+        pendingSwap: BoltzReverseSwap
     ): Promise<{ txid: string }> {
         try {
             const res = await this.sendMessage({
@@ -510,7 +558,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     }
 
     async waitForSwapSettlement(
-        pendingSwap: PendingSubmarineSwap
+        pendingSwap: BoltzSubmarineSwap
     ): Promise<{ preimage: string }> {
         try {
             const res = await this.sendMessage({
@@ -526,9 +574,9 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     }
 
     async restoreSwaps(boltzFees?: FeesResponse): Promise<{
-        chainSwaps: PendingChainSwap[];
-        reverseSwaps: PendingReverseSwap[];
-        submarineSwaps: PendingSubmarineSwap[];
+        chainSwaps: BoltzChainSwap[];
+        reverseSwaps: BoltzReverseSwap[];
+        submarineSwaps: BoltzSubmarineSwap[];
     }> {
         try {
             const res = await this.sendMessage({
@@ -591,7 +639,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         feeSatsPerByte?: number;
         senderLockAmount?: number;
         receiverLockAmount?: number;
-    }): Promise<PendingChainSwap> {
+    }): Promise<BoltzChainSwap> {
         try {
             const res = await this.sendMessage({
                 id: getRandomId(),
@@ -606,7 +654,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     }
 
     async waitAndClaimChain(
-        pendingSwap: PendingChainSwap
+        pendingSwap: BoltzChainSwap
     ): Promise<{ txid: string }> {
         try {
             const res = await this.sendMessage({
@@ -624,7 +672,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     }
 
     async waitAndClaimArk(
-        pendingSwap: PendingChainSwap
+        pendingSwap: BoltzChainSwap
     ): Promise<{ txid: string }> {
         try {
             const res = await this.sendMessage({
@@ -642,7 +690,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     }
 
     async waitAndClaimBtc(
-        pendingSwap: PendingChainSwap
+        pendingSwap: BoltzChainSwap
     ): Promise<{ txid: string }> {
         try {
             const res = await this.sendMessage({
@@ -659,7 +707,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         }
     }
 
-    async claimArk(pendingSwap: PendingChainSwap): Promise<void> {
+    async claimArk(pendingSwap: BoltzChainSwap): Promise<void> {
         await this.sendMessage({
             id: getRandomId(),
             tag: this.messageTag,
@@ -668,7 +716,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         });
     }
 
-    async claimBtc(pendingSwap: PendingChainSwap): Promise<void> {
+    async claimBtc(pendingSwap: BoltzChainSwap): Promise<void> {
         await this.sendMessage({
             id: getRandomId(),
             tag: this.messageTag,
@@ -677,7 +725,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         });
     }
 
-    async refundArk(pendingSwap: PendingChainSwap): Promise<void> {
+    async refundArk(pendingSwap: BoltzChainSwap): Promise<void> {
         await this.sendMessage({
             id: getRandomId(),
             tag: this.messageTag,
@@ -687,7 +735,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     }
 
     async signCooperativeClaimForServer(
-        pendingSwap: PendingChainSwap
+        pendingSwap: BoltzChainSwap
     ): Promise<void> {
         await this.sendMessage({
             id: getRandomId(),
@@ -700,7 +748,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     async verifyChainSwap(args: {
         to: Chain;
         from: Chain;
-        swap: PendingChainSwap;
+        swap: BoltzChainSwap;
         arkInfo: ArkInfo;
     }): Promise<boolean> {
         try {
@@ -736,16 +784,16 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     }
 
     enrichReverseSwapPreimage(
-        swap: PendingReverseSwap,
+        swap: BoltzReverseSwap,
         preimage: string
-    ): PendingReverseSwap {
+    ): BoltzReverseSwap {
         return _enrichReverseSwapPreimage(swap, preimage);
     }
 
     enrichSubmarineSwapInvoice(
-        swap: PendingSubmarineSwap,
+        swap: BoltzSubmarineSwap,
         invoice: string
-    ): PendingSubmarineSwap {
+    ): BoltzSubmarineSwap {
         return _enrichSubmarineSwapInvoice(swap, invoice);
     }
 
@@ -836,7 +884,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         }
     }
 
-    async getPendingSubmarineSwaps(): Promise<PendingSubmarineSwap[]> {
+    async getPendingSubmarineSwaps(): Promise<BoltzSubmarineSwap[]> {
         try {
             const res = await this.sendMessage({
                 id: getRandomId(),
@@ -851,7 +899,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         }
     }
 
-    async getPendingReverseSwaps(): Promise<PendingReverseSwap[]> {
+    async getPendingReverseSwaps(): Promise<BoltzReverseSwap[]> {
         try {
             const res = await this.sendMessage({
                 id: getRandomId(),
@@ -864,7 +912,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         }
     }
 
-    async getPendingChainSwaps(): Promise<PendingChainSwap[]> {
+    async getPendingChainSwaps(): Promise<BoltzChainSwap[]> {
         try {
             const res = await this.sendMessage({
                 id: getRandomId(),
@@ -878,7 +926,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     }
 
     async getSwapHistory(): Promise<
-        (PendingReverseSwap | PendingSubmarineSwap | PendingChainSwap)[]
+        (BoltzReverseSwap | BoltzSubmarineSwap | BoltzChainSwap)[]
     > {
         try {
             const res = await this.sendMessage({
@@ -900,6 +948,17 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         });
     }
 
+    /**
+     * Reset all swap state: stops the SwapManager and clears the swap repository.
+     *
+     * **Destructive** — any swap in a non-terminal state will lose its
+     * refund/claim path. Intended for wallet-reset / dev / test scenarios only.
+     */
+    async reset(): Promise<void> {
+        await this.dispose();
+        await this.swapRepository.clear();
+    }
+
     async dispose(): Promise<void> {
         if (this.withSwapManager) {
             await this.stopSwapManager().catch(() => {});
@@ -910,20 +969,26 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         return this.dispose();
     }
 
-    private async sendMessage(
+    private sendMessageDirect(
         request: ArkadeSwapsUpdaterRequest
     ): Promise<ArkadeSwapsUpdaterResponse> {
         return new Promise((resolve, reject) => {
-            const timeoutMs = 30_000;
-            let timeout: ReturnType<typeof setTimeout> | undefined;
-
             const cleanup = () => {
-                if (timeout) clearTimeout(timeout);
+                clearTimeout(timeoutId);
                 navigator.serviceWorker.removeEventListener(
                     "message",
                     messageHandler
                 );
             };
+
+            const timeoutId = setTimeout(() => {
+                cleanup();
+                reject(
+                    new ServiceWorkerTimeoutError(
+                        `Service worker message timed out (${request.type})`
+                    )
+                );
+            }, 30_000);
 
             const messageHandler = (event: MessageEvent) => {
                 const response = event.data as
@@ -945,18 +1010,124 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
                 }
             };
 
-            timeout = setTimeout(() => {
-                cleanup();
-                reject(
-                    new Error(
-                        `Timed out waiting for service worker response: ${request.type}`
-                    )
-                );
-            }, timeoutMs);
-
             navigator.serviceWorker.addEventListener("message", messageHandler);
             this.serviceWorker.postMessage(request);
         });
+    }
+
+    private async sendMessage(
+        request: ArkadeSwapsUpdaterRequest
+    ): Promise<ArkadeSwapsUpdaterResponse> {
+        if (!DEDUPABLE_REQUEST_TYPES.has(request.type)) {
+            return this.sendMessageWithRetry(request);
+        }
+
+        const key = getRequestDedupKey(request);
+        const existing = this.inflightRequests.get(key);
+        if (existing) return existing;
+
+        const promise = this.sendMessageWithRetry(request).finally(() => {
+            this.inflightRequests.delete(key);
+        });
+        this.inflightRequests.set(key, promise);
+        return promise;
+    }
+
+    private pingServiceWorker(): Promise<void> {
+        if (this.pingPromise) return this.pingPromise;
+
+        this.pingPromise = new Promise<void>((resolve, reject) => {
+            const pingId = getRandomId();
+
+            const cleanup = () => {
+                clearTimeout(timeoutId);
+                navigator.serviceWorker.removeEventListener(
+                    "message",
+                    onMessage
+                );
+            };
+
+            const timeoutId = setTimeout(() => {
+                cleanup();
+                reject(
+                    new ServiceWorkerTimeoutError(
+                        "Service worker ping timed out"
+                    )
+                );
+            }, 2_000);
+
+            const onMessage = (event: MessageEvent) => {
+                if (event.data?.id === pingId && event.data?.tag === "PONG") {
+                    cleanup();
+                    resolve();
+                }
+            };
+
+            navigator.serviceWorker.addEventListener("message", onMessage);
+            this.serviceWorker.postMessage({
+                id: pingId,
+                tag: "PING",
+            });
+        }).finally(() => {
+            this.pingPromise = null;
+        });
+
+        return this.pingPromise;
+    }
+
+    // Send a message, retrying up to 2 times if the service worker was
+    // killed and restarted by the OS (mobile browsers do this aggressively).
+    private async sendMessageWithRetry(
+        request: ArkadeSwapsUpdaterRequest
+    ): Promise<ArkadeSwapsUpdaterResponse> {
+        // Skip the preflight ping during the initial INIT_ARKADE_SWAPS call:
+        // create() hasn't set initPayload yet, so reinitialize() would throw.
+        if (this.initPayload) {
+            try {
+                await this.pingServiceWorker();
+            } catch {
+                await this.reinitialize();
+            }
+        }
+
+        const maxRetries = 2;
+        for (let attempt = 0; ; attempt++) {
+            try {
+                return await this.sendMessageDirect(request);
+            } catch (error: any) {
+                if (
+                    !isMessageBusNotInitializedError(error) ||
+                    attempt >= maxRetries
+                ) {
+                    throw error;
+                }
+
+                await this.reinitialize();
+            }
+        }
+    }
+
+    private async reinitialize(): Promise<void> {
+        if (this.reinitPromise) return this.reinitPromise;
+
+        this.reinitPromise = (async () => {
+            if (!this.initPayload) {
+                throw new Error("Cannot re-initialize: missing configuration");
+            }
+
+            const initMessage: RequestInitArkSwaps = {
+                tag: this.messageTag,
+                type: "INIT_ARKADE_SWAPS",
+                id: getRandomId(),
+                payload: this.initPayload,
+            };
+
+            await this.sendMessageDirect(initMessage);
+        })().finally(() => {
+            this.reinitPromise = null;
+        });
+
+        return this.reinitPromise;
     }
 
     private initEventStream() {

@@ -52,7 +52,7 @@ export interface ArkToBtcResponse {
     /** Amount in satoshis to send to the lockup address. */
     amountToPay: number;
     /** The pending chain swap object for monitoring. */
-    pendingSwap: PendingChainSwap;
+    pendingSwap: BoltzChainSwap;
 }
 
 /** Response from creating a BTC → ARK chain swap. */
@@ -62,7 +62,7 @@ export interface BtcToArkResponse {
     /** Amount in satoshis to send to the lockup address. */
     amountToPay: number;
     /** The pending chain swap object for monitoring. */
-    pendingSwap: PendingChainSwap;
+    pendingSwap: BoltzChainSwap;
 }
 
 /** Request to create a Lightning invoice (reverse swap: Lightning → Arkade). */
@@ -84,7 +84,7 @@ export interface CreateLightningInvoiceResponse {
     /** The payment hash (hex-encoded). */
     paymentHash: string;
     /** The pending reverse swap for monitoring. */
-    pendingSwap: PendingReverseSwap;
+    pendingSwap: BoltzReverseSwap;
     /** The preimage (hex-encoded). Keep secret until claiming. */
     preimage: string;
 }
@@ -106,7 +106,7 @@ export interface SendLightningPaymentResponse {
 }
 
 /** Tracks an in-progress reverse swap (Lightning → Arkade). */
-export interface PendingReverseSwap {
+export interface BoltzReverseSwap {
     /** Unique swap ID from Boltz. */
     id: string;
     /** Discriminator — always "reverse". */
@@ -124,7 +124,7 @@ export interface PendingReverseSwap {
 }
 
 /** Tracks an in-progress submarine swap (Arkade → Lightning). */
-export interface PendingSubmarineSwap {
+export interface BoltzSubmarineSwap {
     /** Unique swap ID from Boltz. */
     id: string;
     /** Discriminator — always "submarine". */
@@ -148,7 +148,7 @@ export interface PendingSubmarineSwap {
 }
 
 /** Tracks an in-progress chain swap (ARK ↔ BTC). */
-export interface PendingChainSwap {
+export interface BoltzChainSwap {
     /** Unique swap ID from Boltz. */
     id: string;
     /** Discriminator — always "chain". */
@@ -174,6 +174,15 @@ export interface PendingChainSwap {
 }
 
 /** Union type of all pending swap types. */
+export type BoltzSwap =
+    | BoltzReverseSwap
+    | BoltzSubmarineSwap
+    | BoltzChainSwap;
+
+/** Pending- swap type aliases for backwards compatibility */
+export interface PendingReverseSwap extends BoltzReverseSwap {}
+export interface PendingSubmarineSwap extends BoltzSubmarineSwap {}
+export interface PendingChainSwap extends BoltzChainSwap {}
 export type PendingSwap =
     | PendingReverseSwap
     | PendingSubmarineSwap

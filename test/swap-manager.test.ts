@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SwapManager, SwapManagerConfig } from "../src/swap-manager";
 import { BoltzSwapProvider } from "../src/boltz-swap-provider";
 import {
-    PendingChainSwap,
-    PendingReverseSwap,
-    PendingSubmarineSwap,
+    BoltzChainSwap,
+    BoltzReverseSwap,
+    BoltzSubmarineSwap,
 } from "../src/types";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -18,7 +18,7 @@ describe("SwapManager", () => {
         enableAutoActions: true,
     };
 
-    const mockReverseSwap: PendingReverseSwap = {
+    const mockReverseSwap: BoltzReverseSwap = {
         id: "reverse-swap-1",
         type: "reverse",
         createdAt: Date.now() / 1000,
@@ -44,7 +44,7 @@ describe("SwapManager", () => {
         },
     };
 
-    const mockSubmarineSwap: PendingSubmarineSwap = {
+    const mockSubmarineSwap: BoltzSubmarineSwap = {
         id: "submarine-swap-1",
         type: "submarine",
         createdAt: Date.now() / 1000,
@@ -68,7 +68,7 @@ describe("SwapManager", () => {
         },
     };
 
-    const mockChainSwap: PendingChainSwap = {
+    const mockChainSwap: BoltzChainSwap = {
         id: "chain-swap-1",
         type: "chain",
         createdAt: Math.floor(Date.now() / 1000),
@@ -150,7 +150,10 @@ describe("SwapManager", () => {
         });
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        // Stop the manager to clean up any pending timers (e.g. the
+        // delayed initial poll) and prevent leaking into subsequent tests.
+        await swapManager?.stop();
         vi.clearAllMocks();
     });
 
@@ -420,7 +423,7 @@ describe("SwapManager", () => {
         });
 
         it("should filter out final status swaps on start", async () => {
-            const completedSwap: PendingReverseSwap = {
+            const completedSwap: BoltzReverseSwap = {
                 ...mockReverseSwap,
                 status: "invoice.settled",
             };
@@ -448,6 +451,11 @@ describe("SwapManager", () => {
             onSwapUpdate = vi.fn();
             onSwapCompleted = vi.fn();
             onActionExecuted = vi.fn();
+
+            // Reset mock swap statuses — tests may mutate them via
+            // handleSwapStatusUpdate (which sets swap.status in place).
+            mockReverseSwap.status = "swap.created";
+            mockSubmarineSwap.status = "swap.created";
 
             swapManager = new SwapManager(swapProvider, {
                 ...swapManagerConfig,
@@ -531,7 +539,7 @@ describe("SwapManager", () => {
         });
 
         it("should auto-refund submarine swap when refundable", async () => {
-            const refundableSwap: PendingSubmarineSwap = {
+            const refundableSwap: BoltzSubmarineSwap = {
                 ...mockSubmarineSwap,
                 status: "invoice.set",
             };
@@ -712,8 +720,9 @@ describe("SwapManager", () => {
                 mockWebSocket.onopen();
             }
 
-            // Give async operations time to complete (including initial poll)
-            await sleep(100);
+            // Initial poll is delayed 2s after WebSocket connect to avoid
+            // hitting Boltz rate limits during startup bursts.
+            await sleep(2100);
 
             expect(global.fetch).toHaveBeenCalled();
         });
@@ -1028,7 +1037,7 @@ describe("SwapManager", () => {
         });
 
         it("should skip claim for restored reverse swap without preimage", async () => {
-            const restoredReverseSwap: PendingReverseSwap = {
+            const restoredReverseSwap: BoltzReverseSwap = {
                 ...mockReverseSwap,
                 preimage: "", // Empty preimage indicates restored swap
                 status: "transaction.confirmed", // Claimable status
@@ -1047,7 +1056,7 @@ describe("SwapManager", () => {
         });
 
         it("should skip refund for restored submarine swap without invoice", async () => {
-            const restoredSubmarineSwap: PendingSubmarineSwap = {
+            const restoredSubmarineSwap: BoltzSubmarineSwap = {
                 ...mockSubmarineSwap,
                 request: {
                     ...mockSubmarineSwap.request,
@@ -1069,7 +1078,7 @@ describe("SwapManager", () => {
         });
 
         it("should claim reverse swap with valid preimage", async () => {
-            const validReverseSwap: PendingReverseSwap = {
+            const validReverseSwap: BoltzReverseSwap = {
                 ...mockReverseSwap,
                 preimage: "0".repeat(64), // Valid preimage
                 status: "transaction.confirmed", // Claimable status
@@ -1088,7 +1097,7 @@ describe("SwapManager", () => {
         });
 
         it("should refund submarine swap with valid invoice", async () => {
-            const validSubmarineSwap: PendingSubmarineSwap = {
+            const validSubmarineSwap: BoltzSubmarineSwap = {
                 ...mockSubmarineSwap,
                 request: {
                     ...mockSubmarineSwap.request,
@@ -1138,7 +1147,7 @@ describe("SwapManager", () => {
                 })
             );
 
-            const restoredReverseSwap: PendingReverseSwap = {
+            const restoredReverseSwap: BoltzReverseSwap = {
                 ...mockReverseSwap,
                 preimage: "", // Restored swap
                 status: "swap.created",

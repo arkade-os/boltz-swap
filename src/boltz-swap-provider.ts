@@ -6,10 +6,10 @@ import {
     FeesResponse,
     LimitsResponse,
     Network,
-    PendingChainSwap,
-    PendingReverseSwap,
-    PendingSubmarineSwap,
-    PendingSwap,
+    BoltzChainSwap,
+    BoltzReverseSwap,
+    BoltzSubmarineSwap,
+    BoltzSwap,
 } from "./types";
 import { base64 } from "@scure/base";
 
@@ -112,6 +112,7 @@ export const isReverseFinalStatus = (status: BoltzSwapStatus): boolean => {
         "transaction.refunded",
         "transaction.failed",
         "invoice.settled", // normal status for completed swaps
+        "invoice.expired",
         "swap.expired",
     ].includes(status);
 };
@@ -185,31 +186,31 @@ export const isChainSuccessStatus = (status: BoltzSwapStatus): boolean => {
     return status === "transaction.claimed";
 };
 
-/** Type guard: narrows PendingSwap to PendingReverseSwap. */
+/** Type guard: narrows BoltzSwap to BoltzReverseSwap. */
 export const isPendingReverseSwap = (
-    swap: PendingSwap
-): swap is PendingReverseSwap => {
+    swap: BoltzSwap
+): swap is BoltzReverseSwap => {
     return swap.type === "reverse";
 };
 
-/** Type guard: narrows PendingSwap to PendingSubmarineSwap. */
+/** Type guard: narrows BoltzSwap to BoltzSubmarineSwap. */
 export const isPendingSubmarineSwap = (
-    swap: PendingSwap
-): swap is PendingSubmarineSwap => {
+    swap: BoltzSwap
+): swap is BoltzSubmarineSwap => {
     return swap.type === "submarine";
 };
 
-/** Type guard: narrows PendingSwap to PendingChainSwap. */
+/** Type guard: narrows BoltzSwap to BoltzChainSwap. */
 export const isPendingChainSwap = (
-    swap: PendingSwap
-): swap is PendingChainSwap => {
+    swap: BoltzSwap
+): swap is BoltzChainSwap => {
     return swap.type === "chain";
 };
 
 /** Type guard: checks if swap is a refundable submarine swap (failed + not yet refunded). */
 export const isSubmarineSwapRefundable = (
-    swap: PendingSwap
-): swap is PendingSubmarineSwap => {
+    swap: BoltzSwap
+): swap is BoltzSubmarineSwap => {
     return (
         isSubmarineRefundableStatus(swap.status) &&
         isPendingSubmarineSwap(swap) &&
@@ -220,8 +221,8 @@ export const isSubmarineSwapRefundable = (
 
 /** Type guard: checks if swap is a refundable chain swap (expired ARK → BTC). */
 export const isChainSwapRefundable = (
-    swap: PendingSwap
-): swap is PendingChainSwap => {
+    swap: BoltzSwap
+): swap is BoltzChainSwap => {
     return (
         isChainRefundableStatus(swap.status) &&
         isPendingChainSwap(swap) &&
@@ -231,15 +232,15 @@ export const isChainSwapRefundable = (
 
 /** Type guard: checks if swap is a claimable reverse swap. */
 export const isReverseSwapClaimable = (
-    swap: PendingSwap
-): swap is PendingReverseSwap => {
+    swap: BoltzSwap
+): swap is BoltzReverseSwap => {
     return isReverseClaimableStatus(swap.status) && isPendingReverseSwap(swap);
 };
 
 /** Type guard: checks if swap is a claimable chain swap. */
 export const isChainSwapClaimable = (
-    swap: PendingSwap
-): swap is PendingChainSwap => {
+    swap: BoltzSwap
+): swap is BoltzChainSwap => {
     return isChainClaimableStatus(swap.status) && isPendingChainSwap(swap);
 };
 
@@ -913,6 +914,7 @@ export type RestoredSubmarineSwap = {
     preimageHash: string;
     status: BoltzSwapStatus;
     refundDetails: Details;
+    invoice?: string;
 };
 
 export const isRestoredSubmarineSwap = (
@@ -928,7 +930,8 @@ export const isRestoredSubmarineSwap = (
         typeof data.createdAt === "number" &&
         typeof data.preimageHash === "string" &&
         typeof data.status === "string" &&
-        isDetails(data.refundDetails)
+        isDetails(data.refundDetails) &&
+        (data.invoice === undefined || typeof data.invoice === "string")
     );
 };
 
@@ -941,6 +944,7 @@ export type RestoredReverseSwap = {
     preimageHash: string;
     status: BoltzSwapStatus;
     claimDetails: Details;
+    invoice?: string;
 };
 
 export const isRestoredReverseSwap = (
@@ -956,7 +960,8 @@ export const isRestoredReverseSwap = (
         typeof data.createdAt === "number" &&
         typeof data.preimageHash === "string" &&
         typeof data.status === "string" &&
-        isDetails(data.claimDetails)
+        isDetails(data.claimDetails) &&
+        (data.invoice === undefined || typeof data.invoice === "string")
     );
 };
 
@@ -1000,6 +1005,7 @@ export class BoltzSwapProvider {
     private readonly apiUrl: string;
     private readonly network: Network;
     private readonly referralId?: string;
+    private readonly inflightGets = new Map<string, Promise<unknown>>();
 
     /** @param config Provider configuration with network and optional API URL. */
     constructor(config: SwapProviderConfig) {
@@ -1560,6 +1566,26 @@ export class BoltzSwapProvider {
     }
 
     private async request<T>(
+        path: string,
+        method: "GET" | "POST",
+        body?: unknown
+    ): Promise<T> {
+        // Deduplicate concurrent GET requests to the same path so that
+        // callers like getFees() + getLimits() (which both hit
+        // /v2/swap/submarine) share a single in-flight fetch.
+        if (method === "GET") {
+            const inflight = this.inflightGets.get(path);
+            if (inflight) return inflight as Promise<T>;
+            const p = this.doRequest<T>(path, method).finally(() => {
+                this.inflightGets.delete(path);
+            });
+            this.inflightGets.set(path, p);
+            return p;
+        }
+        return this.doRequest<T>(path, method, body);
+    }
+
+    private async doRequest<T>(
         path: string,
         method: "GET" | "POST",
         body?: unknown

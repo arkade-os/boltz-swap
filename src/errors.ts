@@ -1,4 +1,4 @@
-import type { PendingSwap } from "./types";
+import type { BoltzSwap } from "./types";
 
 /** Options for constructing swap errors. */
 interface ErrorOptions {
@@ -9,7 +9,7 @@ interface ErrorOptions {
     /** Whether the swap's funds can be refunded. */
     isRefundable?: boolean;
     /** The associated pending swap, if available. */
-    pendingSwap?: PendingSwap;
+    pendingSwap?: BoltzSwap;
 }
 
 /**
@@ -22,7 +22,7 @@ export class SwapError extends Error {
     /** Whether the swap can be refunded (default: false). */
     public isRefundable: boolean;
     /** The pending swap associated with this error, if available. */
-    public pendingSwap?: PendingSwap;
+    public pendingSwap?: BoltzSwap;
 
     constructor(options: ErrorOptions = {}) {
         super(options.message ?? "Error during swap.");
@@ -130,4 +130,13 @@ export class TransactionRefundedError extends SwapError {
         super({ message: "The transaction has been refunded.", ...options });
         this.name = "TransactionRefundedError";
     }
+}
+
+/** Returns true if the error is a Boltz 400 "transaction is not for this swap". */
+export function isVtxoMismatchError(error: unknown): boolean {
+    return (
+        error instanceof NetworkError &&
+        error.statusCode === 400 &&
+        error.errorData?.error === "transaction is not for this swap"
+    );
 }
