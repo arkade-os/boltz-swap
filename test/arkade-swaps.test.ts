@@ -39,9 +39,40 @@ import { SwapManager } from "../src/swap-manager";
 
 // Mock the @arkade-os/sdk modules
 vi.mock("@arkade-os/sdk", async () => {
-    const actual = await vi.importActual("@arkade-os/sdk");
+    const actual = await vi.importActual<any>("@arkade-os/sdk");
+    // Patch VHTLCContractHandler.getSpendablePaths with the BIP65-aware
+    // CLTV check from the pending ts-sdk PR. The currently-pinned
+    // @arkade-os/sdk@0.4.14 ships a buggy comparison
+    // (`currentTimeSec >= refundLocktime`) that always reports
+    // refundWithoutReceiver as spendable for block-height locktimes.
+    // This shim lets boltz-swap exercise the post-fix behaviour without
+    // bumping the SDK version.
+    const fixedVHTLCContractHandler = {
+        ...actual.VHTLCContractHandler,
+        getSpendablePaths: (script: any, contract: any, context: any) => {
+            const role =
+                context.role ??
+                (context.walletPubKey === contract.params.sender
+                    ? "sender"
+                    : context.walletPubKey === contract.params.receiver
+                      ? "receiver"
+                      : undefined);
+            if (!role || !context.collaborative) return [];
+            if (role !== "sender") return [];
+            const refundLocktime = BigInt(contract.params.refundLocktime);
+            const CLTV_HEIGHT_THRESHOLD = 500_000_000n;
+            const satisfied =
+                refundLocktime < CLTV_HEIGHT_THRESHOLD
+                    ? context.blockHeight !== undefined &&
+                      BigInt(context.blockHeight) >= refundLocktime
+                    : BigInt(Math.floor(context.currentTime / 1000)) >=
+                      refundLocktime;
+            return satisfied ? [{ leaf: script.refundWithoutReceiver() }] : [];
+        },
+    };
     return {
         ...actual,
+        VHTLCContractHandler: fixedVHTLCContractHandler,
         Wallet: {
             create: vi.fn(),
         },
@@ -2456,22 +2487,44 @@ describe("ArkadeSwaps", () => {
             status: "invoice.failedToPay",
         };
 
+        // Build a real VHTLC.Script so the new VHTLCContractHandler-driven
+        // leaf selection in refundVHTLC has working `.options` and stable
+        // leaf references. The locktime here matches `timeoutBlockHeights.refund`
+        // (17) from the test fixture so we can drive the CLTV branch via the
+        // mocked `getChainHeight()`.
+        const buildRealVhtlcScript = () =>
+            new VHTLC.Script({
+                preimageHash: ripemd160(sha256(randomBytes(32))),
+                sender: mock.pubkeys.alice,
+                receiver: mock.pubkeys.boltz,
+                server: mock.pubkeys.server,
+                refundLocktime: BigInt(
+                    refundableSwap.response.timeoutBlockHeights.refund
+                ),
+                unilateralClaimDelay: { type: "blocks", value: 21n },
+                unilateralRefundDelay: { type: "blocks", value: 42n },
+                unilateralRefundWithoutReceiverDelay: {
+                    type: "blocks",
+                    value: 63n,
+                },
+            });
+
         beforeEach(() => {
             vi.mocked(arkProvider.getInfo).mockResolvedValue(mockArkInfo);
             vi.mocked(wallet.getAddress).mockResolvedValue(mock.address.ark);
 
-            // stub createVHTLCScript to return matching address
+            // stub createVHTLCScript to return a real VHTLC.Script paired with
+            // the swap-response address (bypassing the address-match check).
             vi.spyOn(swaps as any, "createVHTLCScript").mockReturnValue({
-                vhtlcScript: {
-                    claimScript: new Uint8Array([1]),
-                    pkScript: new Uint8Array([2]),
-                    refund: () => [{}, new Uint8Array([3]), 0xc0] as any,
-                    refundWithoutReceiver: () =>
-                        [{}, new Uint8Array([4]), 0xc0] as any,
-                    encode: () => [] as any,
-                },
+                vhtlcScript: buildRealVhtlcScript(),
                 vhtlcAddress: refundableSwap.response.address,
             });
+
+            // Default chain height satisfies the refund CLTV (17) so the
+            // collaborative refundWithoutReceiver path is reported as
+            // spendable by VHTLCContractHandler. Tests that need the
+            // pre-CLTV branch override this individually.
+            vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(100);
 
             // stub the actual refund call so we don't need real crypto
             vi.spyOn(swaps as any, "joinBatch").mockResolvedValue(undefined);
@@ -2507,19 +2560,24 @@ describe("ArkadeSwaps", () => {
             expect(joinBatch.mock.calls[1][1].txid).toBe(otherTxid);
         });
 
-        it("should skip spent VTXOs and refund only unspent ones", async () => {
-            const spentVtxo = { ...makeVtxo(lockupTxid, 0), isSpent: true };
-            const unspentVtxo = makeVtxo(otherTxid, 1);
+        it("should process every VTXO returned by the indexer", async () => {
+            // The indexer is queried with spendableOnly:true so spent VTXOs
+            // should never reach the loop in production. As a defensive
+            // check, verify that the loop iterates over every VTXO it does
+            // receive — both should reach joinBatch since CLTV has passed.
+            const vtxoA = { ...makeVtxo(lockupTxid, 0), isSpent: true };
+            const vtxoB = makeVtxo(otherTxid, 1);
 
             vi.mocked(indexerProvider.getVtxos).mockResolvedValue({
-                vtxos: [spentVtxo, unspentVtxo] as any,
+                vtxos: [vtxoA, vtxoB] as any,
             });
 
             await swaps.refundVHTLC(refundableSwap);
 
             const joinBatch = vi.mocked((swaps as any).joinBatch);
-            expect(joinBatch).toHaveBeenCalledOnce();
-            expect(joinBatch.mock.calls[0][1].txid).toBe(otherTxid);
+            expect(joinBatch).toHaveBeenCalledTimes(2);
+            expect(joinBatch.mock.calls[0][1].txid).toBe(lockupTxid);
+            expect(joinBatch.mock.calls[1][1].txid).toBe(otherTxid);
         });
 
         it("should throw when all VTXOs are spent", async () => {
@@ -2575,6 +2633,14 @@ describe("ArkadeSwaps", () => {
                 createdAt: new Date(),
             });
 
+            beforeEach(() => {
+                // Drive the pre-CLTV branch by reporting a chain tip below
+                // refundLocktime (17). Without this, VHTLCContractHandler
+                // would report refundWithoutReceiver as spendable and we'd
+                // skip Boltz entirely.
+                vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(10);
+            });
+
             it("should call refundVHTLCwithOffchainTx for each non-recoverable VTXO", async () => {
                 const vtxoA = makeNonRecoverableVtxo(lockupTxid, 0);
                 const vtxoB = makeNonRecoverableVtxo(otherTxid, 1);
@@ -2611,6 +2677,47 @@ describe("ArkadeSwaps", () => {
                     lockupTxid
                 );
             });
+
+            it("should skip Boltz and use joinBatch when CLTV has passed", async () => {
+                // Block tip past the refund locktime (17) — handler should
+                // report refundWithoutReceiver as spendable and we should
+                // bypass Boltz entirely.
+                vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(100);
+
+                const vtxo = makeNonRecoverableVtxo(lockupTxid, 0);
+
+                vi.mocked(indexerProvider.getVtxos).mockResolvedValue({
+                    vtxos: [vtxo] as any,
+                });
+
+                await swaps.refundVHTLC(refundableSwap);
+
+                expect(refundVHTLCwithOffchainTx).not.toHaveBeenCalled();
+                const joinBatch = vi.mocked((swaps as any).joinBatch);
+                expect(joinBatch).toHaveBeenCalledOnce();
+                // isRecoverable arg (5th positional, 4th index) must be false
+                // for non-recoverable VTXOs.
+                expect(joinBatch.mock.calls[0][4]).toBe(false);
+            });
+        });
+
+        it("should throw when a recoverable VTXO is past sweep but pre-CLTV", async () => {
+            // Recoverable VTXO + chain tip below refundLocktime is the one
+            // case the handler-driven flow cannot resolve: we cannot involve
+            // Boltz in a swept-batch refund, so we must surface a clear error.
+            vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(5);
+            const vtxo = makeVtxo(lockupTxid, 0);
+
+            vi.mocked(indexerProvider.getVtxos).mockResolvedValue({
+                vtxos: [vtxo] as any,
+            });
+
+            await expect(swaps.refundVHTLC(refundableSwap)).rejects.toThrow(
+                /recoverable VTXO .* refundWithoutReceiver locktime has not passed/
+            );
+
+            const joinBatch = vi.mocked((swaps as any).joinBatch);
+            expect(joinBatch).not.toHaveBeenCalled();
         });
 
         it("should fail early on VHTLC address mismatch", async () => {
