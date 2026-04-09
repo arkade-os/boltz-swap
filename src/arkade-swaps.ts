@@ -6,6 +6,7 @@ import {
     TransactionFailedError,
     TransactionLockupFailedError,
     TransactionRefundedError,
+    BoltzRefundError,
 } from "./errors";
 import {
     ArkAddress,
@@ -13,10 +14,12 @@ import {
     IndexerProvider,
     IWallet,
     VHTLC,
+    VHTLCContractHandler,
     ArkInfo,
     isRecoverable,
     ArkTxInput,
     Identity,
+    type Contract,
 } from "@arkade-os/sdk";
 import type {
     Chain,
@@ -76,7 +79,6 @@ import {
 } from "./utils/restoration";
 import { SwapManager, SwapManagerClient } from "./swap-manager";
 import {
-    saveSwap,
     updateReverseSwapStatus,
     updateSubmarineSwapStatus,
     enrichReverseSwapPreimage,
@@ -222,12 +224,13 @@ export class ArkadeSwaps {
                     await this.signCooperativeClaimForServer(swap);
                 },
                 saveSwap: async (swap: BoltzSwap) => {
-                    await saveSwap(swap, {
-                        saveReverseSwap: this.savePendingReverseSwap.bind(this),
-                        saveSubmarineSwap:
-                            this.savePendingSubmarineSwap.bind(this),
-                        saveChainSwap: this.savePendingChainSwap.bind(this),
-                    });
+                    // Atomic merge-and-save: the repository reads the
+                    // current DB row, merges incoming fields on top, and
+                    // writes back in a single transaction. This prevents
+                    // the TOCTOU race where a concurrent writer
+                    // (e.g. waitForSwapSettlement setting preimage) could
+                    // be overwritten between a separate read and save.
+                    await this.swapRepository.mergeAndSaveSwap(swap);
                 },
             });
 
@@ -671,6 +674,21 @@ export class ArkadeSwaps {
             amount: pendingSwap.response.expectedAmount,
         });
 
+        // persist lockup txid so refunds can match the correct outpoint
+        pendingSwap.lockupTxid = txid;
+        try {
+            await this.savePendingSubmarineSwap(pendingSwap);
+        } catch (persistError) {
+            // Log but do NOT throw — funds are already sent, so we must
+            // continue to the settlement/refund loop below.  Losing the
+            // persisted lockupTxid is recoverable; losing the refund path
+            // is not.
+            logger.error(
+                `[sendLightningPayment] Failed to persist lockup txid for swap ${pendingSwap.id}:`,
+                persistError
+            );
+        }
+
         try {
             const { preimage } = await this.waitForSwapSettlement(pendingSwap);
             return {
@@ -823,34 +841,104 @@ export class ArkadeSwaps {
 
         const outputScript = ArkAddress.decode(address).pkScript;
 
+        // Build a Contract once so we can ask VHTLCContractHandler which leaves
+        // are currently spendable for our sender role on each VTXO. The handler
+        // is the source of truth for the CLTV check on the refundWithoutReceiver
+        // leaf — we no longer compare block heights inline.
+        const contract: Contract = {
+            type: "vhtlc",
+            params: VHTLCContractHandler.serializeParams({
+                sender: vhtlcScript.options.sender,
+                receiver: vhtlcScript.options.receiver,
+                server: vhtlcScript.options.server,
+                preimageHash: vhtlcScript.options.preimageHash,
+                refundLocktime: vhtlcScript.options.refundLocktime,
+                unilateralClaimDelay: vhtlcScript.options.unilateralClaimDelay,
+                unilateralRefundDelay:
+                    vhtlcScript.options.unilateralRefundDelay,
+                unilateralRefundWithoutReceiverDelay:
+                    vhtlcScript.options.unilateralRefundWithoutReceiverDelay,
+            }),
+            script: vhtlcPkScriptHex,
+            address: vhtlcAddress,
+            state: "active",
+            createdAt: Date.now(),
+        };
+        const refundWithoutReceiverLeaf = vhtlcScript.refundWithoutReceiver();
+
+        // Returns true when the handler reports the collaborative
+        // refundWithoutReceiver path (sender + server, post-CLTV) as spendable
+        // for the given VTXO at the given block height.
+        const isRefundWithoutReceiverSpendable = (
+            vtxo: (typeof spendableVtxos)[number],
+            blockHeight: number
+        ): boolean => {
+            const paths = VHTLCContractHandler.getSpendablePaths(
+                vhtlcScript,
+                contract,
+                {
+                    collaborative: true,
+                    currentTime: Date.now(),
+                    blockHeight,
+                    role: "sender",
+                    vtxo,
+                }
+            );
+            return paths.some((p) => p.leaf === refundWithoutReceiverLeaf);
+        };
+
         // Refund every unspent VTXO at the contract address.
         // Throttle between Boltz API calls to avoid 429 rate-limiting.
         let boltzCallCount = 0;
+        const currentBlockHeight = await this.swapProvider.getChainHeight();
 
         for (const vtxo of spendableVtxos) {
             const isRecoverableVtxo = isRecoverable(vtxo);
-
-            const input = {
-                ...vtxo,
-                tapLeafScript: isRecoverableVtxo
-                    ? vhtlcScript.refundWithoutReceiver()
-                    : vhtlcScript.refund(),
-                tapTree: vhtlcScript.encode(),
-            };
 
             const output = {
                 amount: BigInt(vtxo.value),
                 script: outputScript,
             };
 
-            if (isRecoverableVtxo) {
+            // Prefer the sender + server collaborative path (no Boltz call
+            // required) whenever the handler reports it as spendable. This
+            // works identically for recoverable and non-recoverable VTXOs.
+            if (isRefundWithoutReceiverSpendable(vtxo, currentBlockHeight)) {
+                const input = {
+                    ...vtxo,
+                    tapLeafScript: refundWithoutReceiverLeaf,
+                    tapTree: vhtlcScript.encode(),
+                };
                 await this.joinBatch(
                     this.wallet.identity,
                     input,
                     output,
-                    arkInfo
+                    arkInfo,
+                    isRecoverableVtxo
                 );
-            } else {
+                continue;
+            }
+
+            // Locktime hasn't passed yet. Recoverable VTXOs are stuck because
+            // we cannot involve Boltz in a swept-batch refund — the user must
+            // retry after the locktime.
+            if (isRecoverableVtxo) {
+                throw new Error(
+                    `Swap ${pendingSwap.id}: recoverable VTXO ${vtxo.txid}:${vtxo.vout} ` +
+                        `is past sweep but refundWithoutReceiver locktime has not passed ` +
+                        `(refundLocktime=${pendingSwap.response.timeoutBlockHeights.refund}, ` +
+                        `currentBlockHeight=${currentBlockHeight}). Refund will be retried after locktime.`
+                );
+            }
+
+            // Active VTXO before CLTV: try the 3-of-3 refund leaf through
+            // Boltz (the only path available pre-locktime).
+            const input = {
+                ...vtxo,
+                tapLeafScript: vhtlcScript.refund(),
+                tapTree: vhtlcScript.encode(),
+            };
+            try {
                 if (boltzCallCount > 0) {
                     await new Promise((r) => setTimeout(r, 2000));
                 }
@@ -869,6 +957,44 @@ export class ArkadeSwaps {
                     )
                 );
                 boltzCallCount++;
+            } catch (error) {
+                // Only fall back for Boltz-side rejections (e.g. outpoint
+                // mismatch after an Ark round). Re-throw any other error
+                // (local signing, Ark submitTx, etc.).
+                if (!(error instanceof BoltzRefundError)) {
+                    throw error;
+                }
+
+                // The block tip may have advanced while we were talking to
+                // Boltz; re-ask the handler whether refundWithoutReceiver is
+                // now spendable.
+                const tipNow = await this.swapProvider.getChainHeight();
+                if (!isRefundWithoutReceiverSpendable(vtxo, tipNow)) {
+                    throw new Error(
+                        `Swap ${pendingSwap.id}: Boltz rejected VTXO outpoint and ` +
+                            `refundWithoutReceiver locktime has not passed yet ` +
+                            `(currentBlockHeight=${tipNow}, ` +
+                            `locktime=${pendingSwap.response.timeoutBlockHeights.refund}). ` +
+                            `Refund will be retried after locktime.`
+                    );
+                }
+
+                logger.warn(
+                    `Swap ${pendingSwap.id}: Boltz rejected VTXO outpoint, ` +
+                        `falling back to refundWithoutReceiver via joinBatch`
+                );
+                const fallbackInput = {
+                    ...vtxo,
+                    tapLeafScript: refundWithoutReceiverLeaf,
+                    tapTree: vhtlcScript.encode(),
+                };
+                await this.joinBatch(
+                    this.wallet.identity,
+                    fallbackInput,
+                    output,
+                    arkInfo,
+                    false
+                );
             }
         }
 
@@ -2145,8 +2271,13 @@ export class ArkadeSwaps {
                     preimage: "",
                 } as BoltzReverseSwap);
             } else if (isRestoredSubmarineSwap(swap)) {
-                const { amount, lockupAddress, serverPublicKey, tree } =
-                    swap.refundDetails;
+                const {
+                    amount,
+                    lockupAddress,
+                    serverPublicKey,
+                    tree,
+                    transaction,
+                } = swap.refundDetails;
 
                 let preimage = "";
                 // Skip preimage fetch for terminal swaps — nothing actionable
@@ -2197,6 +2328,10 @@ export class ArkadeSwaps {
                                 ),
                         },
                     },
+                    ...(transaction && {
+                        lockupTxid: transaction.id,
+                        lockupVout: transaction.vout,
+                    }),
                 } as BoltzSubmarineSwap);
             } else if (isRestoredChainSwap(swap)) {
                 const {
