@@ -7,7 +7,7 @@ export class InMemorySwapRepository implements SwapRepository {
         this.swaps.set(swap.id, swap);
     }
 
-    async mergeAndSaveSwap<T extends PendingSwap>(swap: T): Promise<void> {
+    async mergeAndSaveSwap<T extends BoltzSwap>(swap: T): Promise<void> {
         const existing = this.swaps.get(swap.id);
         const merged = existing ? { ...existing, ...swap } : swap;
         this.swaps.set(swap.id, merged);
