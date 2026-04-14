@@ -40,39 +40,8 @@ import { SwapManager } from "../src/swap-manager";
 // Mock the @arkade-os/sdk modules
 vi.mock("@arkade-os/sdk", async () => {
     const actual = await vi.importActual<any>("@arkade-os/sdk");
-    // Patch VHTLCContractHandler.getSpendablePaths with the BIP65-aware
-    // CLTV check from the pending ts-sdk PR. The currently-pinned
-    // @arkade-os/sdk@0.4.14 ships a buggy comparison
-    // (`currentTimeSec >= refundLocktime`) that always reports
-    // refundWithoutReceiver as spendable for block-height locktimes.
-    // This shim lets boltz-swap exercise the post-fix behaviour without
-    // bumping the SDK version.
-    const fixedVHTLCContractHandler = {
-        ...actual.VHTLCContractHandler,
-        getSpendablePaths: (script: any, contract: any, context: any) => {
-            const role =
-                context.role ??
-                (context.walletPubKey === contract.params.sender
-                    ? "sender"
-                    : context.walletPubKey === contract.params.receiver
-                      ? "receiver"
-                      : undefined);
-            if (!role || !context.collaborative) return [];
-            if (role !== "sender") return [];
-            const refundLocktime = BigInt(contract.params.refundLocktime);
-            const CLTV_HEIGHT_THRESHOLD = 500_000_000n;
-            const satisfied =
-                refundLocktime < CLTV_HEIGHT_THRESHOLD
-                    ? context.blockHeight !== undefined &&
-                      BigInt(context.blockHeight) >= refundLocktime
-                    : BigInt(Math.floor(context.currentTime / 1000)) >=
-                      refundLocktime;
-            return satisfied ? [{ leaf: script.refundWithoutReceiver() }] : [];
-        },
-    };
     return {
         ...actual,
-        VHTLCContractHandler: fixedVHTLCContractHandler,
         Wallet: {
             create: vi.fn(),
         },

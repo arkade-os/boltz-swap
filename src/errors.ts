@@ -147,31 +147,3 @@ export class BoltzRefundError extends Error {
         this.name = "BoltzRefundError";
     }
 }
-
-/**
- * Thrown when persisting a pending swap fails after funds have already been sent.
- * Callers can inspect {@link txid} and {@link pendingSwap} to recover.
- */
-export class PendingSwapPersistError extends Error {
-    public readonly txid: string;
-    public readonly pendingSwap: BoltzSwap;
-
-    constructor(txid: string, pendingSwap: BoltzSwap, cause?: unknown) {
-        super(
-            `Failed to persist pending swap ${pendingSwap.id} after lockup tx ${txid}`
-        );
-        this.name = "PendingSwapPersistError";
-        this.txid = txid;
-        this.pendingSwap = pendingSwap;
-        this.cause = cause;
-    }
-}
-
-/** Returns true if the error is a Boltz 400 "transaction is not for this swap". */
-export function isVtxoMismatchError(error: unknown): boolean {
-    return (
-        error instanceof NetworkError &&
-        error.statusCode === 400 &&
-        error.errorData?.error === "transaction is not for this swap"
-    );
-}
