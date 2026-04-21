@@ -760,6 +760,119 @@ describe("ArkadeSwaps", () => {
                     /VHTLC address mismatch. Expected/
                 );
             });
+
+            it("should throw error when no spendable VTXOs found after 3 attempts", async () => {
+                vi.useFakeTimers();
+                try {
+                    // arrange
+                    const pendingSwap: BoltzReverseSwap = {
+                        id: mock.id,
+                        type: "reverse",
+                        createdAt: Date.now(),
+                        preimage: hex.encode(preimage),
+                        request: createReverseSwapRequest,
+                        response: {
+                            ...createReverseSwapResponse,
+                            lockupAddress: mockVHTLC.vhtlcAddress,
+                        },
+                        status: "swap.created",
+                    };
+                    vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                        mockArkInfo
+                    );
+                    vi.spyOn(swaps, "createVHTLCScript").mockReturnValueOnce(
+                        mockVHTLC
+                    );
+                    vi.spyOn(indexerProvider, "getVtxos").mockResolvedValue({
+                        vtxos: [],
+                    });
+
+                    const promise = swaps.claimVHTLC(pendingSwap);
+                    // attach a no-op handler so the rejection isn't flagged as
+                    // unhandled while the fake timers are advancing
+                    promise.catch(() => {});
+
+                    await vi.advanceTimersByTimeAsync(1000); // fail + 500ms + fails + 500ms + fails and throws
+
+                    // act & assert
+                    await expect(promise).rejects.toThrow(
+                        `Swap ${mock.id}: no spendable virtual coins found`
+                    );
+                } finally {
+                    vi.useRealTimers();
+                }
+            });
+
+            it("should retry getVtxos and succeed when a VTXO appears on a later attempt", async () => {
+                vi.useFakeTimers();
+                try {
+                    // arrange
+                    const pendingSwap: BoltzReverseSwap = {
+                        id: mock.id,
+                        type: "reverse",
+                        createdAt: Date.now(),
+                        preimage: hex.encode(preimage),
+                        request: createReverseSwapRequest,
+                        response: {
+                            ...createReverseSwapResponse,
+                            lockupAddress: mockVHTLC.vhtlcAddress,
+                        },
+                        status: "swap.created",
+                    };
+                    vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                        mockArkInfo
+                    );
+                    vi.spyOn(swaps, "createVHTLCScript").mockReturnValueOnce(
+                        mockVHTLC
+                    );
+                    vi.mocked(wallet.getAddress).mockResolvedValue(
+                        mock.address.ark
+                    );
+
+                    // recoverable VTXO — takes the joinBatch path
+                    const vtxo = {
+                        txid: hex.encode(randomBytes(32)),
+                        vout: 0,
+                        value: mock.amount,
+                        status: {
+                            confirmed: true,
+                            blockHeight: 100,
+                            blockHash: "abc",
+                        },
+                        virtualStatus: { state: "swept" as const },
+                        isSpent: false,
+                        isUnrolled: false,
+                        createdAt: new Date(),
+                    };
+                    vi.spyOn(indexerProvider, "getVtxos")
+                        .mockResolvedValueOnce({ vtxos: [] })
+                        .mockResolvedValueOnce({ vtxos: [vtxo] as any });
+
+                    const joinBatchSpy = vi
+                        .spyOn(swaps as any, "joinBatch")
+                        .mockResolvedValue(undefined);
+
+                    // act
+                    const promise = swaps.claimVHTLC(pendingSwap);
+                    promise.catch(() => {});
+
+                    // first getVtxos returns empty → wait 500ms → second returns VTXO
+                    await vi.advanceTimersByTimeAsync(500);
+
+                    // assert
+                    await expect(promise).resolves.toBeUndefined();
+                    expect(indexerProvider.getVtxos).toHaveBeenCalledTimes(2);
+                    expect(joinBatchSpy).toHaveBeenCalledOnce();
+                    expect(mockSwapRepository.saveSwap).toHaveBeenCalledWith(
+                        expect.objectContaining({
+                            id: mock.id,
+                            status: "transaction.claimed",
+                        })
+                    );
+                } finally {
+                    vi.useRealTimers();
+                }
+            });
         });
 
         describe("waitAndClaim", () => {
@@ -1420,26 +1533,107 @@ describe("ArkadeSwaps", () => {
                 );
             });
 
-            it("should throw error when no spendable VTXOs found", async () => {
-                // arrange
-                const pendingSwap: BoltzChainSwap = {
-                    ...mockBtcArkChainSwap,
-                    preimage: hex.encode(mockPreimage),
-                };
-                vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
-                    mockArkInfo
-                );
-                vi.spyOn(swaps, "createVHTLCScript").mockReturnValueOnce(
-                    mockBtcArkVHTLC
-                );
-                vi.spyOn(indexerProvider, "getVtxos").mockResolvedValueOnce({
-                    vtxos: [],
-                });
+            it("should throw error when no spendable VTXOs found after 3 attempts", async () => {
+                vi.useFakeTimers();
+                try {
+                    // arrange
+                    const pendingSwap: BoltzChainSwap = {
+                        ...mockBtcArkChainSwap,
+                        preimage: hex.encode(mockPreimage),
+                    };
+                    vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                        mockArkInfo
+                    );
+                    vi.spyOn(swaps, "createVHTLCScript").mockReturnValueOnce(
+                        mockBtcArkVHTLC
+                    );
+                    vi.spyOn(indexerProvider, "getVtxos").mockResolvedValue({
+                        vtxos: [],
+                    });
 
-                // act & assert
-                await expect(swaps.claimArk(pendingSwap)).rejects.toThrow(
-                    `Swap ${mockBtcArkChainSwap.id}: no spendable virtual coins found`
-                );
+                    const promise = swaps.claimArk(pendingSwap);
+                    // attach a no-op handler so the rejection isn't flagged as
+                    // unhandled while the fake timers are advancing
+                    promise.catch(() => {});
+
+                    await vi.advanceTimersByTimeAsync(1000); // fail + 500ms + fails + 500ms + fails and throws
+
+                    // act & assert
+                    await expect(promise).rejects.toThrow(
+                        `Swap ${mockBtcArkChainSwap.id}: no spendable virtual coins found`
+                    );
+                } finally {
+                    vi.useRealTimers();
+                }
+            });
+
+            it("should retry getVtxos and succeed when a VTXO appears on a later attempt", async () => {
+                vi.useFakeTimers();
+                try {
+                    // arrange
+                    const pendingSwap: BoltzChainSwap = {
+                        ...mockBtcArkChainSwap,
+                        preimage: hex.encode(mockPreimage),
+                    };
+                    vi.spyOn(arkProvider, "getInfo").mockResolvedValueOnce(
+                        mockArkInfo
+                    );
+                    vi.spyOn(swaps, "createVHTLCScript").mockReturnValueOnce(
+                        mockBtcArkVHTLC
+                    );
+                    vi.mocked(wallet.getAddress).mockResolvedValue(
+                        mock.address.ark
+                    );
+
+                    // recoverable VTXO — takes the joinBatch path
+                    const vtxo = {
+                        txid: hex.encode(randomBytes(32)),
+                        vout: 0,
+                        value: mock.amount,
+                        status: {
+                            confirmed: true,
+                            blockHeight: 100,
+                            blockHash: "abc",
+                        },
+                        virtualStatus: { state: "swept" as const },
+                        isSpent: false,
+                        isUnrolled: false,
+                        createdAt: new Date(),
+                    };
+                    vi.spyOn(indexerProvider, "getVtxos")
+                        .mockResolvedValueOnce({ vtxos: [] })
+                        .mockResolvedValueOnce({ vtxos: [vtxo] as any });
+
+                    const joinBatchSpy = vi
+                        .spyOn(swaps as any, "joinBatch")
+                        .mockResolvedValue(undefined);
+                    vi.spyOn(
+                        swapProvider,
+                        "getSwapStatus"
+                    ).mockResolvedValueOnce({
+                        status: "transaction.claimed",
+                    });
+
+                    // act
+                    const promise = swaps.claimArk(pendingSwap);
+                    promise.catch(() => {});
+
+                    // first getVtxos returns empty → wait 500ms → second returns VTXO
+                    await vi.advanceTimersByTimeAsync(500);
+
+                    // assert
+                    await expect(promise).resolves.toBeUndefined();
+                    expect(indexerProvider.getVtxos).toHaveBeenCalledTimes(2);
+                    expect(joinBatchSpy).toHaveBeenCalledOnce();
+                    expect(mockSwapRepository.saveSwap).toHaveBeenCalledWith(
+                        expect.objectContaining({
+                            id: mockBtcArkChainSwap.id,
+                            status: "transaction.claimed",
+                        })
+                    );
+                } finally {
+                    vi.useRealTimers();
+                }
             });
         });
 
