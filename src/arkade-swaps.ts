@@ -506,11 +506,7 @@ export class ArkadeSwaps {
             );
 
         let vtxo;
-        for (
-            let attempt = 1;
-            attempt <= CLAIM_VTXO_RETRY_ATTEMPTS;
-            attempt++
-        ) {
+        for (let attempt = 1; attempt <= CLAIM_VTXO_RETRY_ATTEMPTS; attempt++) {
             const { vtxos } = await this.indexerProvider.getVtxos({
                 scripts: [hex.encode(vhtlcScript.pkScript)],
             });
@@ -1712,11 +1708,7 @@ export class ArkadeSwaps {
         }
 
         let vtxo;
-        for (
-            let attempt = 1;
-            attempt <= CLAIM_VTXO_RETRY_ATTEMPTS;
-            attempt++
-        ) {
+        for (let attempt = 1; attempt <= CLAIM_VTXO_RETRY_ATTEMPTS; attempt++) {
             const spendableVtxos = await this.indexerProvider.getVtxos({
                 scripts: [hex.encode(vhtlcScript.pkScript)],
                 spendableOnly: true,
