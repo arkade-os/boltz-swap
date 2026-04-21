@@ -18,6 +18,8 @@ import {
     SingleKey,
     EsploraProvider,
     ArkNote,
+    InMemoryWalletRepository,
+    InMemoryContractRepository,
 } from "@arkade-os/sdk";
 import { hex } from "@scure/base";
 import { schnorr } from "@noble/curves/secp256k1.js";
@@ -30,6 +32,11 @@ const execAsync = promisify(exec);
 const lncli = "docker exec -i lnd lncli --network=regtest";
 const bccli = "docker exec -t bitcoin bitcoin-cli -regtest";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const createWalletStorage = () => ({
+    walletRepository: new InMemoryWalletRepository(),
+    contractRepository: new InMemoryContractRepository(),
+});
 
 const generateBlocks = async (numBlocks = 1) => {
     await execAsync(`nigiri rpc --generate ${numBlocks}`);
@@ -219,6 +226,7 @@ describe("ArkadeSwaps", () => {
             identity: SingleKey.fromRandomBytes(),
             arkServerUrl: arkUrl,
             settlementConfig: false,
+            storage: createWalletStorage(),
         });
 
         const amount = 1_000_000;
@@ -256,6 +264,7 @@ describe("ArkadeSwaps", () => {
             identity,
             arkServerUrl: arkUrl,
             settlementConfig: false,
+            storage: createWalletStorage(),
             onchainProvider: new EsploraProvider("http://localhost:3000", {
                 forcePolling: true,
                 pollingInterval: 2000,
@@ -1385,6 +1394,7 @@ describe("ArkadeSwaps", () => {
                         schnorr.utils.randomSecretKey()
                     ),
                     arkServerUrl: arkUrl,
+                    storage: createWalletStorage(),
                     // no settlementConfig — VtxoManager enabled by default
                 });
 
@@ -1457,6 +1467,7 @@ describe("ArkadeSwaps", () => {
                         schnorr.utils.randomSecretKey()
                     ),
                     arkServerUrl: arkUrl,
+                    storage: createWalletStorage(),
                     // default settlementConfig — VtxoManager starts enabled
                 });
 
