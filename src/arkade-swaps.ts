@@ -94,6 +94,11 @@ import {
     refundVHTLCwithOffchainTx,
 } from "./utils/vhtlc";
 
+// Retry policy for fetching the lockup VTXO when claiming a swap: the indexer
+// may lag behind the on-chain lockup tx, so retry a few times before giving up.
+const CLAIM_VTXO_RETRY_ATTEMPTS = 3;
+const CLAIM_VTXO_RETRY_DELAY_MS = 500;
+
 /**
  * Unified entry point for Lightning and chain swaps between Arkade, Lightning Network, and Bitcoin.
  *
@@ -500,12 +505,12 @@ export class ArkadeSwaps {
                 `Swap ${pendingSwap.id}: VHTLC address mismatch. Expected ${lockupAddress}, got ${vhtlcAddress}`
             );
 
-        // The indexer may lag behind the lockup tx; retry a few times before giving up.
-        const MAX_ATTEMPTS = 3;
-        const RETRY_DELAY_MS = 500;
-
         let vtxo;
-        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        for (
+            let attempt = 1;
+            attempt <= CLAIM_VTXO_RETRY_ATTEMPTS;
+            attempt++
+        ) {
             const { vtxos } = await this.indexerProvider.getVtxos({
                 scripts: [hex.encode(vhtlcScript.pkScript)],
             });
@@ -513,9 +518,9 @@ export class ArkadeSwaps {
                 vtxo = vtxos[0];
                 break;
             }
-            if (attempt < MAX_ATTEMPTS) {
+            if (attempt < CLAIM_VTXO_RETRY_ATTEMPTS) {
                 await new Promise((resolve) =>
-                    setTimeout(resolve, RETRY_DELAY_MS)
+                    setTimeout(resolve, CLAIM_VTXO_RETRY_DELAY_MS)
                 );
             }
         }
@@ -1706,12 +1711,12 @@ export class ArkadeSwaps {
             });
         }
 
-        // The indexer may lag behind the lockup tx; retry a few times before giving up.
-        const MAX_ATTEMPTS = 3;
-        const RETRY_DELAY_MS = 500;
-
         let vtxo;
-        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        for (
+            let attempt = 1;
+            attempt <= CLAIM_VTXO_RETRY_ATTEMPTS;
+            attempt++
+        ) {
             const spendableVtxos = await this.indexerProvider.getVtxos({
                 scripts: [hex.encode(vhtlcScript.pkScript)],
                 spendableOnly: true,
@@ -1720,9 +1725,9 @@ export class ArkadeSwaps {
                 vtxo = spendableVtxos.vtxos[0];
                 break;
             }
-            if (attempt < MAX_ATTEMPTS) {
+            if (attempt < CLAIM_VTXO_RETRY_ATTEMPTS) {
                 await new Promise((resolve) =>
-                    setTimeout(resolve, RETRY_DELAY_MS)
+                    setTimeout(resolve, CLAIM_VTXO_RETRY_DELAY_MS)
                 );
             }
         }
