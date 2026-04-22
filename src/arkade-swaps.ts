@@ -94,6 +94,11 @@ import {
     refundVHTLCwithOffchainTx,
 } from "./utils/vhtlc";
 
+// Retry policy for fetching the lockup VTXO when claiming a swap: the indexer
+// may lag behind the on-chain lockup tx, so retry a few times before giving up.
+const CLAIM_VTXO_RETRY_ATTEMPTS = 3;
+const CLAIM_VTXO_RETRY_DELAY_MS = 500;
+
 /**
  * Unified entry point for Lightning and chain swaps between Arkade, Lightning Network, and Bitcoin.
  *
@@ -500,16 +505,27 @@ export class ArkadeSwaps {
                 `Swap ${pendingSwap.id}: VHTLC address mismatch. Expected ${lockupAddress}, got ${vhtlcAddress}`
             );
 
-        // get spendable VTXOs from the lockup address
-        const { vtxos } = await this.indexerProvider.getVtxos({
-            scripts: [hex.encode(vhtlcScript.pkScript)],
-        });
-        if (vtxos.length === 0)
+        let vtxo;
+        for (let attempt = 1; attempt <= CLAIM_VTXO_RETRY_ATTEMPTS; attempt++) {
+            const { vtxos } = await this.indexerProvider.getVtxos({
+                scripts: [hex.encode(vhtlcScript.pkScript)],
+            });
+            if (vtxos.length > 0) {
+                vtxo = vtxos[0];
+                break;
+            }
+            if (attempt < CLAIM_VTXO_RETRY_ATTEMPTS) {
+                await new Promise((resolve) =>
+                    setTimeout(resolve, CLAIM_VTXO_RETRY_DELAY_MS)
+                );
+            }
+        }
+
+        if (!vtxo) {
             throw new Error(
                 `Swap ${pendingSwap.id}: no spendable virtual coins found`
             );
-
-        const vtxo = vtxos[0];
+        }
 
         if (vtxo.isSpent) {
             throw new Error(`Swap ${pendingSwap.id}: VHTLC is already spent`);
@@ -1691,18 +1707,28 @@ export class ArkadeSwaps {
             });
         }
 
-        // get spendable VTXOs from the lockup address
-        const spendableVtxos = await this.indexerProvider.getVtxos({
-            scripts: [hex.encode(vhtlcScript.pkScript)],
-            spendableOnly: true,
-        });
+        let vtxo;
+        for (let attempt = 1; attempt <= CLAIM_VTXO_RETRY_ATTEMPTS; attempt++) {
+            const spendableVtxos = await this.indexerProvider.getVtxos({
+                scripts: [hex.encode(vhtlcScript.pkScript)],
+                spendableOnly: true,
+            });
+            if (spendableVtxos.vtxos.length > 0) {
+                vtxo = spendableVtxos.vtxos[0];
+                break;
+            }
+            if (attempt < CLAIM_VTXO_RETRY_ATTEMPTS) {
+                await new Promise((resolve) =>
+                    setTimeout(resolve, CLAIM_VTXO_RETRY_DELAY_MS)
+                );
+            }
+        }
 
-        if (spendableVtxos.vtxos.length === 0)
+        if (!vtxo) {
             throw new Error(
                 `Swap ${pendingSwap.id}: no spendable virtual coins found`
             );
-
-        const vtxo = spendableVtxos.vtxos[0];
+        }
 
         const input = {
             ...vtxo,
