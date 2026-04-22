@@ -72,15 +72,19 @@ export type {
     ArkadeSwapsConfig,
     ArkadeSwapsCreateConfig,
     BoltzSubmarineSwap,
+    PendingSubmarineSwap, // deprecated
     BoltzReverseSwap,
+    PendingReverseSwap, // deprecated
     ChainFeesResponse,
     BoltzChainSwap,
+    PendingChainSwap, // deprecated
     ArkToBtcResponse,
     BtcToArkResponse,
     DecodedInvoice,
     LimitsResponse,
     FeesResponse,
     BoltzSwap,
+    PendingSwap, // deprecated
     Network,
     Chain,
     Vtxo,
