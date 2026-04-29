@@ -2978,4 +2978,515 @@ describe("ArkadeSwaps", () => {
             expect(indexerProvider.getVtxos).not.toHaveBeenCalled();
         });
     });
+
+    describe("inspectSubmarineRecovery", () => {
+        const lockupTxid = hex.encode(randomBytes(32));
+
+        const makeVtxo = (
+            txid: string,
+            vout: number,
+            value = 50000,
+            isSpent = false,
+            virtualState: "swept" | "settled" | "preconfirmed" = "swept"
+        ) => ({
+            txid,
+            vout,
+            value,
+            status: { confirmed: true, blockHeight: 100, blockHash: "abc" },
+            virtualStatus: { state: virtualState },
+            isSpent,
+            isUnrolled: false,
+            createdAt: new Date(),
+        });
+
+        const claimedSwap: BoltzSubmarineSwap = {
+            ...mockSubmarineSwap,
+            id: "claimed-swap-id",
+            status: "transaction.claimed",
+        };
+
+        const failedSwap: BoltzSubmarineSwap = {
+            ...mockSubmarineSwap,
+            id: "failed-swap-id",
+            status: "invoice.failedToPay",
+        };
+
+        const mockSelection = (args: {
+            spendable?: any[];
+            recoverable?: any[];
+            all?: any[];
+        }) => {
+            const spendable = args.spendable ?? [];
+            const recoverable = args.recoverable ?? [];
+            const all = args.all ?? [
+                ...new Map(
+                    [...spendable, ...recoverable].map((vtxo) => [
+                        `${vtxo.txid}:${vtxo.vout}`,
+                        vtxo,
+                    ])
+                ).values(),
+            ];
+            vi.mocked(indexerProvider.getVtxos).mockImplementation(
+                async (opts: any) => {
+                    if (opts?.spendableOnly) return { vtxos: spendable } as any;
+                    if (opts?.recoverableOnly)
+                        return { vtxos: recoverable } as any;
+                    return { vtxos: all } as any;
+                }
+            );
+        };
+
+        beforeEach(() => {
+            vi.mocked(arkProvider.getInfo).mockResolvedValue(mockArkInfo);
+            vi.mocked(wallet.getAddress).mockResolvedValue(mock.address.ark);
+
+            vi.spyOn(swaps as any, "createVHTLCScript").mockReturnValue({
+                vhtlcScript: {
+                    claimScript: new Uint8Array([1]),
+                    pkScript: new Uint8Array([2]),
+                    refund: () => [{}, new Uint8Array([3]), 0xc0] as any,
+                    refundWithoutReceiver: () =>
+                        [{}, new Uint8Array([4]), 0xc0] as any,
+                    encode: () => [] as any,
+                    options: {
+                        refundLocktime:
+                            claimedSwap.response.timeoutBlockHeights.refund,
+                    },
+                },
+                vhtlcAddress: claimedSwap.response.address,
+            });
+        });
+
+        it("returns recoverable for transaction.claimed plus post-CLTV VTXO", async () => {
+            mockSelection({ recoverable: [makeVtxo(lockupTxid, 0, 75000)] });
+            vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(100);
+
+            const info = await swaps.inspectSubmarineRecovery(claimedSwap);
+
+            expect(info.status).toBe("recoverable");
+            expect(info.swap).toBe(claimedSwap);
+            expect(info.vtxoCount).toBe(1);
+            expect(info.amountSats).toBe(75000);
+            expect(info.refundLocktime).toBe(17);
+            expect(info.currentBlockHeight).toBe(100);
+        });
+
+        it("returns recoverable for failed refundable status plus post-CLTV VTXO", async () => {
+            mockSelection({ recoverable: [makeVtxo(lockupTxid, 0, 30000)] });
+            vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(100);
+
+            const info = await swaps.inspectSubmarineRecovery(failedSwap);
+
+            expect(info.status).toBe("recoverable");
+            expect(info.swap.id).toBe("failed-swap-id");
+            expect(info.amountSats).toBe(30000);
+        });
+
+        it("sums amount across multiple unspent VTXOs", async () => {
+            mockSelection({
+                recoverable: [
+                    makeVtxo(lockupTxid, 0, 30000),
+                    makeVtxo(lockupTxid, 1, 20000),
+                ],
+            });
+            vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(100);
+
+            const info = await swaps.inspectSubmarineRecovery(claimedSwap);
+
+            expect(info.status).toBe("recoverable");
+            expect(info.vtxoCount).toBe(2);
+            expect(info.amountSats).toBe(50000);
+        });
+
+        it("returns pre_cltv when unspent VTXOs exist but locktime hasn't passed", async () => {
+            mockSelection({ recoverable: [makeVtxo(lockupTxid, 0)] });
+            vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(5);
+
+            const info = await swaps.inspectSubmarineRecovery(claimedSwap);
+
+            expect(info.status).toBe("pre_cltv");
+            expect(info.vtxoCount).toBe(1);
+            expect(info.currentBlockHeight).toBe(5);
+        });
+
+        it("uses Unix time instead of chain height for timestamp locktimes", async () => {
+            const timestampSwap: BoltzSubmarineSwap = {
+                ...claimedSwap,
+                response: {
+                    ...claimedSwap.response,
+                    timeoutBlockHeights: {
+                        ...claimedSwap.response.timeoutBlockHeights,
+                        refund: Math.floor(Date.now() / 1000) - 1,
+                    },
+                },
+            };
+            mockSelection({ recoverable: [makeVtxo(lockupTxid, 0)] });
+            const chainHeightSpy = vi.spyOn(swapProvider, "getChainHeight");
+
+            const info = await swaps.inspectSubmarineRecovery(timestampSwap);
+
+            expect(info.status).toBe("recoverable");
+            expect(info.currentBlockHeight).toBeUndefined();
+            expect(chainHeightSpy).not.toHaveBeenCalled();
+        });
+
+        it("returns none when the address has no VTXOs at all", async () => {
+            mockSelection({});
+
+            const info = await swaps.inspectSubmarineRecovery(claimedSwap);
+
+            expect(info.status).toBe("none");
+            expect(info.vtxoCount).toBe(0);
+            expect(info.amountSats).toBe(0);
+        });
+
+        it("returns already_spent when every VTXO at the address is spent", async () => {
+            const spent = makeVtxo(lockupTxid, 0, 50000, true);
+            mockSelection({ all: [spent] });
+
+            const info = await swaps.inspectSubmarineRecovery(claimedSwap);
+
+            expect(info.status).toBe("already_spent");
+            expect(info.vtxoCount).toBe(0);
+        });
+
+        it("returns invalid_swap for pending statuses without hitting the indexer", async () => {
+            const pendingSwap: BoltzSubmarineSwap = {
+                ...mockSubmarineSwap,
+                status: "transaction.mempool",
+            };
+
+            const info = await swaps.inspectSubmarineRecovery(pendingSwap);
+
+            expect(info.status).toBe("invalid_swap");
+            expect(info.error).toMatch(/transaction\.mempool/);
+            expect(indexerProvider.getVtxos).not.toHaveBeenCalled();
+            expect(arkProvider.getInfo).not.toHaveBeenCalled();
+        });
+
+        it("returns invalid_swap when VHTLC address can't be reconstructed", async () => {
+            vi.spyOn(swaps as any, "createVHTLCScript").mockReturnValue({
+                vhtlcScript: { claimScript: new Uint8Array([1]) },
+                vhtlcAddress: "ark1-wrong-address",
+            });
+
+            const info = await swaps.inspectSubmarineRecovery(claimedSwap);
+
+            expect(info.status).toBe("invalid_swap");
+            expect(info.error).toMatch(/address mismatch/i);
+            expect(info.vtxoCount).toBe(0);
+        });
+
+        it("does not mutate the repository", async () => {
+            mockSelection({ recoverable: [makeVtxo(lockupTxid, 0)] });
+            vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(100);
+
+            await swaps.inspectSubmarineRecovery(claimedSwap);
+
+            expect(mockSwapRepository.saveSwap).not.toHaveBeenCalled();
+            expect(mockSwapRepository.deleteSwap).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("scanRecoverableSubmarineSwaps", () => {
+        const lockupTxid = hex.encode(randomBytes(32));
+        const makeVtxo = (
+            txid: string,
+            vout: number,
+            script: string,
+            value = 50000
+        ) => ({
+            txid,
+            vout,
+            value,
+            script,
+            status: { confirmed: true, blockHeight: 100, blockHash: "abc" },
+            virtualStatus: { state: "swept" as const },
+            isSpent: false,
+            isUnrolled: false,
+            createdAt: new Date(),
+        });
+
+        const claimedSwap: BoltzSubmarineSwap = {
+            ...mockSubmarineSwap,
+            id: "claimed-swap-id",
+            status: "transaction.claimed",
+        };
+        const failedSwap: BoltzSubmarineSwap = {
+            ...mockSubmarineSwap,
+            id: "failed-swap-id",
+            status: "invoice.failedToPay",
+        };
+        const pendingSwap: BoltzSubmarineSwap = {
+            ...mockSubmarineSwap,
+            id: "pending-swap-id",
+            status: "transaction.mempool",
+        };
+
+        beforeEach(() => {
+            // Repo is asked only for type:"submarine"; non-submarine swaps
+            // never reach scan, so test harness only needs to return
+            // submarine candidates plus a pending one to exercise filtering.
+            vi.mocked(mockSwapRepository.getAllSwaps).mockImplementation(
+                async (filter: any) => {
+                    expect(filter).toEqual({ type: "submarine" });
+                    return [claimedSwap, failedSwap, pendingSwap];
+                }
+            );
+
+            vi.mocked(arkProvider.getInfo).mockResolvedValue(mockArkInfo);
+
+            // The two valid candidates reconstruct to distinct scripts so the
+            // batched indexer response can be mapped back per swap.
+            let scriptByte = 1;
+            vi.spyOn(swaps as any, "createVHTLCScript").mockImplementation(
+                () => {
+                    const pkScript = new Uint8Array([scriptByte++]);
+                    return {
+                        vhtlcScript: {
+                            claimScript: new Uint8Array([1]),
+                            pkScript,
+                            refund: () =>
+                                [{}, new Uint8Array([3]), 0xc0] as any,
+                            refundWithoutReceiver: () =>
+                                [{}, new Uint8Array([4]), 0xc0] as any,
+                            encode: () => [] as any,
+                            options: {
+                                refundLocktime:
+                                    claimedSwap.response.timeoutBlockHeights
+                                        .refund,
+                            },
+                        },
+                        vhtlcAddress: claimedSwap.response.address,
+                    };
+                }
+            );
+
+            vi.mocked(indexerProvider.getVtxos).mockImplementation(
+                async (opts: any) => {
+                    if (opts?.spendableOnly) return { vtxos: [] } as any;
+                    if (opts?.recoverableOnly) return { vtxos: [] } as any;
+                    throw new Error("scan should not issue diagnostic queries");
+                }
+            );
+        });
+
+        it("includes transaction.claimed and refundable failure statuses", async () => {
+            const results = await swaps.scanRecoverableSubmarineSwaps();
+
+            const ids = results.map((r) => r.swap.id);
+            expect(ids).toContain("claimed-swap-id");
+            expect(ids).toContain("failed-swap-id");
+        });
+
+        it("excludes pending statuses before inspecting", async () => {
+            await swaps.scanRecoverableSubmarineSwaps();
+
+            expect((swaps as any).createVHTLCScript).toHaveBeenCalledTimes(2);
+            expect(indexerProvider.getVtxos).toHaveBeenCalledTimes(2);
+        });
+
+        it("batches indexer discovery into one spendable and one recoverable query", async () => {
+            await swaps.scanRecoverableSubmarineSwaps();
+
+            expect(arkProvider.getInfo).toHaveBeenCalledTimes(1);
+            expect(indexerProvider.getVtxos).toHaveBeenCalledTimes(2);
+            expect(indexerProvider.getVtxos).toHaveBeenNthCalledWith(1, {
+                scripts: ["01", "02"],
+                spendableOnly: true,
+            });
+            expect(indexerProvider.getVtxos).toHaveBeenNthCalledWith(2, {
+                scripts: ["01", "02"],
+                recoverableOnly: true,
+            });
+        });
+
+        it("maps batched VTXOs back to the owning swap by script", async () => {
+            vi.mocked(indexerProvider.getVtxos).mockImplementation(
+                async (opts: any) => {
+                    if (opts?.spendableOnly) return { vtxos: [] } as any;
+                    if (opts?.recoverableOnly) {
+                        return {
+                            vtxos: [makeVtxo(lockupTxid, 0, "01", 25000)],
+                        } as any;
+                    }
+                    throw new Error("scan should not issue diagnostic queries");
+                }
+            );
+            vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(100);
+
+            const results = await swaps.scanRecoverableSubmarineSwaps();
+            const claimed = results.find(
+                (r) => r.swap.id === "claimed-swap-id"
+            );
+            const failed = results.find((r) => r.swap.id === "failed-swap-id");
+
+            expect(claimed).toMatchObject({
+                status: "recoverable",
+                vtxoCount: 1,
+                amountSats: 25000,
+                currentBlockHeight: 100,
+            });
+            expect(failed).toMatchObject({
+                status: "none",
+                vtxoCount: 0,
+                amountSats: 0,
+            });
+        });
+
+        it("only loads submarine swaps from the repository", async () => {
+            await swaps.scanRecoverableSubmarineSwaps();
+
+            expect(mockSwapRepository.getAllSwaps).toHaveBeenCalledWith({
+                type: "submarine",
+            });
+        });
+
+        it("does not mutate the repository", async () => {
+            await swaps.scanRecoverableSubmarineSwaps();
+
+            expect(mockSwapRepository.saveSwap).not.toHaveBeenCalled();
+            expect(mockSwapRepository.deleteSwap).not.toHaveBeenCalled();
+            expect(mockSwapRepository.clear).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("recoverSubmarineFunds + recoverAllSubmarineFunds", () => {
+        const lockupTxid = hex.encode(randomBytes(32));
+
+        const makeVtxo = (txid: string, vout: number) => ({
+            txid,
+            vout,
+            value: 50000,
+            status: { confirmed: true, blockHeight: 100, blockHash: "abc" },
+            virtualStatus: { state: "swept" as const },
+            isSpent: false,
+            isUnrolled: false,
+            createdAt: new Date(),
+        });
+
+        const claimedSwap: BoltzSubmarineSwap = {
+            ...mockSubmarineSwap,
+            id: "claimed-swap-id",
+            status: "transaction.claimed",
+        };
+        const failedSwap: BoltzSubmarineSwap = {
+            ...mockSubmarineSwap,
+            id: "failed-swap-id",
+            status: "invoice.failedToPay",
+        };
+
+        beforeEach(() => {
+            vi.mocked(arkProvider.getInfo).mockResolvedValue(mockArkInfo);
+            vi.mocked(wallet.getAddress).mockResolvedValue(mock.address.ark);
+
+            vi.spyOn(swaps as any, "createVHTLCScript").mockReturnValue({
+                vhtlcScript: {
+                    claimScript: new Uint8Array([1]),
+                    pkScript: new Uint8Array([2]),
+                    refund: () => [{}, new Uint8Array([3]), 0xc0] as any,
+                    refundWithoutReceiver: () =>
+                        [{}, new Uint8Array([4]), 0xc0] as any,
+                    encode: () => [] as any,
+                    options: {
+                        refundLocktime:
+                            claimedSwap.response.timeoutBlockHeights.refund,
+                    },
+                },
+                vhtlcAddress: claimedSwap.response.address,
+            });
+
+            vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(100);
+            vi.spyOn(swaps as any, "joinBatch").mockResolvedValue(undefined);
+
+            vi.mocked(indexerProvider.getVtxos).mockImplementation(
+                async (opts: any) => {
+                    if (opts?.spendableOnly) return { vtxos: [] } as any;
+                    if (opts?.recoverableOnly)
+                        return { vtxos: [makeVtxo(lockupTxid, 0)] } as any;
+                    return { vtxos: [makeVtxo(lockupTxid, 0)] } as any;
+                }
+            );
+        });
+
+        describe("recoverSubmarineFunds", () => {
+            it("delegates to refundVHTLC and refunds the unspent VTXO", async () => {
+                await swaps.recoverSubmarineFunds(claimedSwap);
+
+                const joinBatch = vi.mocked((swaps as any).joinBatch);
+                expect(joinBatch).toHaveBeenCalledOnce();
+                expect(joinBatch.mock.calls[0][1].txid).toBe(lockupTxid);
+            });
+
+            it("does not mutate refundable/refunded flags on a transaction.claimed swap", async () => {
+                await swaps.recoverSubmarineFunds(claimedSwap);
+
+                // Flag-skip gate prevents updateSubmarineSwapStatus from
+                // running on success-status swaps, so the repository is
+                // never touched during stranded-fund recovery.
+                expect(mockSwapRepository.saveSwap).not.toHaveBeenCalled();
+            });
+
+            it("still updates flags for legitimate failure-status refunds", async () => {
+                await swaps.recoverSubmarineFunds(failedSwap);
+
+                expect(mockSwapRepository.saveSwap).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        refundable: true,
+                        refunded: true,
+                    })
+                );
+            });
+        });
+
+        describe("recoverAllSubmarineFunds", () => {
+            it("returns one result per swap, marking successful recoveries", async () => {
+                const results = await swaps.recoverAllSubmarineFunds([
+                    claimedSwap,
+                    failedSwap,
+                ]);
+
+                expect(results).toEqual([
+                    { swapId: "claimed-swap-id", recovered: true },
+                    { swapId: "failed-swap-id", recovered: true },
+                ]);
+                expect(arkProvider.getInfo).toHaveBeenCalledTimes(1);
+            });
+
+            it("reports per-swap errors without aborting the batch", async () => {
+                // Fail the first swap deterministically: address mismatch
+                // occurs only for `claimedSwap` because we override
+                // createVHTLCScript per-call.
+                const createVHTLCScriptSpy = vi.spyOn(
+                    swaps as any,
+                    "createVHTLCScript"
+                );
+                createVHTLCScriptSpy.mockImplementationOnce(() => ({
+                    vhtlcScript: { claimScript: new Uint8Array([1]) },
+                    vhtlcAddress: "ark1-wrong-address",
+                }));
+
+                const results = await swaps.recoverAllSubmarineFunds([
+                    claimedSwap,
+                    failedSwap,
+                ]);
+
+                expect(results).toHaveLength(2);
+                expect(results[0]).toMatchObject({
+                    swapId: "claimed-swap-id",
+                    recovered: false,
+                });
+                expect(results[0].error).toMatch(/address mismatch/i);
+                expect(results[1]).toEqual({
+                    swapId: "failed-swap-id",
+                    recovered: true,
+                });
+            });
+
+            it("returns an empty array when given no swaps", async () => {
+                const results = await swaps.recoverAllSubmarineFunds([]);
+                expect(results).toEqual([]);
+            });
+        });
+    });
 });

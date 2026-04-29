@@ -15,6 +15,8 @@ import {
     BoltzSubmarineSwap,
     SendLightningPaymentRequest,
     SendLightningPaymentResponse,
+    SubmarineRecoveryInfo,
+    SubmarineRecoveryResult,
 } from "../types";
 import { SwapRepository } from "../repositories/swap-repository";
 import {
@@ -47,6 +49,9 @@ import type {
     ResponseWaitAndClaimChain,
     ResponseWaitAndClaim,
     ResponseWaitForSwapSettlement,
+    ResponseInspectSubmarineRecovery,
+    ResponseScanRecoverableSubmarineSwaps,
+    ResponseRecoverAllSubmarineFunds,
 } from "./arkade-swaps-message-handler";
 import {
     MESSAGE_BUS_NOT_INITIALIZED,
@@ -530,6 +535,48 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             type: "REFUND_VHTLC",
             payload: pendingSwap,
         });
+    }
+
+    async inspectSubmarineRecovery(
+        swap: BoltzSubmarineSwap
+    ): Promise<SubmarineRecoveryInfo> {
+        const res = await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
+            type: "INSPECT_SUBMARINE_RECOVERY",
+            payload: swap,
+        });
+        return (res as ResponseInspectSubmarineRecovery).payload;
+    }
+
+    async scanRecoverableSubmarineSwaps(): Promise<SubmarineRecoveryInfo[]> {
+        const res = await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
+            type: "SCAN_RECOVERABLE_SUBMARINE_SWAPS",
+        });
+        return (res as ResponseScanRecoverableSubmarineSwaps).payload;
+    }
+
+    async recoverSubmarineFunds(swap: BoltzSubmarineSwap): Promise<void> {
+        await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
+            type: "RECOVER_SUBMARINE_FUNDS",
+            payload: swap,
+        });
+    }
+
+    async recoverAllSubmarineFunds(
+        swaps: BoltzSubmarineSwap[]
+    ): Promise<SubmarineRecoveryResult[]> {
+        const res = await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
+            type: "RECOVER_ALL_SUBMARINE_FUNDS",
+            payload: swaps,
+        });
+        return (res as ResponseRecoverAllSubmarineFunds).payload;
     }
 
     async waitAndClaim(

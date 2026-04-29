@@ -17,6 +17,8 @@ import type {
     BoltzSwap,
     SendLightningPaymentRequest,
     SendLightningPaymentResponse,
+    SubmarineRecoveryInfo,
+    SubmarineRecoveryResult,
 } from "../types";
 import type { GetSwapStatusResponse } from "../boltz-swap-provider";
 import type {
@@ -304,6 +306,26 @@ export class ExpoArkadeSwaps implements IArkadeSwaps {
 
     refundVHTLC(pendingSwap: BoltzSubmarineSwap): Promise<void> {
         return this.inner.refundVHTLC(pendingSwap);
+    }
+
+    inspectSubmarineRecovery(
+        swap: BoltzSubmarineSwap
+    ): Promise<SubmarineRecoveryInfo> {
+        return this.inner.inspectSubmarineRecovery(swap);
+    }
+
+    scanRecoverableSubmarineSwaps(): Promise<SubmarineRecoveryInfo[]> {
+        return this.inner.scanRecoverableSubmarineSwaps();
+    }
+
+    recoverSubmarineFunds(swap: BoltzSubmarineSwap): Promise<void> {
+        return this.inner.recoverSubmarineFunds(swap);
+    }
+
+    recoverAllSubmarineFunds(
+        swaps: BoltzSubmarineSwap[]
+    ): Promise<SubmarineRecoveryResult[]> {
+        return this.inner.recoverAllSubmarineFunds(swaps);
     }
 
     waitAndClaim(pendingSwap: BoltzReverseSwap): Promise<{ txid: string }> {

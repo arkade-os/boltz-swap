@@ -147,6 +147,57 @@ export interface BoltzSubmarineSwap {
     response: CreateSubmarineSwapResponse;
 }
 
+/**
+ * Outcome of inspecting a submarine swap's lockup address for recoverable
+ * funds.
+ *
+ * - `recoverable` — unspent VTXOs exist and the refund CLTV has elapsed,
+ *   so they can be swept via the unilateral refund path.
+ * - `pre_cltv` — unspent VTXOs exist but the refund locktime has not
+ *   passed yet; the user must wait or rely on Boltz cooperation.
+ * - `none` — no unspent VTXOs at the address (never funded, fully
+ *   pruned, or only preconfirmed-only state).
+ * - `already_spent` — the address has VTXOs but every one is spent
+ *   (typical for a healthy completed swap).
+ * - `invalid_swap` — the swap is not a recovery candidate (pending
+ *   status), the swap data is incomplete, or the reconstructed VHTLC
+ *   address doesn't match the one Boltz returned.
+ */
+export type SubmarineRecoveryStatus =
+    | "recoverable"
+    | "pre_cltv"
+    | "none"
+    | "already_spent"
+    | "invalid_swap";
+
+/** Diagnostic snapshot of a submarine swap's recovery state. */
+export interface SubmarineRecoveryInfo {
+    /** The submarine swap this snapshot describes. */
+    swap: BoltzSubmarineSwap;
+    /** Classification of the lockup address state. */
+    status: SubmarineRecoveryStatus;
+    /** Number of unspent VTXOs at the lockup address. */
+    vtxoCount: number;
+    /** Total satoshis across the unspent VTXOs. */
+    amountSats: number;
+    /** Refund CLTV block height for the swap, when available. */
+    refundLocktime?: number;
+    /** Current chain tip height, when using a block-height locktime. */
+    currentBlockHeight?: number;
+    /** Reason populated when `status === "invalid_swap"`. */
+    error?: string;
+}
+
+/** Per-swap outcome of a bulk recovery call. */
+export interface SubmarineRecoveryResult {
+    /** ID of the swap whose VHTLC we attempted to refund. */
+    swapId: string;
+    /** True if `refundVHTLC` returned without throwing. */
+    recovered: boolean;
+    /** Failure message when `recovered === false`. */
+    error?: string;
+}
+
 /** Tracks an in-progress chain swap (ARK ↔ BTC). */
 export interface BoltzChainSwap {
     /** Unique swap ID from Boltz. */
