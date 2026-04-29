@@ -188,13 +188,31 @@ export interface SubmarineRecoveryInfo {
     error?: string;
 }
 
+/** Outcome of a single `refundVHTLC` call: how many VTXOs were swept vs. deferred. */
+export interface SubmarineRefundOutcome {
+    /** Number of VTXOs successfully refunded (joined a batch or via Boltz co-sign). */
+    swept: number;
+    /**
+     * Number of VTXOs that could not be refunded yet (e.g. recoverable VTXO
+     * pre-CLTV, or Boltz rejected and CLTV still not satisfied). The caller
+     * is expected to retry these later.
+     */
+    skipped: number;
+}
+
 /** Per-swap outcome of a bulk recovery call. */
 export interface SubmarineRecoveryResult {
     /** ID of the swap whose VHTLC we attempted to refund. */
     swapId: string;
-    /** True if `refundVHTLC` returned without throwing. */
+    /** True only when at least one VTXO was actually swept by `refundVHTLC`. */
     recovered: boolean;
-    /** Failure message when `recovered === false`. */
+    /**
+     * True when `refundVHTLC` returned without throwing but at least one
+     * VTXO was deferred — distinguishes a real sweep from a no-op skip
+     * path. Always false when `error` is set (the error supersedes).
+     */
+    skipped: boolean;
+    /** Failure message when `refundVHTLC` threw. */
     error?: string;
 }
 

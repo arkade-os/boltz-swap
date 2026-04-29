@@ -19,6 +19,7 @@ import type {
     SendLightningPaymentResponse,
     SubmarineRecoveryInfo,
     SubmarineRecoveryResult,
+    SubmarineRefundOutcome,
 } from "../types";
 import type { GetSwapStatusResponse } from "../boltz-swap-provider";
 import type {
@@ -304,7 +305,9 @@ export class ExpoArkadeSwaps implements IArkadeSwaps {
         return this.inner.claimVHTLC(pendingSwap);
     }
 
-    refundVHTLC(pendingSwap: BoltzSubmarineSwap): Promise<void> {
+    refundVHTLC(
+        pendingSwap: BoltzSubmarineSwap
+    ): Promise<SubmarineRefundOutcome> {
         return this.inner.refundVHTLC(pendingSwap);
     }
 
@@ -318,7 +321,9 @@ export class ExpoArkadeSwaps implements IArkadeSwaps {
         return this.inner.scanRecoverableSubmarineSwaps();
     }
 
-    recoverSubmarineFunds(swap: BoltzSubmarineSwap): Promise<void> {
+    recoverSubmarineFunds(
+        swap: BoltzSubmarineSwap
+    ): Promise<SubmarineRefundOutcome> {
         return this.inner.recoverSubmarineFunds(swap);
     }
 

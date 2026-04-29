@@ -30,6 +30,7 @@ import {
     SendLightningPaymentResponse,
     type SubmarineRecoveryInfo,
     type SubmarineRecoveryResult,
+    type SubmarineRefundOutcome,
 } from "../types";
 import {
     ArkProvider,
@@ -110,6 +111,7 @@ export type RequestRefundVhtlc = RequestEnvelope & {
 };
 export type ResponseRefundVhtlc = ResponseEnvelope & {
     type: "VHTLC_REFUNDED";
+    payload: SubmarineRefundOutcome;
 };
 
 // Recovery envelopes carry BoltzSubmarineSwap / SubmarineRecoveryInfo /
@@ -138,6 +140,7 @@ export type RequestRecoverSubmarineFunds = RequestEnvelope & {
 };
 export type ResponseRecoverSubmarineFunds = ResponseEnvelope & {
     type: "SUBMARINE_FUNDS_RECOVERED";
+    payload: SubmarineRefundOutcome;
 };
 
 export type RequestRecoverAllSubmarineFunds = RequestEnvelope & {
@@ -792,9 +795,16 @@ export class ArkadeSwapsMessageHandler
                     await this.handler.claimVHTLC(message.payload);
                     return this.tagged({ id, type: "VHTLC_CLAIMED" });
 
-                case "REFUND_VHTLC":
-                    await this.handler.refundVHTLC(message.payload);
-                    return this.tagged({ id, type: "VHTLC_REFUNDED" });
+                case "REFUND_VHTLC": {
+                    const outcome = await this.handler.refundVHTLC(
+                        message.payload
+                    );
+                    return this.tagged({
+                        id,
+                        type: "VHTLC_REFUNDED",
+                        payload: outcome,
+                    });
+                }
 
                 case "INSPECT_SUBMARINE_RECOVERY": {
                     const info = await this.handler.inspectSubmarineRecovery(
@@ -817,12 +827,16 @@ export class ArkadeSwapsMessageHandler
                     });
                 }
 
-                case "RECOVER_SUBMARINE_FUNDS":
-                    await this.handler.recoverSubmarineFunds(message.payload);
+                case "RECOVER_SUBMARINE_FUNDS": {
+                    const outcome = await this.handler.recoverSubmarineFunds(
+                        message.payload
+                    );
                     return this.tagged({
                         id,
                         type: "SUBMARINE_FUNDS_RECOVERED",
+                        payload: outcome,
                     });
+                }
 
                 case "RECOVER_ALL_SUBMARINE_FUNDS": {
                     const results = await this.handler.recoverAllSubmarineFunds(

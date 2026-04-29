@@ -17,6 +17,7 @@ import {
     SendLightningPaymentResponse,
     SubmarineRecoveryInfo,
     SubmarineRecoveryResult,
+    SubmarineRefundOutcome,
 } from "../types";
 import { SwapRepository } from "../repositories/swap-repository";
 import {
@@ -52,6 +53,8 @@ import type {
     ResponseInspectSubmarineRecovery,
     ResponseScanRecoverableSubmarineSwaps,
     ResponseRecoverAllSubmarineFunds,
+    ResponseRefundVhtlc,
+    ResponseRecoverSubmarineFunds,
 } from "./arkade-swaps-message-handler";
 import {
     MESSAGE_BUS_NOT_INITIALIZED,
@@ -528,13 +531,16 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         });
     }
 
-    async refundVHTLC(pendingSwap: BoltzSubmarineSwap): Promise<void> {
-        await this.sendMessage({
+    async refundVHTLC(
+        pendingSwap: BoltzSubmarineSwap
+    ): Promise<SubmarineRefundOutcome> {
+        const res = await this.sendMessage({
             id: getRandomId(),
             tag: this.messageTag,
             type: "REFUND_VHTLC",
             payload: pendingSwap,
         });
+        return (res as ResponseRefundVhtlc).payload;
     }
 
     async inspectSubmarineRecovery(
@@ -558,13 +564,16 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         return (res as ResponseScanRecoverableSubmarineSwaps).payload;
     }
 
-    async recoverSubmarineFunds(swap: BoltzSubmarineSwap): Promise<void> {
-        await this.sendMessage({
+    async recoverSubmarineFunds(
+        swap: BoltzSubmarineSwap
+    ): Promise<SubmarineRefundOutcome> {
+        const res = await this.sendMessage({
             id: getRandomId(),
             tag: this.messageTag,
             type: "RECOVER_SUBMARINE_FUNDS",
             payload: swap,
         });
+        return (res as ResponseRecoverSubmarineFunds).payload;
     }
 
     async recoverAllSubmarineFunds(

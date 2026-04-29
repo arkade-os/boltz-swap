@@ -3447,8 +3447,16 @@ describe("ArkadeSwaps", () => {
                 ]);
 
                 expect(results).toEqual([
-                    { swapId: "claimed-swap-id", recovered: true },
-                    { swapId: "failed-swap-id", recovered: true },
+                    {
+                        swapId: "claimed-swap-id",
+                        recovered: true,
+                        skipped: false,
+                    },
+                    {
+                        swapId: "failed-swap-id",
+                        recovered: true,
+                        skipped: false,
+                    },
                 ]);
                 expect(arkProvider.getInfo).toHaveBeenCalledTimes(1);
             });
@@ -3475,17 +3483,41 @@ describe("ArkadeSwaps", () => {
                 expect(results[0]).toMatchObject({
                     swapId: "claimed-swap-id",
                     recovered: false,
+                    skipped: false,
                 });
                 expect(results[0].error).toMatch(/address mismatch/i);
                 expect(results[1]).toEqual({
                     swapId: "failed-swap-id",
                     recovered: true,
+                    skipped: false,
                 });
             });
 
             it("returns an empty array when given no swaps", async () => {
                 const results = await swaps.recoverAllSubmarineFunds([]);
                 expect(results).toEqual([]);
+            });
+
+            it("flags skipped (not recovered) when refundVHTLC sweeps nothing", async () => {
+                // Pre-CLTV recoverable VTXO → refundVHTLC returns
+                // { swept: 0, skipped: 1 } without throwing. Aggregator must
+                // surface that as recovered:false / skipped:true rather than
+                // misreporting a successful sweep.
+                vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(5);
+
+                const results = await swaps.recoverAllSubmarineFunds([
+                    failedSwap,
+                ]);
+
+                expect(results).toEqual([
+                    {
+                        swapId: "failed-swap-id",
+                        recovered: false,
+                        skipped: true,
+                    },
+                ]);
+                const joinBatch = vi.mocked((swaps as any).joinBatch);
+                expect(joinBatch).not.toHaveBeenCalled();
             });
         });
     });

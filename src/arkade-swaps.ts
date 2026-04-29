@@ -40,6 +40,7 @@ import type {
     BtcToArkResponse,
     SubmarineRecoveryInfo,
     SubmarineRecoveryResult,
+    SubmarineRefundOutcome,
 } from "./types";
 import {
     BoltzSwapProvider,
@@ -1060,12 +1061,14 @@ export class ArkadeSwaps {
      * Refunds the VHTLC for a failed submarine swap, returning locked funds to the wallet.
      * Uses multi-party signatures (user + Boltz + server) for non-recoverable VTXOs.
      * @param pendingSwap - The submarine swap to refund.
+     * @returns Counts of VTXOs swept vs. deferred. A return value of `{ swept: 0, skipped: N }`
+     *          means the call was a no-op — callers should not treat it as a successful refund.
      * @throws {Error} If preimage hash is unavailable, VHTLC not found, or already spent.
      */
     async refundVHTLC(
         pendingSwap: BoltzSubmarineSwap,
         cachedArkInfo?: ArkInfo
-    ): Promise<void> {
+    ): Promise<SubmarineRefundOutcome> {
         const address = await this.wallet.getAddress();
         if (!address) throw new Error("Failed to get ark address from wallet");
 
@@ -1106,6 +1109,7 @@ export class ArkadeSwaps {
         // Refund every unspent VTXO at the contract address.
         // Throttle between Boltz API calls to avoid 429 rate-limiting.
         let boltzCallCount = 0;
+        let sweptCount = 0;
         let skippedCount = 0;
 
         for (const vtxo of refundableVtxos) {
@@ -1132,6 +1136,7 @@ export class ArkadeSwaps {
                     arkInfo,
                     isRecoverableVtxo
                 );
+                sweptCount++;
                 continue;
             }
 
@@ -1174,6 +1179,7 @@ export class ArkadeSwaps {
                     )
                 );
                 boltzCallCount++;
+                sweptCount++;
             } catch (error) {
                 // Only fall back for Boltz-side rejections (e.g. outpoint
                 // mismatch after an Ark round). Re-throw anything else.
@@ -1215,6 +1221,7 @@ export class ArkadeSwaps {
                     arkInfo,
                     false
                 );
+                sweptCount++;
             }
         }
 
@@ -1232,6 +1239,8 @@ export class ArkadeSwaps {
                 { refundable: true, refunded: fullyRefunded }
             );
         }
+
+        return { swept: sweptCount, skipped: skippedCount };
     }
 
     /**
@@ -1431,8 +1440,8 @@ export class ArkadeSwaps {
     async recoverSubmarineFunds(
         swap: BoltzSubmarineSwap,
         arkInfo?: ArkInfo
-    ): Promise<void> {
-        await this.refundVHTLC(swap, arkInfo);
+    ): Promise<SubmarineRefundOutcome> {
+        return this.refundVHTLC(swap, arkInfo);
     }
 
     /**
@@ -1458,18 +1467,24 @@ export class ArkadeSwaps {
             return swaps.map((swap) => ({
                 swapId: swap.id,
                 recovered: false,
+                skipped: false,
                 error,
             }));
         }
 
         for (const swap of swaps) {
             try {
-                await this.recoverSubmarineFunds(swap, arkInfo);
-                results.push({ swapId: swap.id, recovered: true });
+                const outcome = await this.recoverSubmarineFunds(swap, arkInfo);
+                results.push({
+                    swapId: swap.id,
+                    recovered: outcome.swept > 0,
+                    skipped: outcome.skipped > 0,
+                });
             } catch (err) {
                 results.push({
                     swapId: swap.id,
                     recovered: false,
+                    skipped: false,
                     error: err instanceof Error ? err.message : String(err),
                 });
             }
@@ -2941,12 +2956,16 @@ export interface IArkadeSwaps extends AsyncDisposable {
         args: CreateLightningInvoiceRequest
     ): Promise<BoltzReverseSwap>;
     claimVHTLC(pendingSwap: BoltzReverseSwap): Promise<void>;
-    refundVHTLC(pendingSwap: BoltzSubmarineSwap): Promise<void>;
+    refundVHTLC(
+        pendingSwap: BoltzSubmarineSwap
+    ): Promise<SubmarineRefundOutcome>;
     inspectSubmarineRecovery(
         swap: BoltzSubmarineSwap
     ): Promise<SubmarineRecoveryInfo>;
     scanRecoverableSubmarineSwaps(): Promise<SubmarineRecoveryInfo[]>;
-    recoverSubmarineFunds(swap: BoltzSubmarineSwap): Promise<void>;
+    recoverSubmarineFunds(
+        swap: BoltzSubmarineSwap
+    ): Promise<SubmarineRefundOutcome>;
     recoverAllSubmarineFunds(
         swaps: BoltzSubmarineSwap[]
     ): Promise<SubmarineRecoveryResult[]>;

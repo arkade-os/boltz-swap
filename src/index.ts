@@ -91,6 +91,7 @@ export type {
     SubmarineRecoveryStatus,
     SubmarineRecoveryInfo,
     SubmarineRecoveryResult,
+    SubmarineRefundOutcome,
 } from "./types";
 export type {
     SwapManagerConfig,
