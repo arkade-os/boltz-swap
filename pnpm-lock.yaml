@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@arkade-os/sdk':
-        specifier: 0.4.21
-        version: 0.4.21
+        specifier: 0.4.22
+        version: 0.4.22
       '@noble/curves':
         specifier: ^2.0.1
         version: 2.0.1
@@ -72,15 +72,15 @@ importers:
 
 packages:
 
-  '@arkade-os/sdk@0.4.21':
-    resolution: {integrity: sha512-GqJ+9aUaFb+/NHA3TFKcsTg1faMOULnsKkjXGy7tzO/8OtDci8kDSqZ9ESxBxVxCMi/E+70PEPjLGqdRjLmFEA==}
+  '@arkade-os/sdk@0.4.22':
+    resolution: {integrity: sha512-MARRLuDN359DYa5Y4BXtC/zakqDmWU3ipalbCEpubSH1i3xp1o7EUjzsAYETLHXTenxyft+NZ0IloQthULMRRg==}
     engines: {node: '>=22.12.0 <23', pnpm: '>=10.25.0 <11'}
     peerDependencies:
       '@react-native-async-storage/async-storage': '>=1.0.0'
       expo: '>=54.0.0'
-      expo-background-task: ~1.0.10
-      expo-sqlite: ~16.0.10
-      expo-task-manager: ~14.0.9
+      expo-background-task: ~1.0.10 || >=55.0.0
+      expo-sqlite: ~16.0.10 || >=55.0.0
+      expo-task-manager: ~14.0.9 || >=55.0.0
     peerDependenciesMeta:
       '@react-native-async-storage/async-storage':
         optional: true
@@ -1466,7 +1466,7 @@ packages:
 
 snapshots:
 
-  '@arkade-os/sdk@0.4.21':
+  '@arkade-os/sdk@0.4.22':
     dependencies:
       '@bitcoinerlab/descriptors-scure': 3.1.7
       '@marcbachmann/cel-js': 7.3.1
