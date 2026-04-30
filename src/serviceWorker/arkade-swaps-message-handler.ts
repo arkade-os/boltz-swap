@@ -518,6 +518,24 @@ export type ArkadeSwapsUpdaterResponse =
     | ResponseSwapManagerGetStats
     | ResponseSwapManagerWaitForCompletion;
 
+export const LONG_RUNNING_ARKADE_SWAPS_REQUEST_TYPES: ReadonlySet<
+    ArkadeSwapsUpdaterRequest["type"]
+> = new Set([
+    "SEND_LIGHTNING_PAYMENT",
+    "CLAIM_VHTLC",
+    "REFUND_VHTLC",
+    "WAIT_AND_CLAIM",
+    "WAIT_FOR_SWAP_SETTLEMENT",
+    "RESTORE_SWAPS",
+    "WAIT_AND_CLAIM_CHAIN",
+    "WAIT_AND_CLAIM_ARK",
+    "WAIT_AND_CLAIM_BTC",
+    "CLAIM_ARK",
+    "CLAIM_BTC",
+    "REFUND_ARK",
+    "SM-WAIT_FOR_COMPLETION",
+]);
+
 type BoltzSwap = BoltzReverseSwap | BoltzSubmarineSwap | BoltzChainSwap;
 
 export type SwapManagerEventMessage =
@@ -615,6 +633,15 @@ export class ArkadeSwapsMessageHandler
     async tick(_now: number) {
         // Event-driven handler; no periodic work required from the service worker tick.
         return [];
+    }
+
+    // Flows that surrender control to Boltz, the Ark server, or other
+    // participants in a batch round: quiet gaps between protocol events can
+    // easily exceed the bus-level messageTimeoutMs. Liveness is covered
+    // out-of-band by the page-side PING / MESSAGE_BUS_NOT_INITIALIZED path
+    // triggered by concurrent short requests (GET_FEES, GET_SWAP_STATUS, ...).
+    isLongRunning(message: ArkadeSwapsUpdaterRequest): boolean {
+        return LONG_RUNNING_ARKADE_SWAPS_REQUEST_TYPES.has(message.type);
     }
 
     private tagged(

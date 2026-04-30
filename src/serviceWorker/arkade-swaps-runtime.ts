@@ -22,6 +22,7 @@ import {
     ArkadeSwapsUpdaterResponse,
     DEFAULT_MESSAGE_TAG,
     RequestInitArkSwaps,
+    LONG_RUNNING_ARKADE_SWAPS_REQUEST_TYPES,
 } from "./arkade-swaps-message-handler";
 import type {
     ResponseArkToBtc,
@@ -73,6 +74,9 @@ function isMessageBusNotInitializedError(error: unknown): boolean {
         error.message.includes(MESSAGE_BUS_NOT_INITIALIZED)
     );
 }
+
+const DEFAULT_MESSAGE_TIMEOUT_MS = 30_000;
+const NO_MESSAGE_TIMEOUT_MS = 0;
 
 const DEDUPABLE_REQUEST_TYPES: ReadonlySet<string> = new Set([
     "GET_FEES",
@@ -959,7 +963,8 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
     }
 
     private sendMessageDirect(
-        request: ArkadeSwapsUpdaterRequest
+        request: ArkadeSwapsUpdaterRequest,
+        timeoutMs: number
     ): Promise<ArkadeSwapsUpdaterResponse> {
         return new Promise((resolve, reject) => {
             const cleanup = () => {
@@ -970,14 +975,19 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
                 );
             };
 
-            const timeoutId = setTimeout(() => {
-                cleanup();
-                reject(
-                    new ServiceWorkerTimeoutError(
-                        `Service worker message timed out (${request.type})`
-                    )
-                );
-            }, 30_000);
+            // Match the SDK MessageBus convention: non-positive timeouts
+            // disable the deadline for flows that wait on remote peers.
+            const timeoutId =
+                timeoutMs > 0
+                    ? setTimeout(() => {
+                          cleanup();
+                          reject(
+                              new ServiceWorkerTimeoutError(
+                                  `Service worker message timed out (${request.type})`
+                              )
+                          );
+                      }, timeoutMs)
+                    : undefined;
 
             const messageHandler = (event: MessageEvent) => {
                 const response = event.data as
@@ -1079,10 +1089,16 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
             }
         }
 
+        const timeoutMs = LONG_RUNNING_ARKADE_SWAPS_REQUEST_TYPES.has(
+            request.type
+        )
+            ? NO_MESSAGE_TIMEOUT_MS
+            : DEFAULT_MESSAGE_TIMEOUT_MS;
+
         const maxRetries = 2;
         for (let attempt = 0; ; attempt++) {
             try {
-                return await this.sendMessageDirect(request);
+                return await this.sendMessageDirect(request, timeoutMs);
             } catch (error: any) {
                 if (
                     !isMessageBusNotInitializedError(error) ||
@@ -1111,7 +1127,10 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
                 payload: this.initPayload,
             };
 
-            await this.sendMessageDirect(initMessage);
+            await this.sendMessageDirect(
+                initMessage,
+                DEFAULT_MESSAGE_TIMEOUT_MS
+            );
         })().finally(() => {
             this.reinitPromise = null;
         });
