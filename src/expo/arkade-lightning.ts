@@ -29,6 +29,7 @@ import type {
 import { SWAP_POLL_TASK_TYPE } from "./swapsPollProcessor";
 import type { ArkInfo, ArkTxInput, Identity, VHTLC } from "@arkade-os/sdk";
 import type { TransactionOutput } from "@scure/btc-signer/psbt.js";
+import type { VhtlcTimeouts } from "../utils/vhtlc";
 
 function getRandomId(): string {
     return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -458,12 +459,7 @@ export class ExpoArkadeSwaps implements IArkadeSwaps {
         receiverPubkey: string;
         senderPubkey: string;
         serverPubkey: string;
-        timeoutBlockHeights: {
-            refund: number;
-            unilateralClaim: number;
-            unilateralRefund: number;
-            unilateralRefundWithoutReceiver: number;
-        };
+        timeoutBlockHeights: VhtlcTimeouts;
     }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string } {
         return this.inner.createVHTLCScript(params);
     }

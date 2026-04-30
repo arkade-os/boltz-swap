@@ -98,6 +98,7 @@ import {
     createVHTLCScript,
     joinBatch,
     refundVHTLCwithOffchainTx,
+    type VhtlcTimeouts,
 } from "./utils/vhtlc";
 
 type SubmarineVHTLCDiagnostic = {
@@ -110,7 +111,11 @@ type SubmarineVHTLCContext = {
     vhtlcScript: VHTLC.Script;
     vhtlcAddress: string;
     vhtlcPkScriptHex: string;
-    timeoutBlockHeights: NonNullable<
+    /**
+     * VHTLC timeout fields from the Boltz response. `refund` is an absolute
+     * Unix timestamp (CLTV); the unilateral fields are BIP68 relative delays.
+     */
+    vhtlcTimeouts: NonNullable<
         BoltzSubmarineSwap["response"]["timeoutBlockHeights"]
     >;
     ourXOnlyPublicKey: Uint8Array;
@@ -132,14 +137,6 @@ type SubmarineScanPrepared =
           swap: BoltzSubmarineSwap;
           error: string;
       };
-
-type RefundLocktimeStatus = {
-    satisfied: boolean;
-    currentBlockHeight?: number;
-    currentTimestamp?: number;
-    referenceLabel: "currentBlockHeight" | "currentTimestamp";
-    referenceValue: number;
-};
 
 const dedupeVtxos = (vtxos: VirtualCoin[]): VirtualCoin[] => [
     ...new Map(
@@ -170,9 +167,13 @@ const canRecoverViaBoltz3of3 = (
     );
 };
 
-const LOCKTIME_THRESHOLD = 500_000_000;
-const isTimestampLocktime = (locktime: number): boolean =>
-    locktime >= LOCKTIME_THRESHOLD;
+/**
+ * Boltz Ark VHTLCs encode `refund` as an absolute Unix timestamp (CLTV with
+ * timestamp semantics). Compare against wall-clock seconds; never against
+ * chain tip height.
+ */
+const isSubmarineRefundLocktimeReached = (refundTimestamp: number): boolean =>
+    Math.floor(Date.now() / 1000) >= refundTimestamp;
 
 // Retry policy for fetching the lockup VTXO when claiming a swap: the indexer
 // may lag behind the on-chain lockup tx, so retry a few times before giving up.
@@ -537,9 +538,12 @@ export class ArkadeSwaps {
                 `Swap ${pendingSwap.id}: preimage is required to claim VHTLC`
             );
 
-        const { refundPublicKey, lockupAddress, timeoutBlockHeights } =
-            pendingSwap.response;
-        if (!refundPublicKey || !lockupAddress || !timeoutBlockHeights)
+        const {
+            refundPublicKey,
+            lockupAddress,
+            timeoutBlockHeights: vhtlcTimeouts,
+        } = pendingSwap.response;
+        if (!refundPublicKey || !lockupAddress || !vhtlcTimeouts)
             throw new Error(
                 `Swap ${pendingSwap.id}: incomplete reverse swap response`
             );
@@ -573,7 +577,7 @@ export class ArkadeSwaps {
             receiverPubkey: hex.encode(receiverXOnly),
             senderPubkey: hex.encode(senderXOnly),
             serverPubkey: hex.encode(serverXOnly),
-            timeoutBlockHeights,
+            timeoutBlockHeights: vhtlcTimeouts,
         });
 
         if (!vhtlcScript.claimScript)
@@ -892,8 +896,9 @@ export class ArkadeSwaps {
             swap.id
         );
 
-        const { claimPublicKey, timeoutBlockHeights } = swap.response;
-        if (!claimPublicKey || !timeoutBlockHeights)
+        const { claimPublicKey, timeoutBlockHeights: vhtlcTimeouts } =
+            swap.response;
+        if (!claimPublicKey || !vhtlcTimeouts)
             throw new Error(
                 `Swap ${swap.id}: incomplete submarine swap response`
             );
@@ -910,7 +915,7 @@ export class ArkadeSwaps {
             receiverPubkey: hex.encode(boltzXOnlyPublicKey),
             senderPubkey: hex.encode(ourXOnlyPublicKey),
             serverPubkey: hex.encode(serverXOnlyPublicKey),
-            timeoutBlockHeights,
+            timeoutBlockHeights: vhtlcTimeouts,
         });
 
         if (!vhtlcScript.claimScript)
@@ -934,7 +939,7 @@ export class ArkadeSwaps {
             vhtlcScript,
             vhtlcAddress,
             vhtlcPkScriptHex,
-            timeoutBlockHeights,
+            vhtlcTimeouts,
             ourXOnlyPublicKey,
             serverXOnlyPublicKey,
             boltzXOnlyPublicKey,
@@ -997,59 +1002,31 @@ export class ArkadeSwaps {
         };
     }
 
-    private async getRefundLocktimeStatus(
-        refundLocktime: number,
-        currentBlockHeight?: number
-    ): Promise<RefundLocktimeStatus> {
-        if (isTimestampLocktime(refundLocktime)) {
-            const currentTimestamp = Math.floor(Date.now() / 1000);
-            return {
-                satisfied: currentTimestamp >= refundLocktime,
-                currentTimestamp,
-                referenceLabel: "currentTimestamp",
-                referenceValue: currentTimestamp,
-            };
-        }
-
-        const height =
-            currentBlockHeight ?? (await this.swapProvider.getChainHeight());
-        return {
-            satisfied: height >= refundLocktime,
-            currentBlockHeight: height,
-            referenceLabel: "currentBlockHeight",
-            referenceValue: height,
-        };
-    }
-
-    private async submarineRecoveryInfoFromLookup(
+    private submarineRecoveryInfoFromLookup(
         swap: BoltzSubmarineSwap,
         lookup: Pick<
             SubmarineVHTLCLookup,
-            "timeoutBlockHeights" | "refundableVtxos" | "diagnostic"
-        >,
-        currentBlockHeight?: number
-    ): Promise<SubmarineRecoveryInfo> {
-        const { refundableVtxos, diagnostic, timeoutBlockHeights } = lookup;
+            "vhtlcTimeouts" | "refundableVtxos" | "diagnostic"
+        >
+    ): SubmarineRecoveryInfo {
+        const { refundableVtxos, diagnostic, vhtlcTimeouts } = lookup;
 
         if (refundableVtxos.length > 0) {
-            const locktimeStatus = await this.getRefundLocktimeStatus(
-                timeoutBlockHeights.refund,
-                currentBlockHeight
+            const cltvSatisfied = isSubmarineRefundLocktimeReached(
+                vhtlcTimeouts.refund
             );
             const amountSats = refundableVtxos.reduce(
                 (sum, vtxo) => sum + Number(vtxo.value),
                 0
             );
             const isRecoverable =
-                locktimeStatus.satisfied ||
-                canRecoverViaBoltz3of3(refundableVtxos, swap);
+                cltvSatisfied || canRecoverViaBoltz3of3(refundableVtxos, swap);
             return {
                 swap,
                 status: isRecoverable ? "recoverable" : "pre_cltv",
                 vtxoCount: refundableVtxos.length,
                 amountSats,
-                refundLocktime: timeoutBlockHeights.refund,
-                currentBlockHeight: locktimeStatus.currentBlockHeight,
+                refundLocktime: vhtlcTimeouts.refund,
             };
         }
 
@@ -1061,7 +1038,7 @@ export class ArkadeSwaps {
                 status: "none",
                 vtxoCount: 0,
                 amountSats: 0,
-                refundLocktime: timeoutBlockHeights.refund,
+                refundLocktime: vhtlcTimeouts.refund,
             };
         }
         if (diagnostic.allSpent) {
@@ -1070,7 +1047,7 @@ export class ArkadeSwaps {
                 status: "already_spent",
                 vtxoCount: 0,
                 amountSats: 0,
-                refundLocktime: timeoutBlockHeights.refund,
+                refundLocktime: vhtlcTimeouts.refund,
             };
         }
         // VTXOs exist but none refundable — preconfirmed-only state.
@@ -1079,7 +1056,7 @@ export class ArkadeSwaps {
             status: "none",
             vtxoCount: 0,
             amountSats: 0,
-            refundLocktime: timeoutBlockHeights.refund,
+            refundLocktime: vhtlcTimeouts.refund,
         };
     }
 
@@ -1101,7 +1078,7 @@ export class ArkadeSwaps {
         const {
             arkInfo,
             vhtlcScript,
-            timeoutBlockHeights,
+            vhtlcTimeouts,
             ourXOnlyPublicKey,
             serverXOnlyPublicKey,
             boltzXOnlyPublicKey,
@@ -1127,10 +1104,9 @@ export class ArkadeSwaps {
 
         const outputScript = ArkAddress.decode(address).pkScript;
         const refundWithoutReceiverLeaf = vhtlcScript.refundWithoutReceiver();
-        const locktimeStatus = await this.getRefundLocktimeStatus(
-            timeoutBlockHeights.refund
+        const cltvSatisfied = isSubmarineRefundLocktimeReached(
+            vhtlcTimeouts.refund
         );
-        const cltvSatisfied = locktimeStatus.satisfied;
 
         // Refund every unspent VTXO at the contract address.
         // Throttle between Boltz API calls to avoid 429 rate-limiting.
@@ -1172,8 +1148,8 @@ export class ArkadeSwaps {
                 logger.error(
                     `Swap ${pendingSwap.id}: recoverable VTXO ${vtxo.txid}:${vtxo.vout} ` +
                         `cannot be refunded yet — refundWithoutReceiver locktime has not passed ` +
-                        `(refundLocktime=${timeoutBlockHeights.refund}, ` +
-                        `${locktimeStatus.referenceLabel}=${locktimeStatus.referenceValue}). ` +
+                        `(refundLocktime=${vhtlcTimeouts.refund}, ` +
+                        `currentTimestamp=${Math.floor(Date.now() / 1000)}). ` +
                         `Refund will be retried after locktime.`
                 );
                 skippedCount++;
@@ -1213,18 +1189,14 @@ export class ArkadeSwaps {
                     throw error;
                 }
 
-                // Re-check the locktime reference — it may have advanced while
+                // Re-check the locktime — wall clock may have advanced while
                 // talking to Boltz.
-                const updatedLocktimeStatus =
-                    await this.getRefundLocktimeStatus(
-                        timeoutBlockHeights.refund
-                    );
-                if (!updatedLocktimeStatus.satisfied) {
+                if (!isSubmarineRefundLocktimeReached(vhtlcTimeouts.refund)) {
                     logger.error(
                         `Swap ${pendingSwap.id}: Boltz rejected VTXO outpoint and ` +
                             `refundWithoutReceiver locktime has not passed yet ` +
-                            `(${updatedLocktimeStatus.referenceLabel}=${updatedLocktimeStatus.referenceValue}, ` +
-                            `locktime=${timeoutBlockHeights.refund}). ` +
+                            `(currentTimestamp=${Math.floor(Date.now() / 1000)}, ` +
+                            `locktime=${vhtlcTimeouts.refund}). ` +
                             `Refund will be retried after locktime.`
                     );
                     skippedCount++;
@@ -1413,45 +1385,28 @@ export class ArkadeSwaps {
             }
         }
 
-        const hasBlockBasedRefundableVtxos = valid.some(({ context }) => {
-            return (
-                !isTimestampLocktime(context.timeoutBlockHeights.refund) &&
-                (refundableByScript.get(context.vhtlcPkScriptHex.toLowerCase())
-                    ?.length ?? 0) > 0
-            );
+        return prepared.map((item) => {
+            if ("error" in item) {
+                return {
+                    swap: item.swap,
+                    status: "invalid_swap" as const,
+                    vtxoCount: 0,
+                    amountSats: 0,
+                    refundLocktime:
+                        item.swap.response.timeoutBlockHeights?.refund,
+                    error: item.error,
+                };
+            }
+
+            const refundableVtxos =
+                refundableByScript.get(
+                    item.context.vhtlcPkScriptHex.toLowerCase()
+                ) ?? [];
+            return this.submarineRecoveryInfoFromLookup(item.swap, {
+                ...item.context,
+                refundableVtxos,
+            });
         });
-        const currentBlockHeight = hasBlockBasedRefundableVtxos
-            ? await this.swapProvider.getChainHeight()
-            : undefined;
-
-        return Promise.all(
-            prepared.map((item) => {
-                if ("error" in item) {
-                    return Promise.resolve({
-                        swap: item.swap,
-                        status: "invalid_swap" as const,
-                        vtxoCount: 0,
-                        amountSats: 0,
-                        refundLocktime:
-                            item.swap.response.timeoutBlockHeights?.refund,
-                        error: item.error,
-                    });
-                }
-
-                const refundableVtxos =
-                    refundableByScript.get(
-                        item.context.vhtlcPkScriptHex.toLowerCase()
-                    ) ?? [];
-                return this.submarineRecoveryInfoFromLookup(
-                    item.swap,
-                    {
-                        ...item.context,
-                        refundableVtxos,
-                    },
-                    currentBlockHeight
-                );
-            })
-        );
     }
 
     /**
@@ -2513,7 +2468,7 @@ export class ArkadeSwaps {
             normalizeToXOnlyKey(arkInfo.signerPubkey, "server")
         );
 
-        const timeoutBlockHeights =
+        const vhtlcTimeouts =
             to === "ARK"
                 ? swap.response.claimDetails.timeouts!
                 : swap.response.lockupDetails.timeouts!;
@@ -2524,7 +2479,7 @@ export class ArkadeSwaps {
             receiverPubkey,
             senderPubkey,
             serverPubkey,
-            timeoutBlockHeights,
+            timeoutBlockHeights: vhtlcTimeouts,
         });
 
         if (lockupAddress !== vhtlcAddress) {
@@ -2587,12 +2542,7 @@ export class ArkadeSwaps {
         receiverPubkey: string;
         senderPubkey: string;
         serverPubkey: string;
-        timeoutBlockHeights: {
-            refund: number;
-            unilateralClaim: number;
-            unilateralRefund: number;
-            unilateralRefundWithoutReceiver: number;
-        };
+        timeoutBlockHeights: VhtlcTimeouts;
     }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string } {
         return createVHTLCScript(args);
     }
@@ -3050,12 +3000,7 @@ export interface IArkadeSwaps extends AsyncDisposable {
         receiverPubkey: string;
         senderPubkey: string;
         serverPubkey: string;
-        timeoutBlockHeights: {
-            refund: number;
-            unilateralClaim: number;
-            unilateralRefund: number;
-            unilateralRefundWithoutReceiver: number;
-        };
+        timeoutBlockHeights: VhtlcTimeouts;
     }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string };
     getFees(): Promise<FeesResponse>;
     getFees(from: Chain, to: Chain): Promise<ChainFeesResponse>;

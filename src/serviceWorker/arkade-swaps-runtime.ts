@@ -66,6 +66,7 @@ import {
 } from "@arkade-os/sdk";
 import type { TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { IArkadeSwaps } from "../arkade-swaps";
+import type { VhtlcTimeouts } from "../utils/vhtlc";
 import { IndexedDbSwapRepository } from "../repositories/IndexedDb/swap-repository";
 import {
     enrichReverseSwapPreimage as _enrichReverseSwapPreimage,
@@ -852,12 +853,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         receiverPubkey: string;
         senderPubkey: string;
         serverPubkey: string;
-        timeoutBlockHeights: {
-            refund: number;
-            unilateralClaim: number;
-            unilateralRefund: number;
-            unilateralRefundWithoutReceiver: number;
-        };
+        timeoutBlockHeights: VhtlcTimeouts;
     }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string } {
         throw new Error(
             "createVHTLCScript is not supported via service worker"

@@ -181,10 +181,11 @@ export interface SubmarineRecoveryInfo {
     vtxoCount: number;
     /** Total satoshis across the unspent VTXOs. */
     amountSats: number;
-    /** Refund CLTV block height for the swap, when available. */
+    /**
+     * Absolute Unix-timestamp CLTV from the swap's VHTLC, when available.
+     * Compared against wall-clock seconds for refund readiness.
+     */
     refundLocktime?: number;
-    /** Current chain tip height, when using a block-height locktime. */
-    currentBlockHeight?: number;
     /** Reason populated when `status === "invalid_swap"`. */
     error?: string;
 }
