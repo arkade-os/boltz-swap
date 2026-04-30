@@ -88,6 +88,10 @@ export type {
     Network,
     Chain,
     Vtxo,
+    SubmarineRecoveryStatus,
+    SubmarineRecoveryInfo,
+    SubmarineRecoveryResult,
+    SubmarineRefundOutcome,
 } from "./types";
 export type {
     SwapManagerConfig,

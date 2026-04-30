@@ -15,6 +15,9 @@ import {
     BoltzSubmarineSwap,
     SendLightningPaymentRequest,
     SendLightningPaymentResponse,
+    SubmarineRecoveryInfo,
+    SubmarineRecoveryResult,
+    SubmarineRefundOutcome,
 } from "../types";
 import { SwapRepository } from "../repositories/swap-repository";
 import {
@@ -47,6 +50,11 @@ import type {
     ResponseWaitAndClaimChain,
     ResponseWaitAndClaim,
     ResponseWaitForSwapSettlement,
+    ResponseInspectSubmarineRecovery,
+    ResponseScanRecoverableSubmarineSwaps,
+    ResponseRecoverAllSubmarineFunds,
+    ResponseRefundVhtlc,
+    ResponseRecoverSubmarineFunds,
 } from "./arkade-swaps-message-handler";
 import {
     MESSAGE_BUS_NOT_INITIALIZED,
@@ -58,6 +66,7 @@ import {
 } from "@arkade-os/sdk";
 import type { TransactionOutput } from "@scure/btc-signer/psbt.js";
 import { IArkadeSwaps } from "../arkade-swaps";
+import type { VhtlcTimeouts } from "../utils/vhtlc";
 import { IndexedDbSwapRepository } from "../repositories/IndexedDb/swap-repository";
 import {
     enrichReverseSwapPreimage as _enrichReverseSwapPreimage,
@@ -523,13 +532,61 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         });
     }
 
-    async refundVHTLC(pendingSwap: BoltzSubmarineSwap): Promise<void> {
-        await this.sendMessage({
+    async refundVHTLC(
+        pendingSwap: BoltzSubmarineSwap
+    ): Promise<SubmarineRefundOutcome> {
+        const res = await this.sendMessage({
             id: getRandomId(),
             tag: this.messageTag,
             type: "REFUND_VHTLC",
             payload: pendingSwap,
         });
+        return (res as ResponseRefundVhtlc).payload;
+    }
+
+    async inspectSubmarineRecovery(
+        swap: BoltzSubmarineSwap
+    ): Promise<SubmarineRecoveryInfo> {
+        const res = await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
+            type: "INSPECT_SUBMARINE_RECOVERY",
+            payload: swap,
+        });
+        return (res as ResponseInspectSubmarineRecovery).payload;
+    }
+
+    async scanRecoverableSubmarineSwaps(): Promise<SubmarineRecoveryInfo[]> {
+        const res = await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
+            type: "SCAN_RECOVERABLE_SUBMARINE_SWAPS",
+        });
+        return (res as ResponseScanRecoverableSubmarineSwaps).payload;
+    }
+
+    async recoverSubmarineFunds(
+        swap: BoltzSubmarineSwap
+    ): Promise<SubmarineRefundOutcome> {
+        const res = await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
+            type: "RECOVER_SUBMARINE_FUNDS",
+            payload: swap,
+        });
+        return (res as ResponseRecoverSubmarineFunds).payload;
+    }
+
+    async recoverAllSubmarineFunds(
+        swaps: BoltzSubmarineSwap[]
+    ): Promise<SubmarineRecoveryResult[]> {
+        const res = await this.sendMessage({
+            id: getRandomId(),
+            tag: this.messageTag,
+            type: "RECOVER_ALL_SUBMARINE_FUNDS",
+            payload: swaps,
+        });
+        return (res as ResponseRecoverAllSubmarineFunds).payload;
     }
 
     async waitAndClaim(
@@ -796,12 +853,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         receiverPubkey: string;
         senderPubkey: string;
         serverPubkey: string;
-        timeoutBlockHeights: {
-            refund: number;
-            unilateralClaim: number;
-            unilateralRefund: number;
-            unilateralRefundWithoutReceiver: number;
-        };
+        timeoutBlockHeights: VhtlcTimeouts;
     }): { vhtlcScript: VHTLC.Script; vhtlcAddress: string } {
         throw new Error(
             "createVHTLCScript is not supported via service worker"
