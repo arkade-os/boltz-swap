@@ -3109,6 +3109,19 @@ describe("ArkadeSwaps", () => {
             expect(info.currentBlockHeight).toBe(5);
         });
 
+        it("returns recoverable pre-CLTV when VTXOs can use Boltz 3-of-3 refund", async () => {
+            mockSelection({
+                spendable: [makeVtxo(lockupTxid, 0, 50000, false, "settled")],
+            });
+            vi.spyOn(swapProvider, "getChainHeight").mockResolvedValue(5);
+
+            const info = await swaps.inspectSubmarineRecovery(claimedSwap);
+
+            expect(info.status).toBe("recoverable");
+            expect(info.vtxoCount).toBe(1);
+            expect(info.currentBlockHeight).toBe(5);
+        });
+
         it("uses Unix time instead of chain height for timestamp locktimes", async () => {
             const timestampSwap: BoltzSubmarineSwap = {
                 ...claimedSwap,

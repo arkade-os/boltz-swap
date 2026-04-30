@@ -147,6 +147,29 @@ const dedupeVtxos = (vtxos: VirtualCoin[]): VirtualCoin[] => [
     ).values(),
 ];
 
+const hasNonEmptyString = (value: unknown): value is string =>
+    typeof value === "string" && value.length > 0;
+
+const canRecoverViaBoltz3of3 = (
+    refundableVtxos: VirtualCoin[],
+    swap: BoltzSubmarineSwap
+): boolean => {
+    const hasRequiredSwapMetadata =
+        hasNonEmptyString(swap.id) &&
+        hasNonEmptyString(swap.request.refundPublicKey) &&
+        hasNonEmptyString(swap.response.address) &&
+        hasNonEmptyString(swap.response.claimPublicKey) &&
+        !!swap.response.timeoutBlockHeights;
+
+    if (!hasRequiredSwapMetadata) return false;
+
+    // Pre-CLTV Boltz co-signing only works for normal spendable VTXOs.
+    // Swept/recoverable VTXOs must wait for refundWithoutReceiver.
+    return refundableVtxos.some(
+        (vtxo) => !vtxo.isSpent && !isRecoverable(vtxo)
+    );
+};
+
 const LOCKTIME_THRESHOLD = 500_000_000;
 const isTimestampLocktime = (locktime: number): boolean =>
     locktime >= LOCKTIME_THRESHOLD;
@@ -1017,9 +1040,12 @@ export class ArkadeSwaps {
                 (sum, vtxo) => sum + Number(vtxo.value),
                 0
             );
+            const isRecoverable =
+                locktimeStatus.satisfied ||
+                canRecoverViaBoltz3of3(refundableVtxos, swap);
             return {
                 swap,
-                status: locktimeStatus.satisfied ? "recoverable" : "pre_cltv",
+                status: isRecoverable ? "recoverable" : "pre_cltv",
                 vtxoCount: refundableVtxos.length,
                 amountSats,
                 refundLocktime: timeoutBlockHeights.refund,

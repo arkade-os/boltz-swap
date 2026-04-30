@@ -151,10 +151,11 @@ export interface BoltzSubmarineSwap {
  * Outcome of inspecting a submarine swap's lockup address for recoverable
  * funds.
  *
- * - `recoverable` — unspent VTXOs exist and the refund CLTV has elapsed,
- *   so they can be swept via the unilateral refund path.
+ * - `recoverable` — unspent VTXOs exist and can be swept now, either because
+ *   the refund CLTV has elapsed or because the Boltz 3-of-3 refund path is
+ *   immediately available.
  * - `pre_cltv` — unspent VTXOs exist but the refund locktime has not
- *   passed yet; the user must wait or rely on Boltz cooperation.
+ *   passed yet and no immediate Boltz 3-of-3 refund path was detected.
  * - `none` — no unspent VTXOs at the address (never funded, fully
  *   pruned, or only preconfirmed-only state).
  * - `already_spent` — the address has VTXOs but every one is spent
