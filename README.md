@@ -18,7 +18,7 @@ Built on top of the Boltz swap protocol with automatic background monitoring via
 ## Installation
 
 ```bash
-npm install @arkade-os/sdk @arkade-os/boltz-swap
+pnpm add @arkade-os/sdk @arkade-os/boltz-swap
 ```
 
 ## Basic Usage
@@ -265,10 +265,10 @@ Expo/React Native cannot run a long-lived Service Worker, and background work is
 - Install Expo background task dependencies:
 
 ```bash
-npx expo install expo-task-manager expo-background-task
-npx expo install @react-native-async-storage/async-storage expo-secure-store
-npx expo install expo-crypto
-npx expo install expo-sqlite && npm install indexeddbshim
+pnpm dlx expo install expo-task-manager expo-background-task
+pnpm dlx expo install @react-native-async-storage/async-storage expo-secure-store
+pnpm dlx expo install expo-crypto
+pnpm dlx expo install expo-sqlite && pnpm add indexeddbshim
 ```
 
 - If you rely on the default IndexedDB-backed repositories in Expo, call `setupExpoDb()` **before any SDK/boltz-swap import**:
