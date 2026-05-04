@@ -1,16 +1,17 @@
 /**
- * Expo/React Native entrypoint for `@arkade-os/boltz-swap`.
+ * Expo/React Native foreground entrypoint for `@arkade-os/boltz-swap`.
  *
- * Provides an {@link ExpoArkadeSwaps} wrapper plus helpers to register
- * an Expo background task for best-effort swap polling and claim/refund.
+ * Exposes the {@link ExpoArkadeSwaps} wrapper plus foreground-only
+ * primitives (providers, the queue's task-type identifier, public
+ * config types). Has no static or dynamic dependency on
+ * `expo-task-manager` / `expo-background-task`.
+ *
+ * For OS background-task scheduling, import explicitly from
+ * `@arkade-os/boltz-swap/expo/background`. That entrypoint owns the
+ * static imports of the Expo background packages.
  */
 export { ExpoArkadeSwaps, ExpoArkadeLightning } from "./arkade-lightning";
-export {
-    defineExpoSwapBackgroundTask,
-    registerExpoSwapBackgroundTask,
-    unregisterExpoSwapBackgroundTask,
-} from "./background";
-export { swapsPollProcessor, SWAP_POLL_TASK_TYPE } from "./swapsPollProcessor";
+export { SWAP_POLL_TASK_TYPE } from "./swap-poll-task-type";
 export type {
     SwapTaskDependencies,
     PersistedSwapBackgroundConfig,

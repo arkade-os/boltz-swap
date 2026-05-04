@@ -1,3 +1,22 @@
+/**
+ * `@arkade-os/boltz-swap/expo/background`
+ *
+ * Opt-in OS background-task integration for Expo apps.
+ *
+ * `expo-task-manager` and `expo-background-task` are imported statically
+ * so static bundlers (Metro, webpack, Vite) can resolve them at build
+ * time. They are declared as optional peer dependencies of this package
+ * — consumers who import this entrypoint must install both.
+ *
+ * Usage:
+ * 1. Call {@link defineExpoSwapBackgroundTask} at MODULE TOP LEVEL,
+ *    before React mounts. This is an Expo TaskManager constraint.
+ * 2. Call {@link registerExpoSwapBackgroundTask} and
+ *    {@link unregisterExpoSwapBackgroundTask} from app lifecycle code.
+ */
+import * as TaskManager from "expo-task-manager";
+import * as BackgroundTask from "expo-background-task";
+
 import type { TaskItem } from "@arkade-os/sdk/worker/expo";
 import { runTasks } from "@arkade-os/sdk/worker/expo";
 import {
@@ -5,59 +24,16 @@ import {
     ExpoIndexerProvider,
 } from "@arkade-os/sdk/adapters/expo";
 import type { IWallet } from "@arkade-os/sdk";
-import { BoltzSwapProvider } from "../boltz-swap-provider";
-import { swapsPollProcessor, SWAP_POLL_TASK_TYPE } from "./swapsPollProcessor";
+import { BoltzSwapProvider } from "../../boltz-swap-provider";
+import { swapsPollProcessor } from "./swaps-poll-processor";
+import { SWAP_POLL_TASK_TYPE } from "../swap-poll-task-type";
 import type {
     DefineSwapBackgroundTaskOptions,
     PersistedSwapBackgroundConfig,
     SwapTaskDependencies,
-} from "./types";
+} from "../types";
 
-// ── Inline type declarations for optional Expo packages ──────────
-// These avoid a hard build-time dependency on expo-background-task
-// and expo-task-manager (they are optional peerDependencies).
-
-interface TaskManagerModule {
-    defineTask(
-        taskName: string,
-        executor: (body: {
-            data: unknown;
-            error: { code: string | number; message: string } | null;
-            executionInfo: { eventId: string; taskName: string };
-        }) => Promise<unknown>
-    ): void;
-}
-
-interface BackgroundTaskModule {
-    BackgroundTaskResult: { Success: 1; Failed: 2 };
-    registerTaskAsync(
-        taskName: string,
-        options?: { minimumInterval?: number }
-    ): Promise<void>;
-    unregisterTaskAsync(taskName: string): Promise<void>;
-}
-
-function requireTaskManager(): TaskManagerModule {
-    try {
-        return require("expo-task-manager") as TaskManagerModule;
-    } catch {
-        throw new Error(
-            "expo-task-manager is required for background tasks. " +
-                "Install it with: npx expo install expo-task-manager"
-        );
-    }
-}
-
-function requireBackgroundTask(): BackgroundTaskModule {
-    try {
-        return require("expo-background-task") as BackgroundTaskModule;
-    } catch {
-        throw new Error(
-            "expo-background-task is required for background tasks. " +
-                "Install it with: npx expo install expo-background-task"
-        );
-    }
-}
+export { swapsPollProcessor } from "./swaps-poll-processor";
 
 function getRandomId(): string {
     return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -99,8 +75,6 @@ function createBackgroundWalletShim(args: {
     };
 }
 
-// ── Public API ───────────────────────────────────────────────────
-
 /**
  * Define the Expo background task handler for swap polling.
  *
@@ -109,8 +83,8 @@ function createBackgroundWalletShim(args: {
  *
  * @example
  * ```ts
- * // At the top of your app entry file (_layout.tsx)
- * import { defineExpoSwapBackgroundTask } from "@arkade-os/boltz-swap/expo";
+ * // At the top of your app entry file (App.tsx)
+ * import { defineExpoSwapBackgroundTask } from "@arkade-os/boltz-swap/expo/background";
  * import { AsyncStorageTaskQueue } from "@arkade-os/sdk/worker/expo";
  * import AsyncStorage from "@react-native-async-storage/async-storage";
  *
@@ -129,9 +103,6 @@ export function defineExpoSwapBackgroundTask(
     taskName: string,
     options: DefineSwapBackgroundTaskOptions
 ): void {
-    const TaskManager = requireTaskManager();
-    const BackgroundTask = requireBackgroundTask();
-
     const { taskQueue, swapRepository, identityFactory } = options;
 
     TaskManager.defineTask(taskName, async () => {
@@ -222,8 +193,8 @@ export function defineExpoSwapBackgroundTask(
 /**
  * Activate the OS-level background task scheduler.
  *
- * Call this after {@link defineExpoSwapBackgroundTask} (typically inside
- * {@link ExpoArkadeSwaps.setup}).
+ * Call this from app lifecycle code after the consumer has called
+ * {@link defineExpoSwapBackgroundTask} at module top level.
  *
  * @param taskName - The task name registered with defineExpoSwapBackgroundTask.
  * @param options - Optional configuration.
@@ -233,7 +204,6 @@ export async function registerExpoSwapBackgroundTask(
     taskName: string,
     options?: { minimumInterval?: number }
 ): Promise<void> {
-    const BackgroundTask = requireBackgroundTask();
     await BackgroundTask.registerTaskAsync(taskName, {
         // expo-background-task expects minutes:
         // https://docs.expo.dev/versions/latest/sdk/background-task/#backgroundtaskoptions
@@ -247,6 +217,5 @@ export async function registerExpoSwapBackgroundTask(
 export async function unregisterExpoSwapBackgroundTask(
     taskName: string
 ): Promise<void> {
-    const BackgroundTask = requireBackgroundTask();
     await BackgroundTask.unregisterTaskAsync(taskName);
 }

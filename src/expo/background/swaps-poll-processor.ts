@@ -1,6 +1,6 @@
 import type { TaskItem, TaskResult } from "@arkade-os/sdk/worker/expo";
 import type { TaskProcessor } from "@arkade-os/sdk/worker/expo";
-import type { SwapTaskDependencies } from "./types";
+import type { SwapTaskDependencies } from "../types";
 import {
     isPendingReverseSwap,
     isPendingSubmarineSwap,
@@ -8,14 +8,10 @@ import {
     isReverseFinalStatus,
     isSubmarineFinalStatus,
     isSubmarineSwapRefundable,
-} from "../boltz-swap-provider";
-import { ArkadeSwaps } from "../arkade-swaps";
-import { logger } from "../logger";
-
-/**
- * Task type identifier for {@link swapsPollProcessor}.
- */
-export const SWAP_POLL_TASK_TYPE = "swap-poll";
+} from "../../boltz-swap-provider";
+import { ArkadeSwaps } from "../../arkade-swaps";
+import { logger } from "../../logger";
+import { SWAP_POLL_TASK_TYPE } from "../swap-poll-task-type";
 
 /**
  * Stateless processor that polls Boltz for swap status updates and

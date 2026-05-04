@@ -1,9 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { InMemorySwapRepository } from "../../src/repositories/inMemory/swap-repository";
-import {
-    swapsPollProcessor,
-    SWAP_POLL_TASK_TYPE,
-} from "../../src/expo/swapsPollProcessor";
+import { swapsPollProcessor } from "../../src/expo/background/swaps-poll-processor";
+import { SWAP_POLL_TASK_TYPE } from "../../src/expo/swap-poll-task-type";
 import type { SwapTaskDependencies } from "../../src/expo/types";
 import type { BoltzReverseSwap, BoltzSubmarineSwap } from "../../src/types";
 import type { BoltzSwapProvider } from "../../src/boltz-swap-provider";
