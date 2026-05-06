@@ -17,6 +17,14 @@ import {
 import { SwapManagerConfig } from "./swap-manager";
 import { SwapRepository } from "./repositories/swap-repository";
 
+/** Options for delegating VHTLC claiming to a bancod solver. */
+export type OfflineReceiveOptions = {
+    /** Base URL of the bancod HTTP gateway (e.g. "http://localhost:7091"). */
+    bancodUrl: string;
+    /** Hex-encoded compressed or x-only introspector signer pubkey. */
+    introspectorPubkey: string;
+};
+
 /** A virtual transaction output (VTXO) — an off-chain UTXO in the Ark protocol. */
 // TODO: replace with better data structure
 export interface Vtxo {
@@ -71,6 +79,8 @@ export interface CreateLightningInvoiceRequest {
     amount: number;
     /** Optional description embedded in the BOLT11 invoice. */
     description?: string;
+    /** When set, the VHTLC is claimable by a bancod preimage solver instead of the wallet. */
+    offlineReceive?: OfflineReceiveOptions;
 }
 
 /** Response containing the created Lightning invoice and swap details. */

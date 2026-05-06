@@ -38,6 +38,7 @@ import type {
     SendLightningPaymentResponse,
     ArkToBtcResponse,
     BtcToArkResponse,
+    OfflineReceiveOptions,
     SubmarineRecoveryInfo,
     SubmarineRecoveryResult,
     SubmarineRefundOutcome,
@@ -100,6 +101,11 @@ import {
     refundVHTLCwithOffchainTx,
     type VhtlcTimeouts,
 } from "./utils/vhtlc";
+import {
+    computeArkadeScriptPubkey,
+    enforcePayTo,
+    registerOfflineReceive,
+} from "./utils/offline-receive";
 
 type SubmarineVHTLCDiagnostic = {
     totalVtxoCount: number;
@@ -477,9 +483,20 @@ export class ArkadeSwaps {
         if (args.amount <= 0)
             throw new SwapError({ message: "Amount must be greater than 0" });
 
-        const claimPublicKey = hex.encode(
-            await this.wallet.identity.compressedPublicKey()
-        );
+        const arkadeScript = args.offlineReceive
+            ? enforcePayTo(
+                  ArkAddress.decode(await this.wallet.getAddress()).pkScript
+              )
+            : undefined;
+        const claimPublicKey = arkadeScript
+            ? "02" +
+              hex.encode(
+                  computeArkadeScriptPubkey(
+                      hex.decode(args.offlineReceive!.introspectorPubkey),
+                      arkadeScript
+                  )
+              )
+            : hex.encode(await this.wallet.identity.compressedPublicKey());
         if (!claimPublicKey)
             throw new SwapError({
                 message: "Failed to get claim public key from wallet",
@@ -514,6 +531,24 @@ export class ArkadeSwaps {
             response: swapResponse,
             status: "swap.created",
         };
+
+        if (args.offlineReceive && arkadeScript) {
+            const arkInfo = await this.arkProvider.getInfo();
+            const { vhtlcScript } = this.createVHTLCScript({
+                network: arkInfo.network,
+                preimageHash: sha256(preimage),
+                receiverPubkey: claimPublicKey,
+                senderPubkey: swapResponse.refundPublicKey!,
+                serverPubkey: arkInfo.signerPubkey,
+                timeoutBlockHeights: swapResponse.timeoutBlockHeights!,
+            });
+            await registerOfflineReceive(
+                args.offlineReceive.bancodUrl,
+                preimage,
+                arkadeScript,
+                vhtlcScript.scripts.map((s) => hex.encode(s))
+            );
+        }
 
         // save pending swap to storage
         await this.savePendingReverseSwap(pendingSwap);
@@ -1966,6 +2001,7 @@ export class ArkadeSwaps {
         feeSatsPerByte?: number;
         senderLockAmount?: number;
         receiverLockAmount?: number;
+        offlineReceive?: OfflineReceiveOptions;
     }): Promise<BtcToArkResponse> {
         const pendingSwap = await this.createChainSwap({
             to: "ARK",
@@ -1974,6 +2010,7 @@ export class ArkadeSwaps {
             senderLockAmount: args.senderLockAmount,
             receiverLockAmount: args.receiverLockAmount,
             toAddress: await this.wallet.getAddress(),
+            offlineReceive: args.offlineReceive,
         });
 
         await this.verifyChainSwap({
@@ -2322,6 +2359,7 @@ export class ArkadeSwaps {
         feeSatsPerByte?: number;
         senderLockAmount?: number;
         receiverLockAmount?: number;
+        offlineReceive?: OfflineReceiveOptions;
     }): Promise<BoltzChainSwap> {
         const { to, from, receiverLockAmount, senderLockAmount, toAddress } =
             args;
@@ -2369,10 +2407,23 @@ export class ArkadeSwaps {
                 message: "Failed to get refund public key",
             });
 
-        const claimPublicKey =
-            to === "ARK"
-                ? hex.encode(await this.wallet.identity.compressedPublicKey())
-                : hex.encode(secp256k1.getPublicKey(ephemeralKey));
+        const offlineArkadeScript =
+            args.offlineReceive && to === "ARK"
+                ? enforcePayTo(
+                      ArkAddress.decode(await this.wallet.getAddress()).pkScript
+                  )
+                : undefined;
+        const claimPublicKey = offlineArkadeScript
+            ? "02" +
+              hex.encode(
+                  computeArkadeScriptPubkey(
+                      hex.decode(args.offlineReceive!.introspectorPubkey),
+                      offlineArkadeScript
+                  )
+              )
+            : to === "ARK"
+              ? hex.encode(await this.wallet.identity.compressedPublicKey())
+              : hex.encode(secp256k1.getPublicKey(ephemeralKey));
 
         if (!claimPublicKey)
             throw new SwapError({
@@ -2406,6 +2457,24 @@ export class ArkadeSwaps {
             toAddress: args.toAddress,
             type: "chain",
         };
+
+        if (args.offlineReceive && offlineArkadeScript) {
+            const arkInfo = await this.arkProvider.getInfo();
+            const { vhtlcScript } = this.createVHTLCScript({
+                network: arkInfo.network,
+                preimageHash: sha256(preimage),
+                receiverPubkey: claimPublicKey,
+                senderPubkey: swapResponse.claimDetails.serverPublicKey,
+                serverPubkey: arkInfo.signerPubkey,
+                timeoutBlockHeights: swapResponse.claimDetails.timeouts!,
+            });
+            await registerOfflineReceive(
+                args.offlineReceive.bancodUrl,
+                preimage,
+                offlineArkadeScript,
+                vhtlcScript.scripts.map((s) => hex.encode(s))
+            );
+        }
 
         await this.savePendingChainSwap(pendingSwap);
 
