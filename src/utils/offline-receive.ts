@@ -1,4 +1,4 @@
-import { hex } from "@scure/base";
+import { base64, hex } from "@scure/base";
 import { schnorr, secp256k1 } from "@noble/curves/secp256k1.js";
 
 // Arkade enforcement script pinning output[currentInputIndex] to the given
@@ -48,13 +48,12 @@ export async function registerOfflineReceive(
     arkadeScript: Uint8Array,
     taptree: string[]
 ): Promise<string> {
-    const toB64 = (b: Uint8Array) => Buffer.from(b).toString("base64");
     const r = await fetch(`${bancodUrl}/v1/preimage/claim`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-            preimage: toB64(preimage),
-            arkade_script: toB64(arkadeScript),
+            preimage: base64.encode(preimage),
+            arkade_script: base64.encode(arkadeScript),
             taptree,
         }),
     });
