@@ -13,6 +13,7 @@ import {
     BoltzChainSwap,
     BoltzReverseSwap,
     BoltzSubmarineSwap,
+    OfflineReceiveOptions,
     SendLightningPaymentRequest,
     SendLightningPaymentResponse,
     SubmarineRecoveryInfo,
@@ -668,6 +669,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         feeSatsPerByte?: number;
         senderLockAmount?: number;
         receiverLockAmount?: number;
+        offlineReceive?: OfflineReceiveOptions;
     }): Promise<BtcToArkResponse> {
         try {
             const res = await this.sendMessage({
@@ -691,6 +693,7 @@ export class ServiceWorkerArkadeSwaps implements IArkadeSwaps {
         feeSatsPerByte?: number;
         senderLockAmount?: number;
         receiverLockAmount?: number;
+        offlineReceive?: OfflineReceiveOptions;
     }): Promise<BoltzChainSwap> {
         try {
             const res = await this.sendMessage({

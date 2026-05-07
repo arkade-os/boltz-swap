@@ -3036,6 +3036,7 @@ export interface IArkadeSwaps extends AsyncDisposable {
         feeSatsPerByte?: number;
         senderLockAmount?: number;
         receiverLockAmount?: number;
+        offlineReceive?: OfflineReceiveOptions;
     }): Promise<BtcToArkResponse>;
     waitAndClaimArk(pendingSwap: BoltzChainSwap): Promise<{ txid: string }>;
     claimArk(pendingSwap: BoltzChainSwap): Promise<void>;
@@ -3048,6 +3049,7 @@ export interface IArkadeSwaps extends AsyncDisposable {
         feeSatsPerByte?: number;
         senderLockAmount?: number;
         receiverLockAmount?: number;
+        offlineReceive?: OfflineReceiveOptions;
     }): Promise<BoltzChainSwap>;
     verifyChainSwap(args: {
         to: Chain;

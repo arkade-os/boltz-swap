@@ -26,6 +26,7 @@ import {
     BoltzChainSwap,
     BoltzReverseSwap,
     BoltzSubmarineSwap,
+    type OfflineReceiveOptions,
     type SendLightningPaymentRequest,
     SendLightningPaymentResponse,
     type SubmarineRecoveryInfo,
@@ -288,6 +289,7 @@ export type RequestBtcToArk = RequestEnvelope & {
         feeSatsPerByte?: number;
         senderLockAmount?: number;
         receiverLockAmount?: number;
+        offlineReceive?: OfflineReceiveOptions;
     };
 };
 export type ResponseBtcToArk = ResponseEnvelope & {
@@ -304,6 +306,7 @@ export type RequestCreateChainSwap = RequestEnvelope & {
         feeSatsPerByte?: number;
         senderLockAmount?: number;
         receiverLockAmount?: number;
+        offlineReceive?: OfflineReceiveOptions;
     };
 };
 export type ResponseCreateChainSwap = ResponseEnvelope & {
