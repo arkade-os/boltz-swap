@@ -56,6 +56,7 @@
         "lint": "prettier --check src test",
         "prepack": "pnpm run build",
         "test": "vitest run",
+        "test:refund": "vitest run test/e2e/refund-swap.test.ts",
         "test:unit": "vitest run --exclude test/e2e",
         "test:integration": "vitest run test/e2e/**",
         "test:setup-docker": "node test/e2e/setup.mjs",
