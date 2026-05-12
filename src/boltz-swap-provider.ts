@@ -1391,6 +1391,7 @@ export class BoltzSwapProvider {
         update: (type: BoltzSwapStatus, data?: any) => void
     ): Promise<void> {
         return new Promise((resolve, reject) => {
+            console.log("POOOROOROROROROORO", this.wsUrl);
             const webSocket = new globalThis.WebSocket(this.wsUrl);
 
             const connectionTimeout = setTimeout(() => {

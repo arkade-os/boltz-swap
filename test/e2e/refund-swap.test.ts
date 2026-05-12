@@ -40,6 +40,7 @@ import { tapLeafHash } from "@scure/btc-signer/payment.js";
 import { TransactionOutput } from "@scure/btc-signer/psbt.js";
 import {
     InvoiceExpiredError,
+    NetworkError,
     SwapError,
     SwapExpiredError,
     TransactionFailedError,
@@ -52,6 +53,12 @@ const CLAIM_VTXO_RETRY_DELAY_MS = 500;
 const execAsync = promisify(exec);
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getLNDBalance = async () => {
+    const lncli = "docker exec -i lnd lncli --network=regtest";
+    const { stdout } = await execAsync(`${lncli} channelbalance`);
+    return parseInt(JSON.parse(stdout).balance, 10);
+};
 
 const payInvoice = async (invoice: string) => {
     const lncli = "docker exec -i lnd lncli --network=regtest";
@@ -118,8 +125,10 @@ describe("Refund swap", () => {
         });
     });
 
-    it("should refund a swap successfully", { timeout: 80_000 }, async () => {
+    it("should refund a swap successfully", { timeout: 100_000 }, async () => {
+        let finalizeFunc: any;
         const options = { amount: 2100 };
+        const lndBalanceBefore = await getLNDBalance();
         const balanceBefore = await wallet.getBalance();
         const pendingSwap = await swaps.createReverseSwap(options);
 
@@ -229,12 +238,13 @@ describe("Refund swap", () => {
             const vhtlcIdentity = claimVHTLCIdentity(wallet.identity, preimage);
 
             let finalStatus: BoltzSwapStatus | undefined;
+            let finalizeFunc: any;
 
             if (isRecoverable(vtxo)) {
                 await swaps.joinBatch(vhtlcIdentity, input, output, arkInfo);
                 finalStatus = "transaction.claimed";
             } else {
-                await claimVHTLCwithOffchainTx(
+                finalizeFunc = await claimVHTLCwithOffchainTx(
                     vhtlcIdentity,
                     vhtlcScript,
                     serverXOnly,
@@ -246,6 +256,7 @@ describe("Refund swap", () => {
                 finalStatus = (await swaps.getSwapStatus(pendingSwap.id))
                     .status;
             }
+            return finalizeFunc;
         };
 
         const claimVHTLCwithOffchainTx = async (
@@ -256,7 +267,7 @@ describe("Refund swap", () => {
             output: TransactionOutput,
             arkInfo: ArkInfo,
             arkProvider: ArkProvider
-        ): Promise<void> => {
+        ): Promise<any> => {
             // create the server unroll script for checkpoint transactions
             const rawCheckpointTapscript = hex.decode(
                 arkInfo.checkpointTapscript
@@ -282,61 +293,68 @@ describe("Refund swap", () => {
 
             // wait for Boltz to fetch the pending Tx and settle the invoice, before making the swap expire.
             // it can take up to a minute.
-            await sleep(60_000);
             await generateBlocks(21);
-            await sleep(5000);
 
-            // verify the server signed the transaction with correct key on the claim leaf
-            const finalTx = Transaction.fromPSBT(base64.decode(finalArkTx));
-            const serverPubkeyHex = hex.encode(serverXOnlyPublicKey);
-            const claimLeafHash = tapLeafHash(
-                scriptFromTapLeafScript(vhtlcScript.claim())
-            );
-            for (let i = 0; i < finalTx.inputsLength; i++) {
-                if (
-                    !verifySignatures(
-                        finalTx,
-                        i,
-                        [serverPubkeyHex],
-                        claimLeafHash
-                    )
-                ) {
-                    throw new Error("Invalid final Ark transaction");
-                }
-            }
-
-            // verify and sign the checkpoint transactions pre signed by the server
-            const finalCheckpoints = await Promise.all(
-                signedCheckpointTxs.map(async (c, idx) => {
-                    const tx = Transaction.fromPSBT(base64.decode(c));
-                    const checkpointLeaf =
-                        checkpoints[idx].getInput(0).tapLeafScript![0];
-                    const cpLeafHash = tapLeafHash(
-                        scriptFromTapLeafScript(checkpointLeaf)
-                    );
+            return async () => {
+                // verify the server signed the transaction with correct key on the claim leaf
+                const finalTx = Transaction.fromPSBT(base64.decode(finalArkTx));
+                const serverPubkeyHex = hex.encode(serverXOnlyPublicKey);
+                const claimLeafHash = tapLeafHash(
+                    scriptFromTapLeafScript(vhtlcScript.claim())
+                );
+                for (let i = 0; i < finalTx.inputsLength; i++) {
                     if (
-                        !verifySignatures(tx, 0, [serverPubkeyHex], cpLeafHash)
+                        !verifySignatures(
+                            finalTx,
+                            i,
+                            [serverPubkeyHex],
+                            claimLeafHash
+                        )
                     ) {
-                        throw new Error(
-                            "Invalid server signature in checkpoint transaction"
-                        );
+                        throw new Error("Invalid final Ark transaction");
                     }
-                    const signedCheckpoint = await identity.sign(tx, [0]);
-                    return base64.encode(signedCheckpoint.toPSBT());
-                })
-            );
+                }
 
-            // submit the final transaction to the Ark provider
-            await arkProvider.finalizeTx(arkTxid, finalCheckpoints);
+                // verify and sign the checkpoint transactions pre signed by the server
+                const finalCheckpoints = await Promise.all(
+                    signedCheckpointTxs.map(async (c, idx) => {
+                        const tx = Transaction.fromPSBT(base64.decode(c));
+                        const checkpointLeaf =
+                            checkpoints[idx].getInput(0).tapLeafScript![0];
+                        const cpLeafHash = tapLeafHash(
+                            scriptFromTapLeafScript(checkpointLeaf)
+                        );
+                        if (
+                            !verifySignatures(
+                                tx,
+                                0,
+                                [serverPubkeyHex],
+                                cpLeafHash
+                            )
+                        ) {
+                            throw new Error(
+                                "Invalid server signature in checkpoint transaction"
+                            );
+                        }
+                        const signedCheckpoint = await identity.sign(tx, [0]);
+                        return base64.encode(signedCheckpoint.toPSBT());
+                    })
+                );
+
+                // submit the final transaction to the Ark provider
+                await arkProvider.finalizeTx(arkTxid, finalCheckpoints);
+            };
         };
 
         const onStatusUpdate = async (status: BoltzSwapStatus, data: any) => {
             switch (status) {
                 case "transaction.mempool":
                 case "transaction.confirmed":
-                    claimVHTLC(pendingSwap);
+                    finalizeFunc = await claimVHTLC(pendingSwap);
                     break;
                 case "invoice.settled": {
+                    await finalizeFunc();
+
                     const swapStatus = await swapProvider.getReverseSwapTxId(
                         pendingSwap.id
                     );
@@ -347,7 +365,6 @@ describe("Refund swap", () => {
                             message: `Transaction ID not available for settled swap ${pendingSwap.id}.`,
                         });
                     }
-
                     return { txid };
                 }
                 case "invoice.expired":
@@ -373,11 +390,111 @@ describe("Refund swap", () => {
             }
         };
 
+        const monitorSwap = (
+            swapId: string,
+            update: (
+                type: BoltzSwapStatus,
+                data?: any
+            ) => Promise<{ txid?: string } | void>
+        ): Promise<void> => {
+            return new Promise((resolve, reject) => {
+                const webSocket = new globalThis.WebSocket(
+                    "ws://localhost:9004/v2/ws"
+                );
+
+                const connectionTimeout = setTimeout(() => {
+                    webSocket.close();
+                    reject(new NetworkError("WebSocket connection timeout"));
+                }, 30000); // 30 second timeout
+
+                webSocket.onerror = (error) => {
+                    clearTimeout(connectionTimeout);
+                    reject(
+                        new NetworkError(
+                            `WebSocket error: ${(error as any).message}`
+                        )
+                    );
+                };
+
+                webSocket.onopen = () => {
+                    clearTimeout(connectionTimeout);
+                    webSocket.send(
+                        JSON.stringify({
+                            op: "subscribe",
+                            channel: "swap.update",
+                            args: [swapId],
+                        })
+                    );
+                };
+
+                webSocket.onclose = () => {
+                    clearTimeout(connectionTimeout);
+                    resolve();
+                };
+
+                webSocket.onmessage = async (rawMsg) => {
+                    const msg = JSON.parse(rawMsg.data as string);
+
+                    // we are only interested in updates for the specific swap
+                    if (msg.event !== "update" || msg.args[0].id !== swapId)
+                        return;
+
+                    if (msg.args[0].error) {
+                        webSocket.close();
+                        reject(new SwapError({ message: msg.args[0].error }));
+                    }
+
+                    const status = msg.args[0].status as BoltzSwapStatus;
+
+                    // chain swaps lockupFailed can be negotiable
+                    const negotiable =
+                        status === "transaction.lockupFailed" &&
+                        msg.args[0].failureDetails?.actual !== undefined &&
+                        msg.args[0].failureDetails?.expected !== undefined;
+
+                    switch (status) {
+                        case "transaction.claimed":
+                        case "transaction.refunded":
+                        case "invoice.expired":
+                        case "invoice.failedToPay":
+                        case "transaction.failed":
+                        case "swap.expired":
+                            webSocket.close();
+                            update(status, msg.args[0]);
+                            break;
+                        case "transaction.lockupFailed":
+                            if (!negotiable) webSocket.close();
+                            update(status, msg.args[0]);
+                            break;
+                        case "invoice.paid":
+                        case "invoice.pending":
+                        case "invoice.set":
+                        case "swap.created":
+                        case "transaction.mempool":
+                        case "transaction.confirmed":
+                        case "transaction.claim.pending":
+                        case "transaction.server.mempool":
+                        case "transaction.server.confirmed":
+                            update(status, msg.args[0]);
+                            break;
+                        case "invoice.settled":
+                            sleep(10_000).then(() => webSocket.close());
+                            update(status, msg.args[0]);
+                    }
+                };
+            });
+        };
+
         await sleep(1000);
+
         payInvoice(pendingSwap.response.invoice);
-        await swapProvider.monitorSwap(pendingSwap.id, onStatusUpdate);
-        await sleep(2000);
+
+        await monitorSwap(pendingSwap.id, onStatusUpdate);
+
         const balanceAfter = await wallet.getBalance();
         expect(balanceAfter.available).toBeGreaterThan(balanceBefore.available);
+
+        const lndBalanceAfter = await getLNDBalance();
+        expect(lndBalanceBefore).toBeGreaterThan(lndBalanceAfter);
     });
 });
