@@ -74,9 +74,15 @@ const generateBlocks = async (numBlocks = 1) => {
     await execAsync(`nigiri rpc --generate ${numBlocks}`);
 };
 
-function scriptFromTapLeafScript(leaf: TapLeafScript): Uint8Array {
+const scriptFromTapLeafScript = (leaf: TapLeafScript): Uint8Array => {
     return leaf[1].subarray(0, leaf[1].length - 1); // remove the version byte
-}
+};
+
+const settleFulmineCoins = async () => {
+    await execAsync(
+        `for i in 7003 7011 ; do curl http://localhost:$i/api/v1/settle ; done`
+    );
+};
 
 describe("Sloppy Network", () => {
     let indexerProvider: RestIndexerProvider;
@@ -522,6 +528,8 @@ describe("Sloppy Network", () => {
 
             const lndBalanceAfter = await getLNDBalance();
             expect(lndBalanceBefore).toBeGreaterThan(lndBalanceAfter);
+
+            await settleFulmineCoins();
         }
     );
 });
