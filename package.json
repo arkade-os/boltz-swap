@@ -66,6 +66,7 @@
         "lint": "prettier --check src test",
         "prepack": "pnpm run build",
         "test": "vitest run",
+        "test:sloppy": "vitest run test/e2e/sloppy-network.test.ts",
         "test:unit": "vitest run --exclude test/e2e",
         "test:integration": "vitest run test/e2e/**",
         "test:setup-docker": "node test/e2e/setup.mjs",
