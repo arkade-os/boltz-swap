@@ -22,7 +22,7 @@ import {
     InMemoryContractRepository,
 } from "@arkade-os/sdk";
 import { hex } from "@scure/base";
-import { schnorr } from "@noble/curves/secp256k1.js";
+import { schnorr, secp256k1 } from "@noble/curves/secp256k1.js";
 import { decodeInvoice } from "../../src/utils/decoding";
 import { pubECDSA, sha256 } from "@scure/btc-signer/utils.js";
 import { exec } from "child_process";
@@ -32,6 +32,18 @@ const execAsync = promisify(exec);
 const lncli = "docker exec -i lnd lncli --network=regtest";
 const bccli = "docker exec -t bitcoin bitcoin-cli -regtest";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const offlineReceive = {
+    bancodUrl: "http://localhost:7091",
+    introspectorPubkey: hex.encode(
+        secp256k1.getPublicKey(
+            hex.decode(
+                "5646b2e23bbb82491fb4ef262079ff17594d5e873fc6bcea5f1453edbe1029b1"
+            ),
+            true
+        )
+    ),
+};
 
 const createWalletStorage = () => ({
     walletRepository: new InMemoryWalletRepository(),
@@ -522,6 +534,35 @@ describe("ArkadeSwaps", () => {
 
                     await swaps.waitAndClaim(pendingSwap);
                     await sleep(2000);
+                    const balanceAfter = await wallet.getBalance();
+                    expect(balanceAfter.available).toBeGreaterThan(
+                        balanceBefore.available
+                    );
+                }
+            );
+
+            it(
+                "should increase balance when invoice is paid (offlineReceive via bancod)",
+                { timeout: 30_000 },
+                async () => {
+                    const amount = 1000;
+                    const balanceBefore = await wallet.getBalance();
+                    const pendingSwap = await swaps.createReverseSwap({
+                        amount,
+                        offlineReceive,
+                    });
+
+                    sleep(1000).then(() =>
+                        payInvoice(pendingSwap.response.invoice).catch((err) =>
+                            console.error("Error paying invoice:", err)
+                        )
+                    );
+
+                    await waitForBalance(
+                        () => wallet.getBalance(),
+                        balanceBefore.available + 1,
+                        25_000
+                    );
                     const balanceAfter = await wallet.getBalance();
                     expect(balanceAfter.available).toBeGreaterThan(
                         balanceBefore.available
@@ -1208,6 +1249,27 @@ describe("ArkadeSwaps", () => {
                     await fundBtcAddress(btcAddress, amountToPay);
                     await swaps.waitAndClaimArk(pendingSwap);
 
+                    const balance = await wallet.getBalance();
+                    expect(balance.available).toEqual(amountSats);
+                }
+            );
+
+            it(
+                "should perform Btc to Ark chain swap successfully (offlineReceive via bancod)",
+                { timeout: 30_000 },
+                async () => {
+                    const amountSats = 21000;
+                    const { btcAddress, amountToPay } = await swaps.btcToArk({
+                        receiverLockAmount: amountSats,
+                        offlineReceive,
+                    });
+
+                    await fundBtcAddress(btcAddress, amountToPay);
+                    await waitForBalance(
+                        () => wallet.getBalance(),
+                        amountSats,
+                        25_000
+                    );
                     const balance = await wallet.getBalance();
                     expect(balance.available).toEqual(amountSats);
                 }

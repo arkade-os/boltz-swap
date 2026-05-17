@@ -1,0 +1,43 @@
+name: nigiri
+services:
+    introspector:
+        image: ghcr.io/arklabshq/introspector:v0.0.1
+        container_name: introspector
+        restart: unless-stopped
+        environment:
+            - INTROSPECTOR_SECRET_KEY=5646b2e23bbb82491fb4ef262079ff17594d5e873fc6bcea5f1453edbe1029b1
+            - INTROSPECTOR_NO_TLS=true
+            - INTROSPECTOR_LOG_LEVEL=5
+            - INTROSPECTOR_ARKD_URL=arkd:7070
+        ports:
+            - 7173:7073
+        volumes:
+            - type: tmpfs
+              target: /app/data
+
+    bancod:
+        image: ghcr.io/arkade-os/bancod:v0.0.1-rc.2
+        container_name: bancod
+        restart: unless-stopped
+        depends_on:
+            - introspector
+        environment:
+            - BANCOD_ARK_URL=arkd:7070
+            - BANCOD_INTROSPECTOR_URL=introspector:7073
+            - BANCOD_WALLET_SEED=4242424242424242424242424242424242424242424242424242424242424242
+            - BANCOD_WALLET_PASSWORD=password
+            - BANCOD_BANCO_ENABLED=false
+            - BANCOD_PREIMAGE_ENABLED=true
+            - BANCOD_DATADIR=/app/data
+            - BANCOD_LOG_LEVEL=5
+        ports:
+            - 7090:7070
+            - 7091:7071
+        volumes:
+            - type: tmpfs
+              target: /app/data
+
+networks:
+    default:
+        name: nigiri
+        external: true

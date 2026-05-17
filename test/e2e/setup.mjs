@@ -1,8 +1,11 @@
 import { promisify } from "util";
 import { setTimeout } from "timers";
 import { execSync } from "child_process";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
 
 const sleep = promisify(setTimeout);
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 async function waitForArkServer(maxRetries = 30, retryDelay = 2000) {
     console.log("Waiting for ark server to be ready...");
@@ -46,12 +49,33 @@ async function waitForBoltzPairs(maxRetries = 30, retryDelay = 2000) {
     throw new Error("Boltz ARK/BTC pairs not available after maximum retries");
 }
 
+async function startBancod() {
+    console.log("Starting bancod preimage solver...");
+    execSync(
+        `docker compose -f ${resolve(HERE, "docker-compose.bancod.yml")} up -d`,
+        { stdio: "inherit" }
+    );
+    for (let i = 0; i < 30; i++) {
+        try {
+            execSync("curl -sf http://localhost:7091/v1/preimage/claims", {
+                stdio: "pipe",
+            });
+            console.log("  ✔ bancod ready");
+            return;
+        } catch {
+            await sleep(2000);
+        }
+    }
+    throw new Error("bancod failed to be ready after maximum retries");
+}
+
 // Run setup — arkade-regtest handles all infrastructure.
 // This script just waits for services to be ready.
 async function setup() {
     try {
         await waitForArkServer();
         await waitForBoltzPairs();
+        await startBancod();
         console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         console.log("  ✓ regtest setup completed successfully");
         console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
